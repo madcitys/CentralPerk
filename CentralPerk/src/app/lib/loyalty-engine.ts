@@ -35,8 +35,8 @@ export function normalizeTierRules(rules: TierRule[] | null | undefined): TierRu
 }
 
 export function calculatePurchasePoints(amount: number): number {
-  // SQUAD3 logic: 1 point per $1, floored.
-  return Math.floor(Math.max(0, amount) * 1);
+  // Scrum 20: purchase_amount × 0.01, floored to whole points.
+  return Math.floor(Math.max(0, amount) * 0.01);
 }
 
 export function resolveTier(points: number, rules: TierRule[] | null | undefined): string {
@@ -51,4 +51,3 @@ export function monthKey(value: string | Date): string {
   const d = new Date(value);
   return `${d.getFullYear()}-${d.getMonth()}`;
 }
-
