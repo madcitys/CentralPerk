@@ -150,6 +150,19 @@ export async function fetchTierRules(): Promise<TierRule[]> {
   return normalizeTierRules(data as TierRule[]);
 }
 
+
+export async function saveTierRules(rules: TierRule[]) {
+  const normalized = normalizeTierRules(rules).map((rule) => ({
+    tier_label: toTitleCase(rule.tier_label),
+    min_points: Math.max(0, Math.floor(Number(rule.min_points) || 0)),
+    is_active: true,
+  }));
+
+  const { error } = await supabase.from("points_rules").upsert(normalized, { onConflict: "tier_label" });
+  if (error) throw error;
+  return normalized;
+}
+
 export async function loadRewardsCatalog(): Promise<Reward[]> {
   const { data, error } = await supabase
     .from("rewards_catalog")

@@ -26,16 +26,30 @@ export async function getSession() {
   return data.session ?? null;
 }
 
-async function getRoleFromDb(email?: string | null): Promise<Role | null> {
+async function getRoleFromDb(userId?: string, email?: string | null): Promise<Role | null> {
+  if (userId) {
+    const roleRes = await supabase
+      .from("app_user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!roleRes.error) {
+      const resolved = normalizeRole(roleRes.data?.role);
+      if (resolved) return resolved;
+    }
+  }
+
   if (!email) return null;
-  const { data, error } = await supabase
+  const memberRes = await supabase
     .from("loyalty_members")
     .select("id")
     .eq("email", email)
     .limit(1)
     .maybeSingle();
-  if (error) return null;
-  return data ? "customer" : null;
+  if (memberRes.error) return null;
+  return memberRes.data ? "customer" : null;
 }
 
 export async function getRoleFromSession(): Promise<Role | null> {
@@ -48,7 +62,7 @@ export async function getRoleFromSession(): Promise<Role | null> {
   const userMetadataRole = normalizeRole(session.user?.user_metadata?.role);
   if (userMetadataRole) return userMetadataRole;
 
-  const dbRole = await getRoleFromDb(session.user?.email);
+  const dbRole = await getRoleFromDb(session.user?.id, session.user?.email);
   if (dbRole) return dbRole;
 
   // Legacy fallback to keep existing admin accounts working.

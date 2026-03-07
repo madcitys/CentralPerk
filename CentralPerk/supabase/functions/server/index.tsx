@@ -49,7 +49,7 @@ app.post("/make-server-3424be34/register", async (c) => {
     const { data: existingMember } = await supabase
       .from('loyalty_members')
       .select('*')
-      .or(`email.eq.${email},phone_number.eq.${phone}`)
+      .or(`email.eq.${email},phone.eq.${phone}`)
       .single();
 
     if (existingMember) {
@@ -87,7 +87,7 @@ app.post("/make-server-3424be34/register", async (c) => {
           first_name: firstName,
           last_name: lastName,
           email: email,
-          phone_number: phone,
+          phone: phone,
         }
       ])
       .select()
@@ -130,8 +130,8 @@ app.post("/make-server-3424be34/register", async (c) => {
         firstName: memberData.first_name,
         lastName: memberData.last_name,
         email: memberData.email,
-        phone: memberData.phone_number,
-        currentPointsBalance: memberData.current_points_balance || 0,
+        phone: memberData.phone,
+        currentPointsBalance: memberData.points_balance || 0,
         createdAt: memberData.created_at,
       },
     });
@@ -166,7 +166,7 @@ app.post("/make-server-3424be34/register-member", async (c) => {
           first_name: firstName,
           last_name: lastName,
           email: email,
-          phone_number: phone,
+          phone: phone,
         }
       ])
       .select()
@@ -207,8 +207,8 @@ app.post("/make-server-3424be34/register-member", async (c) => {
         firstName: data.first_name,
         lastName: data.last_name,
         email: data.email,
-        phone: data.phone_number,
-        currentPointsBalance: data.current_points_balance || 0,
+        phone: data.phone,
+        currentPointsBalance: data.points_balance || 0,
         createdAt: data.created_at,
       },
     });
@@ -243,8 +243,8 @@ app.get("/make-server-3424be34/members", async (c) => {
       firstName: member.first_name,
       lastName: member.last_name,
       email: member.email,
-      phone: member.phone_number,
-      currentPointsBalance: member.current_points_balance || 0,
+      phone: member.phone,
+      currentPointsBalance: member.points_balance || 0,
       createdAt: member.created_at,
     }));
     
@@ -294,11 +294,11 @@ app.post("/make-server-3424be34/add-points", async (c) => {
     }
 
     // Update points balance
-    const newBalance = (member.current_points_balance || 0) + points;
+    const newBalance = (member.points_balance || 0) + points;
     
     const { data: updatedMember, error: updateError } = await supabase
       .from('loyalty_members')
-      .update({ current_points_balance: newBalance })
+      .update({ points_balance: newBalance })
       .eq('id', memberId)
       .select()
       .single();
@@ -321,8 +321,8 @@ app.post("/make-server-3424be34/add-points", async (c) => {
         firstName: updatedMember.first_name,
         lastName: updatedMember.last_name,
         email: updatedMember.email,
-        phone: updatedMember.phone_number,
-        currentPointsBalance: updatedMember.current_points_balance,
+        phone: updatedMember.phone,
+        currentPointsBalance: updatedMember.points_balance,
         createdAt: updatedMember.created_at,
       },
     });
@@ -358,8 +358,8 @@ app.get("/make-server-3424be34/member/:email", async (c) => {
         firstName: member.first_name,
         lastName: member.last_name,
         email: member.email,
-        phone: member.phone_number,
-        currentPointsBalance: member.current_points_balance || 0,
+        phone: member.phone,
+        currentPointsBalance: member.points_balance || 0,
         createdAt: member.created_at,
       },
     });

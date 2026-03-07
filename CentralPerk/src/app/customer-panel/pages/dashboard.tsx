@@ -35,6 +35,8 @@ export default function Dashboard() {
     () => tierLevels.find((tier) => tier.name === selectedTier) ?? tierLevels[0],
     [selectedTier]
   );
+  const hasWelcomePackage = user.transactions.some((tx) => tx.description.toLowerCase().includes("welcome package bonus"));
+
   const loyaltyCapabilities = [
     "Earn points automatically when I make a purchase",
     "See points earned displayed on receipt / POS",
@@ -211,6 +213,14 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {hasWelcomePackage && (
+        <Card className="p-4 border-[#9ed8ff] bg-[#eef8ff]">
+          <p className="text-sm text-[#1A2B47] font-medium">
+            Welcome to Central Perk Rewards! Your welcome package points were applied to your account.
+          </p>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link to="earn">
