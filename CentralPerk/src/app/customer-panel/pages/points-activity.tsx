@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight, ArrowDownRight, Clock, Gift, Filter, Calendar, XCircle, Download } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Clock, Gift, Filter, Calendar, XCircle, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -12,6 +12,8 @@ export default function PointsActivity() {
   const { user } = useOutletContext<AppOutletContext>();
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   const filteredTransactions = useMemo(
     () =>
@@ -26,6 +28,10 @@ export default function PointsActivity() {
         }),
     [user.transactions, filterType, sortBy]
   );
+
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedTransactions = filteredTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const totalEarned = user.transactions.filter((t) => t.type === "earned").reduce((sum, t) => sum + t.points, 0);
   const totalRedeemed = user.transactions.filter((t) => t.type === "redeemed").reduce((sum, t) => sum + t.points, 0);
@@ -225,7 +231,7 @@ export default function PointsActivity() {
               <Filter className="w-4 h-4" />
               Filter by Type
             </label>
-            <Select value={filterType} onValueChange={setFilterType}>
+            <Select value={filterType} onValueChange={(value) => { setFilterType(value); setPage(1); }}>
               <SelectTrigger className="w-full border-[#00A3AD]/60 focus-visible:border-[#00A3AD] focus-visible:ring-[#00A3AD]/25">
                 <SelectValue />
               </SelectTrigger>
@@ -244,7 +250,7 @@ export default function PointsActivity() {
               <Calendar className="w-4 h-4" />
               Sort by
             </label>
-            <Select value={sortBy} onValueChange={setSortBy}>
+            <Select value={sortBy} onValueChange={(value) => { setSortBy(value); setPage(1); }}>
               <SelectTrigger className="w-full border-[#00A3AD]/60 focus-visible:border-[#00A3AD] focus-visible:ring-[#00A3AD]/25">
                 <SelectValue />
               </SelectTrigger>
@@ -260,7 +266,7 @@ export default function PointsActivity() {
 
         {filterType !== "all" && (
           <div className="mt-4 pt-4 border-t border-gray-200">
-            <Button variant="ghost" size="sm" onClick={() => setFilterType("all")} className="text-[#1A2B47]">
+            <Button variant="ghost" size="sm" onClick={() => { setFilterType("all"); setPage(1); }} className="text-[#1A2B47]">
               Clear Filters
             </Button>
           </div>
@@ -273,7 +279,7 @@ export default function PointsActivity() {
           <Badge variant="secondary">{filteredTransactions.length} transactions</Badge>
         </h3>
         <div className="space-y-3">
-          {filteredTransactions.map((transaction) => (
+          {pagedTransactions.map((transaction) => (
             <div key={transaction.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
               <div className="flex items-center gap-4 flex-1">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconBgClass(transaction.type)}`}>
@@ -316,6 +322,35 @@ export default function PointsActivity() {
             </div>
           ))}
         </div>
+
+
+        {filteredTransactions.length > pageSize && (
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              Page {currentPage} of {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
 
         {filteredTransactions.length === 0 && (
           <div className="text-center py-12">
