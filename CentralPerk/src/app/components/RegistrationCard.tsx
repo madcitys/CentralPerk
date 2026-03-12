@@ -41,9 +41,28 @@ export function RegistrationCard() {
     setRegisteredMember(null);
 
     try {
-      // First, create the auth user with email confirmation disabled
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
+      const normalizedEmail = formData.email.trim().toLowerCase();
+      const normalizedPhone = formData.phone.trim();
+
+      // Pre-check phone number before auth signup to prevent duplicate registrations.
+      const { data: existingMemberByPhone, error: existingMemberByPhoneError } = await supabase
+        .from('loyalty_members')
+        .select('id')
+        .eq('phone', normalizedPhone)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingMemberByPhoneError) {
+        throw existingMemberByPhoneError;
+      }
+
+      if (existingMemberByPhone) {
+        throw new Error('This phone number is already registered');
+      }
+
+      // Create auth user after pre-check succeeds.
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password: formData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/home`,
@@ -55,12 +74,12 @@ export function RegistrationCard() {
         },
       });
 
-      if (authError) {
-        throw authError;
+      if (signUpError) {
+        throw signUpError;
       }
 
       // SCRUM-15 (Create member registration API): Using a serverless architecture. This Supabase client-side SDK handles the direct, secure database insertion, replacing the need for a traditional Express routing layer.
-      // Direct database insert to loyalty_members (SCRUM-47)
+      // Insert member profile after auth signup.
       const { data: newMember, error: insertError } = await supabase
         .from('loyalty_members')
         .insert([
@@ -128,7 +147,7 @@ export function RegistrationCard() {
           errorMessage = 'An account with this email or phone number already exists. Please use the Login page.';
         } else if (errMsg.includes('Email already registered')) {
           errorMessage = 'This email address is already registered. Please use the Login page.';
-        } else if (errMsg.includes('Phone number already registered')) {
+        } else if (errMsg.includes('Phone number already registered') || errMsg.includes('This phone number is already registered')) {
           errorMessage = 'This phone number is already registered. Please use a different phone number.';
         } else if (errMsg.includes('duplicate key')) {
           errorMessage = 'An account with this email or phone number already exists. Please use the Login page.';
