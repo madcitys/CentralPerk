@@ -9,6 +9,7 @@ interface Member {
   lastName: string;
   email: string;
   phone: string;
+  birthdate: string;
   currentPointsBalance: number;
   createdAt: string;
 }
@@ -19,6 +20,7 @@ export function RegistrationCard() {
     lastName: '',
     email: '',
     phone: '',
+    birthdate: '',
     password: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,6 +50,7 @@ export function RegistrationCard() {
           data: {
             first_name: formData.firstName,
             last_name: formData.lastName,
+            birthdate: formData.birthdate,
           },
         },
       });
@@ -66,6 +69,7 @@ export function RegistrationCard() {
             last_name: formData.lastName,
             email: formData.email,
             phone: formData.phone,
+            birthdate: formData.birthdate,
             points_balance: 0,
             tier: 'Bronze',
           },
@@ -95,6 +99,7 @@ export function RegistrationCard() {
         lastName: newMember.last_name,
         email: newMember.email,
         phone: newMember.phone,
+        birthdate: formData.birthdate,
         currentPointsBalance: memberPointsBalance,
         createdAt: newMember.enrollment_date,
       });
@@ -105,6 +110,7 @@ export function RegistrationCard() {
         lastName: '',
         email: '',
         phone: '',
+        birthdate: '',
         password: '',
       });
 
@@ -272,6 +278,22 @@ export function RegistrationCard() {
               </div>
             </div>
 
+            {/* Birthdate field - full width */}
+            <div>
+              <label htmlFor="birthdate" className="block mb-2 text-gray-700 font-medium">
+                Birthdate
+              </label>
+              <input
+                type="date"
+                id="birthdate"
+                name="birthdate"
+                value={formData.birthdate}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
+                required
+              />
+            </div>
+
             {/* Password field - full width */}
             <div>
               <label htmlFor="password" className="block mb-2 text-gray-700 font-medium">
@@ -303,4 +325,3 @@ export function RegistrationCard() {
     </div>
   );
 }
-
