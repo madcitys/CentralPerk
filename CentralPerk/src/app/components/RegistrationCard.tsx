@@ -69,6 +69,7 @@ export function RegistrationCard() {
             last_name: formData.lastName,
             email: formData.email,
             phone: formData.phone,
+            birthdate: formData.birthdate,
             points_balance: 0,
             tier: 'Bronze',
           },
