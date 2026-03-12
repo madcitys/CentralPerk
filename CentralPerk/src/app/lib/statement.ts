@@ -76,11 +76,14 @@ export async function emailStatement(memberId: string, pdfBlob: Blob) {
     .maybeSingle();
   if (memberLookup.error) throw memberLookup.error;
 
+  const authRes = await supabase.auth.getUser();
+  const authenticatedUserId = authRes.data.user?.id ?? null;
+
   const { error } = await supabase.from("notification_outbox").insert({
     channel: "email",
     subject: "Your Loyalty Statement",
     message: `Your statement is ready. Download it here: ${statementUrl}`,
-    user_id: null,
+    user_id: authenticatedUserId,
   });
   if (error) throw error;
 
