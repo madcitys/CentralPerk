@@ -9,13 +9,25 @@ import type { AppOutletContext } from "../../types/app-context";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
 
+
+function toLocalInputDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function PointsActivity() {
   const { user } = useOutletContext<AppOutletContext>();
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
   const [page, setPage] = useState(1);
-  const [startDate, setStartDate] = useState<string>(() => new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState<string>(() => {
+    const start = new Date();
+    start.setMonth(start.getMonth() - 1);
+    return toLocalInputDate(start);
+  });
+  const [endDate, setEndDate] = useState<string>(() => toLocalInputDate(new Date()));
   const pageSize = 10;
 
   const filteredTransactions = useMemo(

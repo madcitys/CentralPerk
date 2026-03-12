@@ -9,14 +9,25 @@ export type StatementRow = {
   reason: string;
 };
 
+function parseLocalDateBoundary(dateStr: string, boundary: "start" | "end") {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  if (!year || !month || !day) return new Date(NaN);
+
+  if (boundary === "start") {
+    return new Date(year, month - 1, day, 0, 0, 0, 0);
+  }
+
+  return new Date(year, month - 1, day, 23, 59, 59, 999);
+}
+
 export async function generateStatementData(input: {
   memberId: string;
   memberEmail?: string;
   startDate: string;
   endDate: string;
 }) {
-  const start = new Date(input.startDate);
-  const end = new Date(input.endDate);
+  const start = parseLocalDateBoundary(input.startDate, "start");
+  const end = parseLocalDateBoundary(input.endDate, "end");
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new Error("Invalid statement date range.");
   }
