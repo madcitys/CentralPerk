@@ -37,8 +37,8 @@ function getTxDateValue(tx: AnyRecord): string {
   return String(tx.transaction_date ?? tx.created_at ?? new Date().toISOString());
 }
 
-function getTierCap(rules: TierRule[]): number {
-  return Math.max(0, ...rules.map((r) => Number(r.min_points) || 0));
+function sanitizePointsBalance(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
 }
 
 const WELCOME_PACKAGE_REASON = "Welcome Package Bonus";
@@ -63,9 +63,8 @@ async function grantWelcomePackageForMember(member: AnyRecord, memberPk: { key: 
   if (existingWelcomeRes.data) return { granted: false, pointsAdded: 0 };
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(member.points_balance ?? 0));
-  const newBalance = Math.min(tierCap, currentBalance + WELCOME_PACKAGE_POINTS);
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
+  const newBalance = currentBalance + WELCOME_PACKAGE_POINTS;
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
@@ -115,9 +114,8 @@ async function processMemberExpiredPoints(memberPk: { key: string; value: any })
   if (memberErr) throw memberErr;
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(memberNow?.points_balance ?? 0));
-  const newBalance = Math.min(tierCap, Math.max(0, currentBalance - totalExpired));
+  const currentBalance = sanitizePointsBalance(memberNow?.points_balance ?? 0);
+  const newBalance = Math.max(0, currentBalance - totalExpired);
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
@@ -308,8 +306,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     .limit(1)
     .maybeSingle();
   const refreshedMember = (refreshedMemberRes.data as AnyRecord | null) ?? member;
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(refreshedMember.points_balance ?? currentUser.points ?? 0));
+  const currentBalance = sanitizePointsBalance(refreshedMember.points_balance ?? currentUser.points ?? 0);
 
   const txRes = await supabase
     .from("loyalty_transactions")
@@ -369,7 +366,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
       (tx) => mapTxType(String(tx.transaction_type ?? "")) === "earned" && Number(tx.points || 0) > 0
     )
     .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
-  const lifetimePoints = Math.min(rawLifetimePoints, tierCap);
+  const lifetimePoints = rawLifetimePoints;
 
   const upcomingExpiring = rawTx.filter((tx) => {
     if (!tx.expiry_date) return false;
@@ -472,15 +469,14 @@ export async function awardMemberPoints(input: {
   if (!pk) throw new Error("Member primary key is missing.");
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(member.points_balance ?? 0));
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
   let pointsToAdd = Math.max(0, Math.floor(input.points));
   const memberTier = normalizeTierLabel(String(member.tier || "Bronze")) as SupportedTier;
   if (input.transactionType === "PURCHASE") {
     const purchaseAmount = Number(input.amountSpent || 0);
     pointsToAdd = await calculateDynamicPurchasePoints({ amountSpent: purchaseAmount, tier: memberTier });
   }
-  const newBalance = Math.min(tierCap, currentBalance + pointsToAdd);
+  const newBalance = currentBalance + pointsToAdd;
   const newTier = resolveTier(newBalance, rules);
 
   const txPayload: AnyRecord = {
@@ -519,13 +515,11 @@ export async function redeemMemberPoints(input: {
   if (!pk) throw new Error("Member primary key is missing.");
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Number(member.points_balance ?? 0);
-  const boundedCurrentBalance = Math.min(tierCap, currentBalance);
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
   const pointsToDeduct = Math.max(0, Math.floor(input.points));
-  if (pointsToDeduct > boundedCurrentBalance) throw new Error("Not enough points.");
+  if (pointsToDeduct > currentBalance) throw new Error("Not enough points.");
 
-  const newBalance = Math.min(tierCap, Math.max(0, boundedCurrentBalance - pointsToDeduct));
+  const newBalance = Math.max(0, currentBalance - pointsToDeduct);
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
