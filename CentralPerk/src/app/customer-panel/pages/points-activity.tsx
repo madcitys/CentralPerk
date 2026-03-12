@@ -6,7 +6,6 @@ import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Badge } from "../../components/ui/badge";
 import type { AppOutletContext } from "../../types/app-context";
-import { loadMemberActivity } from "../../lib/loyalty-supabase";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
 
@@ -109,25 +108,35 @@ export default function PointsActivity() {
   };
 
   const downloadCsv = async () => {
-    const activity = await loadMemberActivity(user.memberId, user.email);
-    const rows = [
-      "Date,Type,Points,Reason,Expiry Date",
-      ...activity.history.map((item) => {
-        const date = new Date(item.date).toLocaleDateString();
-        const reason = `"${String(item.reason || "").replaceAll('"', '""')}"`;
-        const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "";
-        return `${date},${item.type},${item.points},${reason},${expiry}`;
-      }),
-    ];
-    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `points-statement-${user.memberId}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    try {
+      const statement = await generateStatementData({
+        memberId: user.memberId,
+        memberEmail: user.email,
+        startDate,
+        endDate,
+      });
+      const rows = [
+        "Date,Type,Points,Reason,Expiry Date",
+        ...statement.rows.map((item) => {
+          const date = new Date(item.date).toLocaleDateString();
+          const reason = `"${String(item.reason || "").replaceAll('"', '""')}"`;
+          const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "";
+          return `${date},${item.type},${item.points},${reason},${expiry}`;
+        }),
+      ];
+      const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `points-statement-${user.memberId}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("CSV downloaded successfully.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to download CSV.");
+    }
   };
 
   const buildStatementHtml = async () => {
@@ -179,14 +188,19 @@ export default function PointsActivity() {
   };
 
   const downloadPdf = async () => {
-    const { html } = await buildStatementHtml();
+    try {
+      const { html } = await buildStatementHtml();
 
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
+      const win = window.open("", "_blank", "width=900,height=700");
+      if (!win) throw new Error("Popup blocked. Allow popups to print your PDF.");
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      win.print();
+      toast.success("PDF ready. Print dialog opened.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate PDF.");
+    }
   };
 
   const handleEmailStatement = async () => {
