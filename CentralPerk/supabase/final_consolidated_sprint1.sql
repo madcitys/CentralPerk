@@ -385,21 +385,48 @@ create table if not exists public.points_lots (
   id bigserial primary key,
   member_id bigint not null references public.loyalty_members(id) on delete cascade,
   source_transaction_id bigint references public.loyalty_transactions(id) on delete set null,
-  points_earned int not null check (points_earned > 0),
-  points_remaining int not null check (points_remaining >= 0),
+  original_points int not null check (original_points > 0),
+  remaining_points int not null check (remaining_points >= 0),
   earned_at timestamptz not null default now(),
   expiry_date timestamptz not null,
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_points_lots_member_fifo on public.points_lots (member_id, expiry_date asc, earned_at asc, id asc) where points_remaining > 0;
+alter table public.points_lots
+  add column if not exists original_points int,
+  add column if not exists remaining_points int,
+  add column if not exists earned_at timestamptz default now(),
+  add column if not exists expiry_date timestamptz,
+  add column if not exists created_at timestamptz default now();
+
+do $$
+begin
+  -- Backfill from legacy column names used by earlier draft scripts.
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'points_lots' and column_name = 'points_earned'
+  ) then
+    execute 'update public.points_lots set original_points = coalesce(original_points, points_earned)';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'points_lots' and column_name = 'points_remaining'
+  ) then
+    execute 'update public.points_lots set remaining_points = coalesce(remaining_points, points_remaining)';
+  end if;
+end $$;
+
+create index if not exists idx_points_lots_member_fifo on public.points_lots (member_id, expiry_date asc, earned_at asc, id asc) where remaining_points > 0;
 
 -- Trigger to create a lot when points are earned (> 0)
 create or replace function public.loyalty_build_lot_on_earn()
 returns trigger language plpgsql as $$
 begin
   if new.points > 0 and upper(coalesce(new.transaction_type, '')) in ('PURCHASE', 'EARN', 'MANUAL_AWARD') then
-    insert into public.points_lots(member_id, source_transaction_id, points_earned, points_remaining, earned_at, expiry_date)
+    insert into public.points_lots(member_id, source_transaction_id, original_points, remaining_points, earned_at, expiry_date)
     values (new.member_id, new.id, new.points, new.points, coalesce(new.transaction_date, now()), coalesce(new.expiry_date, coalesce(new.transaction_date, now()) + interval '12 months'));
   end if;
   return new;
@@ -423,16 +450,16 @@ begin
   end if;
 
   for lot in
-    select id, points_remaining
+    select id, remaining_points
     from public.points_lots
-    where member_id = new.member_id and points_remaining > 0
+    where member_id = new.member_id and remaining_points > 0
     order by expiry_date asc, earned_at asc, id asc
   loop
     exit when remaining <= 0;
-    consume_now := least(lot.points_remaining, remaining);
+    consume_now := least(lot.remaining_points, remaining);
 
     update public.points_lots
-    set points_remaining = points_remaining - consume_now
+    set remaining_points = remaining_points - consume_now
     where id = lot.id;
 
     remaining := remaining - consume_now;
@@ -450,16 +477,16 @@ $$;
 drop trigger if exists trg_points_lot_on_spend on public.loyalty_transactions;
 create trigger trg_points_lot_on_spend before insert on public.loyalty_transactions for each row execute function public.loyalty_consume_lot_on_spend();
 
--- Frontend RPC Wrapper (modified to just insert the transaction, letting the triggers do the math)
+-- Frontend RPC Wrapper
+-- Compatibility behavior for this branch:
+-- - Frontend already inserts a redemption transaction before calling this RPC.
+-- - FIFO lot consumption is handled by the transaction trigger.
+-- So this RPC is a no-op and remains only to keep frontend calls successful.
 create or replace function public.loyalty_consume_points_fifo(p_member_id bigint, p_points_to_consume int, p_reason text default 'Reward Redemption')
 returns int
 language plpgsql
 as $$
 begin
-  if p_points_to_consume > 0 then
-    insert into public.loyalty_transactions (member_id, transaction_type, points, reason)
-    values (p_member_id, 'REDEMPTION', -abs(p_points_to_consume), p_reason);
-  end if;
   return 0;
 end;
 $$;
@@ -469,9 +496,9 @@ returns int language plpgsql security definer set search_path = public as $$
 declare queued int := 0;
 begin
   with expiring as (
-    select l.member_id, m.email, sum(l.points_remaining)::int as expiring_points, min(l.expiry_date)::date as nearest_expiry
+    select l.member_id, m.email, sum(l.remaining_points)::int as expiring_points, min(l.expiry_date)::date as nearest_expiry
     from public.points_lots l join public.loyalty_members m on m.id = l.member_id
-    where l.points_remaining > 0 and l.expiry_date::date = (current_date + interval '30 days')::date
+    where l.remaining_points > 0 and l.expiry_date::date = (current_date + interval '30 days')::date
     group by l.member_id, m.email
   ), inserted as (
     insert into public.notification_outbox(user_id, channel, subject, message)
