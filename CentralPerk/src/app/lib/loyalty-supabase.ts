@@ -614,6 +614,11 @@ export async function updateMemberProfile(input: {
   address?: string;
   profilePhotoUrl?: string;
 }) {
+  const member = await findMember(input.memberIdentifier, input.fallbackEmail);
+  if (!member) {
+    throw new Error("Member not found in loyalty_members.");
+  }
+
   const authRes = await supabase.auth.getUser();
   if (authRes.error) throw authRes.error;
 
@@ -651,7 +656,7 @@ export async function updateMemberProfile(input: {
       address: input.address ?? null,
       profile_photo_url: input.profilePhotoUrl ?? null,
     })
-    .eq("email", authEmail)
+    .eq("id", Number(member.id))
     .select("id,email");
   if (updateRes.error) throw updateRes.error;
   if (!updateRes.data?.length) throw new Error("Member not found in loyalty_members.");
