@@ -1,6 +1,6 @@
 # CentralPerk
 
-CentralPerk is a loyalty rewards web app built with Vite, React, and Supabase.
+CentralPerk is a loyalty rewards web app built with Next.js, React, and Supabase.
 
 ## Run locally
 
