@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+.vite/
+*.log
+.env
+.env.*
+!.env.example
+*.md
+!README.md
+!AGENTS.md
