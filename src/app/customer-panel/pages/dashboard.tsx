@@ -4,10 +4,29 @@ import { Link, useOutletContext } from "react-router-dom";
 import { Card } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Progress } from "../../../components/ui/progress";
+import { cn } from "../../../components/ui/utils";
 import type { AppOutletContext } from "../../types/app-context";
 import { supabase } from "../../../utils/supabase/client";
 import { getChallengeProgress, loadEngagementState } from "../../lib/member-engagement";
 import { loadActivePromotionCampaigns, type PromotionCampaign } from "../../lib/promotions";
+import {
+  brandNavyBadgeClass,
+  brandTealBadgeClass,
+  brandTealSolidClass,
+  infoPillClass,
+  infoSurfaceClass,
+  infoTextStrongClass,
+  purplePillClass,
+} from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPanelSoftClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
 
 const tierLevels = [
   { name: "Bronze", min: 0, icon: Shield },
@@ -141,10 +160,13 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Welcome back, {user.fullName.split(" ")[0]}!</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Member Overview</div>
+          <h1 className={customerPageTitleClass}>Dashboard</h1>
+          <p className={customerPageDescriptionClass}>Welcome back, {user.fullName.split(" ")[0]}. Track your points, tiers, campaigns, and member benefits in one calmer workspace.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -165,21 +187,21 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        <Card className="p-6 border-[#7dcfff]/50 bg-[#f0f7ff]">
+        <Card className={cn(customerPanelSoftClass, infoSurfaceClass)}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <p className="text-gray-600 text-sm font-medium">Pending Points</p>
               <h2 className="text-3xl font-bold text-gray-900 mt-2">{user.pendingPoints}</h2>
               <p className="text-gray-500 text-sm mt-1">processing</p>
             </div>
-            <div className="w-10 h-10 bg-[#dbeafe] rounded-lg flex items-center justify-center">
+            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", infoPillClass)}>
               <Clock className="w-5 h-5 text-[#2563eb]" />
             </div>
           </div>
-          <p className="text-[#0b6cb8] text-sm">Projected: {projectedBalance.toLocaleString()} pts</p>
+          <p className={cn("text-sm font-medium", infoTextStrongClass)}>Projected: {projectedBalance.toLocaleString()} pts</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <p className="text-gray-600 text-sm font-medium">Earned This Month</p>
@@ -202,7 +224,7 @@ export default function Dashboard() {
           </p>
         </Card>
 
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-start justify-between mb-4">
             <div>
               <p className="text-gray-600 text-sm font-medium">Redeemed This Month</p>
@@ -227,14 +249,14 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold text-gray-900">Lifetime Points</h3>
               <p className="text-gray-500 text-sm mt-1">Total points earned since joining</p>
             </div>
-            <div className="w-12 h-12 bg-[#f3e8ff] rounded-xl flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-[#9333ea]" />
+            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", purplePillClass)}>
+              <TrendingUp className="w-6 h-6 text-[#6d28d9]" />
             </div>
           </div>
           <div className="flex items-baseline gap-2">
@@ -244,7 +266,7 @@ export default function Dashboard() {
           <p className="text-sm text-gray-600 mt-3">Member since {user.memberSince}</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold text-gray-900">Lifetime Redeemed</h3>
@@ -261,7 +283,7 @@ export default function Dashboard() {
           <p className="text-sm text-gray-600 mt-3">Redeemed across all transactions</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold text-gray-900">Recent Transactions (Last 5)</h3>
@@ -286,13 +308,13 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Tier Progress</h3>
               <p className="text-gray-500 text-sm mt-1">{nextTierData ? `Progress to ${nextTierData.name}` : "Maximum tier achieved!"}</p>
             </div>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#1A2B47] text-white">
+            <div className={cn("inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold", brandNavyBadgeClass)}>
               <currentTierData.icon className="w-4 h-4" />
               {derivedTierName}
             </div>
@@ -311,7 +333,7 @@ export default function Dashboard() {
                   onClick={() => setSelectedTier(tier.name)}
                   className={`rounded-lg border px-3 py-2 text-sm flex items-center gap-2 text-left ${
                     isSelected
-                      ? "border-[#00A3AD] bg-[#e6f8fa] text-[#1A2B47] font-semibold"
+                      ? `${brandTealBadgeClass} font-semibold`
                       : isCurrent
                       ? "border-[#1A2B47]/40 bg-[#f5f7fb] text-[#1A2B47]"
                       : isReached
@@ -347,7 +369,7 @@ export default function Dashboard() {
       </div>
 
       {showWelcomeNotice && (
-        <Card className="p-4 border-[#9ed8ff] bg-[#eef8ff]">
+        <Card className={cn(customerPanelSoftClass, "p-4 border-[#9ed8ff] bg-[#eef8ff]")}>
           <p className="text-sm text-[#1A2B47] font-medium">
             Welcome to Central Perk Rewards! Your welcome package points were applied to your account.
           </p>
@@ -364,14 +386,14 @@ export default function Dashboard() {
               <h2 className="mt-3 text-2xl font-bold text-[#10213d]">Active campaign banners in your portal</h2>
               <p className="mt-1 text-sm text-[#56708f]">Current multiplier events, bonus point offers, and limited-time drops.</p>
             </div>
-            <Badge className="bg-[#00A3AD] text-white">{activeCampaigns.length} active</Badge>
+            <Badge className={brandTealSolidClass}>{activeCampaigns.length} active</Badge>
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {activeCampaigns.slice(0, 4).map((campaign) => (
               <div key={campaign.id} className="rounded-2xl border border-[#d6e4f5] bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="bg-[#10213a] text-white">
+                  <Badge className={brandNavyBadgeClass}>
                     {campaign.campaignType === "flash_sale" ? "Flash Sale" : campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}
                   </Badge>
                   {campaign.eligibleTiers.length > 0 ? <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge> : null}
@@ -390,9 +412,9 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link to="engagement">
-          <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer border-[#7fd7de] bg-gradient-to-br from-[#e6f8fa] to-white">
+          <Card className="cursor-pointer border-[#7fd7de] bg-gradient-to-br from-[#eefafb] to-white p-6 transition-shadow hover:shadow-lg">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-[#d6f7f9] rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-[#dff5f6]">
                 <Sparkles className="w-6 h-6 text-[#0f5f65]" />
               </div>
               <div>
@@ -406,7 +428,7 @@ export default function Dashboard() {
         </Link>
 
         <Link to="earn">
-          <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer border-[#9ed8ff] bg-gradient-to-br from-[#f0f7ff] to-white">
+          <Card className="cursor-pointer border-[#9ed8ff] bg-gradient-to-br from-[#f0f7ff] to-white p-6 transition-shadow hover:shadow-lg">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[#dbeafe] rounded-xl flex items-center justify-center">
                 <Gift className="w-6 h-6 text-[#1A2B47]" />
@@ -448,13 +470,13 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <Card className="p-6">
+      <Card className={customerPanelClass}>
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="font-semibold text-gray-900 text-lg">Loyalty Program Capabilities</h3>
             <p className="text-sm text-gray-600 mt-1">End-to-end earning and redemption experience aligned to your requested flow</p>
           </div>
-          <Badge variant="outline" className="text-[#23385a] border-[#1A2B47]/30">
+          <Badge variant="outline" className="border-[#1A2B47]/30 text-[#23385a]">
             {loyaltyCapabilities.length} features
           </Badge>
         </div>

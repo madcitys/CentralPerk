@@ -12,6 +12,21 @@ import type { AppOutletContext } from "../../types/app-context";
 import { normalizeTierLabel } from "../../lib/loyalty-engine";
 import { awardMemberPoints, calculateDynamicPurchasePoints, loadEarnTasks } from "../../lib/loyalty-supabase";
 import type { EarnOpportunity } from "../../types/loyalty";
+import {
+  brandNavySolidClass,
+  brandNavySolidHoverClass,
+  infoPillClass,
+  infoTextStrongClass,
+} from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPanelSoftClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
 
 export default function EarnPoints() {
   const { user, refreshUser, completedTaskIds, setCompletedTaskIds } = useOutletContext<AppOutletContext>();
@@ -135,28 +150,31 @@ export default function EarnPoints() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Earn Points</h1>
-        <p className="text-gray-500 mt-1">Complete tasks and make purchases to earn more rewards</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Points Builder</div>
+          <h1 className={customerPageTitleClass}>Earn Points</h1>
+          <p className={customerPageDescriptionClass}>Complete tasks, log purchases, and pick up bonus opportunities with the same polished design language used across the portal.</p>
+        </div>
       </div>
 
       <Card className="p-6 bg-gradient-to-br from-[#1A2B47] to-[#1A2B47] text-white border-0">
         <h2 className="text-xl font-bold mb-4">How to Earn Points</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><ShoppingCart className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Make Purchases</h3><p className="text-[#b9f6ff] text-sm">Earn 1 point for every $1 spent automatically</p></div></div>
-          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Clipboard className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Complete Tasks</h3><p className="text-[#b9f6ff] text-sm">Surveys, reviews, and more</p></div></div>
-          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Users className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Refer Friends</h3><p className="text-[#b9f6ff] text-sm">Both get 250 points</p></div></div>
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><ShoppingCart className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Make Purchases</h3><p className="text-[#d8fbff] text-sm">Earn 1 point for every $1 spent automatically</p></div></div>
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Clipboard className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Complete Tasks</h3><p className="text-[#d8fbff] text-sm">Surveys, reviews, and more</p></div></div>
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Users className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Refer Friends</h3><p className="text-[#d8fbff] text-sm">Both get 250 points</p></div></div>
         </div>
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-[#9ed8ff]/60 bg-[#f7fbff]" onClick={() => setReceiptOpen(true)}>
+        <Card className={`${customerPanelSoftClass} cursor-pointer border-[#9ed8ff]/60 bg-[#f7fbff] transition-shadow hover:shadow-lg`} onClick={() => setReceiptOpen(true)}>
           <div className="flex items-center gap-4 mb-4"><div className="w-12 h-12 bg-[#dbeafe] rounded-xl flex items-center justify-center"><Receipt className="w-6 h-6 text-[#2563eb]" /></div><div><h3 className="font-semibold text-gray-900">Record Purchase</h3><p className="text-sm text-gray-500">Earn points instantly</p></div></div>
           <p className="text-sm text-gray-600">Record your purchase and points are saved to database + reflected in all pages.</p>
         </Card>
 
-        <Card className="p-6 cursor-pointer hover:shadow-lg transition-shadow border-[#9ed8ff]/60 bg-[#f7fbff]" onClick={() => setSurveyOpen(true)}>
+        <Card className={`${customerPanelSoftClass} cursor-pointer border-[#9ed8ff]/60 bg-[#f7fbff] transition-shadow hover:shadow-lg`} onClick={() => setSurveyOpen(true)}>
           <div className="flex items-center gap-4 mb-4"><div className="w-12 h-12 bg-[#dbeafe] rounded-xl flex items-center justify-center"><FileText className="w-6 h-6 text-[#2563eb]" /></div><div><h3 className="font-semibold text-gray-900">Complete Survey</h3><p className="text-sm text-gray-500">Quick feedback form</p></div></div>
           <p className="text-sm text-gray-600">Share your experience and earn 50 points.</p>
         </Card>
@@ -178,11 +196,11 @@ export default function EarnPoints() {
                       </div>
                       <div className="flex-1"><h3 className="font-semibold text-gray-900 mb-1">{opportunity.title}</h3><p className="text-sm text-gray-600">{opportunity.description}</p></div>
                     </div>
-                    <div className="text-right ml-4"><div className={`inline-flex items-center px-3 py-1 rounded-lg text-sm font-semibold ${completed ? "bg-gray-100 text-gray-600" : "bg-[#dbeafe] text-[#0b6cb8]"}`}>+{opportunity.points}</div></div>
+                    <div className="text-right ml-4"><div className={`inline-flex items-center px-3 py-1 rounded-lg text-sm font-semibold ${completed ? "bg-gray-100 text-gray-600" : infoPillClass}`}>+{opportunity.points}</div></div>
                   </div>
                   {!completed && (
                     <Button
-                      className="w-full bg-[#1A2B47] hover:bg-[#23385a] text-white"
+                      className={`w-full ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
                       disabled={saving}
                       onClick={() => completeTask(opportunity.id, opportunity.title, opportunity.points)}
                     >
@@ -196,7 +214,7 @@ export default function EarnPoints() {
           })}
         </div>
         {tasks.length === 0 && (
-          <Card className="p-6 border-dashed border-gray-300">
+          <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
             <p className="text-sm text-gray-600">
               No earn tasks found in database. Add rows to <code>earn_tasks</code> to show task-based earning.
             </p>
@@ -204,7 +222,7 @@ export default function EarnPoints() {
         )}
       </div>
 
-      <Card className="p-6">
+      <Card className={customerPanelClass}>
         <h3 className="font-semibold text-gray-900 mb-4">Recent Purchases</h3>
         <div className="space-y-3">
           {user.transactions
@@ -231,7 +249,7 @@ export default function EarnPoints() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSurveyOpen(false)}>Cancel</Button>
-            <Button className="bg-[#1A2B47] hover:bg-[#23385a] text-white" onClick={handleSurveyComplete} disabled={saving}>Submit & Earn 50 Points</Button>
+            <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handleSurveyComplete} disabled={saving}>Submit & Earn 50 Points</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -262,14 +280,14 @@ export default function EarnPoints() {
             {projectedPointsEarned > 0 && (
               <div className="p-4 rounded-lg bg-[#f5f7fb] border border-[#1A2B47]/30">
                 <div className="flex items-center justify-between mb-2"><span className="text-sm text-gray-600">Purchase Amount</span><span className="font-semibold text-gray-900">${purchaseValue.toFixed(2)}</span></div>
-                <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Points to Earn</span><span className="font-bold text-[#1A2B47] text-lg">+{projectedPointsEarned}</span></div>
+                <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Points to Earn</span><span className={`text-lg font-bold ${infoTextStrongClass}`}>+{projectedPointsEarned}</span></div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#1A2B47]/30"><span className="text-sm text-gray-600">Projected Point Balance</span><span className="font-semibold text-gray-900">{projectedPostPurchaseBalance.toLocaleString()}</span></div>
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReceiptOpen(false)}>Cancel</Button>
-            <Button className="bg-[#1A2B47] hover:bg-[#23385a] text-white" onClick={handlePurchase} disabled={saving || !purchaseAmount || parseFloat(purchaseAmount) <= 0}>Record Purchase</Button>
+            <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handlePurchase} disabled={saving || !purchaseAmount || parseFloat(purchaseAmount) <= 0}>Record Purchase</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

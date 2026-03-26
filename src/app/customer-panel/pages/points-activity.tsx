@@ -9,6 +9,15 @@ import { PointsExpiry } from "../../../components/points-expiry";
 import type { AppOutletContext } from "../../types/app-context";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
+import { brandNavySolidClass, brandNavySolidHoverClass } from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
 
 
 function toLocalInputDate(value: Date): string {
@@ -234,10 +243,12 @@ export default function PointsActivity() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Points Activity</h1>
-        <p className="text-gray-500 mt-1">View and track all your points transactions</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Points Timeline</div>
+          <h1 className={customerPageTitleClass}>Points Activity</h1>
+          <p className={customerPageDescriptionClass}>View and track all your points transactions with the same softer, more cohesive layout used across the member portal.</p>
         <div className="mt-4 flex gap-2">
           <div className="flex items-center gap-2">
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
@@ -247,19 +258,20 @@ export default function PointsActivity() {
             <Download className="w-4 h-4 mr-2" />
             Download CSV
           </Button>
-          <Button className="bg-[#1A2B47] hover:bg-[#23385a] text-white" onClick={downloadPdf}>
+          <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={downloadPdf}>
             <Download className="w-4 h-4 mr-2" />
             Download PDF
           </Button>
           <Button variant="outline" onClick={handleEmailStatement}>Email Statement</Button>
         </div>
       </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-3">
           <PointsExpiry expiringPoints={user.expiringPoints} daysUntilExpiry={user.daysUntilExpiry} />
         </div>
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total Earned</p>
@@ -270,7 +282,7 @@ export default function PointsActivity() {
             </div>
           </div>
         </Card>
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total Redeemed</p>
@@ -281,7 +293,7 @@ export default function PointsActivity() {
             </div>
           </div>
         </Card>
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Pending Points</p>
@@ -294,7 +306,7 @@ export default function PointsActivity() {
         </Card>
       </div>
 
-      <Card className="p-6">
+      <Card className={customerPanelClass}>
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <label className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
@@ -343,7 +355,7 @@ export default function PointsActivity() {
         )}
       </Card>
 
-      <Card className="p-6">
+      <Card className={customerPanelClass}>
         <h3 className="font-semibold text-gray-900 mb-4 flex items-center justify-between">
           <span>Transaction History</span>
           <Badge variant="secondary">{filteredTransactions.length} transactions</Badge>

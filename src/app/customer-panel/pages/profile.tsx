@@ -19,6 +19,18 @@ import {
 import { fetchTierRules, loadTierHistory, updateMemberProfile, uploadMemberProfilePhoto } from "../../lib/loyalty-supabase";
 import { loadBadgeLeaderboard, loadMemberBadgeProgress, type BadgeLeaderboardEntry, type MemberBadgeProgress } from "../../lib/promotions";
 import type { AppOutletContext } from "../../types/app-context";
+import { brandNavyBadgeClass, brandNavySolidClass, brandNavySolidHoverClass, brandTealBadgeClass } from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPageTitleClass,
+  customerTabActiveClass,
+  customerTabClass,
+  customerTabRailClass,
+} from "../lib/page-theme";
 
 function splitName(fullName: string) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -200,25 +212,28 @@ export default function Profile() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Profile</h1>
-        <p className="text-gray-500 mt-1">Manage your account and view your membership details</p>
-        {birthdayBadge ? <Badge className="mt-2">{birthdayBadge}</Badge> : null}
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Member Identity</div>
+          <h1 className={customerPageTitleClass}>Profile</h1>
+          <p className={customerPageDescriptionClass}>Manage your account details, membership progress, preferences, and achievements in a softer layout that matches the rest of the portal.</p>
+          {birthdayBadge ? <Badge className="mt-3">{birthdayBadge}</Badge> : null}
+        </div>
       </div>
 
       <div className="space-y-6">
         <div className="overflow-x-auto pb-1">
-        <div className="inline-flex min-w-max items-center gap-1 rounded-full bg-[#eef3fb] p-1">
+        <div className={customerTabRailClass}>
           {profileTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
               onClick={() => setActiveTab(tab.value)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              className={`${customerTabClass} ${
                 activeTab === tab.value
-                  ? "bg-white text-[#1A2B47] ring-2 ring-[#2b4468]"
-                  : "bg-transparent text-gray-700 hover:bg-white/70"
+                  ? customerTabActiveClass
+                  : "bg-transparent text-[#5a6f8d]"
               }`}
             >
               {tab.label}
@@ -230,7 +245,7 @@ export default function Profile() {
         {activeTab === "overview" ? (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
-              <Card className="p-6">
+              <Card className={customerPanelClass}>
                 <h3 className="font-semibold text-gray-900 text-lg mb-6">Membership Details</h3>
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   {membershipStats.map((item) => (
@@ -247,7 +262,7 @@ export default function Profile() {
                 </div>
               </Card>
 
-              <Card className="p-6">
+              <Card className={customerPanelClass}>
                 <h3 className="font-semibold text-gray-900 text-lg mb-4">{user.tier} Tier Benefits</h3>
                 <ul className="space-y-3">
                   {tierBenefits[user.tier].map((benefit) => (
@@ -263,7 +278,7 @@ export default function Profile() {
             </div>
 
             <div className="space-y-6">
-              <Card className="p-6">
+              <Card className={customerPanelClass}>
                 <h3 className="font-semibold text-gray-900 mb-4">Tier Progress</h3>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-sm">
@@ -311,7 +326,7 @@ export default function Profile() {
               ) : (
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={handleCancel}><X className="w-4 h-4 mr-2" />Cancel</Button>
-                  <Button size="sm" onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700 text-white"><Save className="w-4 h-4 mr-2" />Save</Button>
+                  <Button size="sm" onClick={handleSave} className="bg-emerald-700 text-white hover:bg-emerald-800"><Save className="w-4 h-4 mr-2" />Save</Button>
                 </div>
               )}
             </div>
@@ -321,8 +336,8 @@ export default function Profile() {
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">{formData.fullName}</h2>
                 <div className="flex items-center gap-2 mt-2">
-                  <Badge className="bg-[#1A2B47] text-white">{user.tier} Member</Badge>
-                  <Badge variant="outline" className={user.status === "Active" ? "border-[#00A3AD]/40 text-[#007d84]" : "border-gray-200 text-gray-500"}>{user.status}</Badge>
+                  <Badge className={brandNavyBadgeClass}>{user.tier} Member</Badge>
+                  <Badge variant="outline" className={user.status === "Active" ? brandTealBadgeClass : "border-gray-200 text-gray-500"}>{user.status}</Badge>
                 </div>
                 {isEditing ? (
                   <div className="mt-3">
@@ -399,7 +414,7 @@ export default function Profile() {
                   <option value="never">Never</option>
                 </select>
               </div>
-              <Button onClick={savePreferences} className="bg-[#1A2B47] text-white hover:bg-[#152238]">Save Preferences</Button>
+              <Button onClick={savePreferences} className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`}>Save Preferences</Button>
             </div>
           </Card>
         ) : null}
@@ -418,7 +433,7 @@ export default function Profile() {
                     <div key={badge.badgeId} className="rounded-2xl border border-gray-200 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div><p className="font-semibold text-gray-900">{badge.badgeName}</p><p className="mt-1 text-sm text-gray-600">{badge.description}</p></div>
-                        <Badge className={badge.isEarned ? "bg-[#10213a] text-white" : "bg-[#f3f4f6] text-gray-600"}>{badge.isEarned ? "Earned" : "In Progress"}</Badge>
+                      <Badge className={badge.isEarned ? brandNavyBadgeClass : "bg-[#f3f4f6] text-gray-600"}>{badge.isEarned ? "Earned" : "In Progress"}</Badge>
                       </div>
                       <div className="mt-4 space-y-2">
                         <Progress value={percent} className="h-2" />

@@ -32,6 +32,7 @@ import {
   buildAnalyticsWorkbook,
   type AnalyticsTierFilter,
 } from "../lib/analytics";
+import { adminPrimaryButtonClass, adminSelectClass } from "../lib/page-theme";
 
 const moneyFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
@@ -227,7 +228,7 @@ export default function AdminAnalyticsPage() {
                 <select
                   value={tierFilter}
                   onChange={(event) => setTierFilter(event.target.value as AnalyticsTierFilter)}
-                  className="min-w-[180px] rounded-xl border border-[#cfd8e7] bg-white px-4 py-2.5 text-sm font-medium text-[#10213d] shadow-sm outline-none transition focus:border-[#00A3AD] focus:ring-2 focus:ring-[#00A3AD]/20"
+                  className={`min-w-[180px] font-medium ${adminSelectClass}`}
                 >
                   <option value="all">All Tiers</option>
                   <option value="Bronze">Bronze</option>
@@ -238,7 +239,7 @@ export default function AdminAnalyticsPage() {
 
               <Button
                 onClick={exportExcel}
-                className="h-11 rounded-xl bg-[#12b3af] px-5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(18,179,175,0.28)] hover:bg-[#0ca39f]"
+                className={adminPrimaryButtonClass}
               >
                 <Download className="mr-2 h-4 w-4" />
                 Export to Excel

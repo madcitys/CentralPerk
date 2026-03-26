@@ -9,6 +9,20 @@ import { Label } from "../../../components/ui/label";
 import { Progress } from "../../../components/ui/progress";
 import { Textarea } from "../../../components/ui/textarea";
 import { useAdminData } from "../hooks/use-admin-data";
+import {
+  adminDarkButtonClass,
+  adminEyebrowClass,
+  adminInputClass,
+  adminOutlineButtonClass,
+  adminPageDescriptionClass,
+  adminPageHeroClass,
+  adminPageHeroInnerClass,
+  adminPageShellClass,
+  adminPageTitleClass,
+  adminPanelClass,
+  adminPanelSoftClass,
+  adminSelectClass,
+} from "../lib/page-theme";
 import { queueSmsNotification } from "../../lib/notifications";
 import {
   buildInactiveMemberInsights,
@@ -129,6 +143,43 @@ export default function AdminEngagementPage() {
         return matchesCategory && matchesRating;
       }),
     [feedbackCategoryFilter, feedbackItems, feedbackRatingFilter]
+  );
+  const pushCampaignSummary = useMemo(
+    () =>
+      state.notificationCampaigns.slice(0, 3).map((campaign) => {
+        const deliveryRate = campaign.sentCount ? (campaign.deliveredCount / campaign.sentCount) * 100 : 0;
+        const openRate = campaign.sentCount ? (campaign.openedCount / campaign.sentCount) * 100 : 0;
+        return {
+          id: campaign.id,
+          name: campaign.name,
+          deliveryRate: Number(deliveryRate.toFixed(0)),
+          openRate: Number(openRate.toFixed(0)),
+        };
+      }),
+    [state.notificationCampaigns]
+  );
+  const surveySummary = useMemo(
+    () =>
+      state.surveys.slice(0, 3).map((survey) => ({
+        id: survey.id,
+        title: survey.title,
+        responses: survey.responses.length,
+        bonusPoints: survey.bonusPoints,
+      })),
+    [state.surveys]
+  );
+  const winBackSummary = useMemo(
+    () =>
+      state.winBackCampaigns.reduce(
+        (acc, campaign) => {
+          acc.targeted += campaign.targetedMembers;
+          acc.responded += campaign.responses;
+          acc.reengaged += campaign.reengagedMembers;
+          return acc;
+        },
+        { targeted: 0, responded: 0, reengaged: 0 }
+      ),
+    [state.winBackCampaigns]
   );
 
   if (loading) return <p className="text-base text-gray-700">Loading engagement dashboard...</p>;
@@ -258,13 +309,16 @@ export default function AdminEngagementPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Member Engagement</h1>
-        <p className="text-gray-500 mt-1">Manage push campaigns, challenges, social sharing, surveys, and win-back flows.</p>
+    <div className={adminPageShellClass}>
+      <div className={adminPageHeroClass}>
+        <div className={adminPageHeroInnerClass}>
+          <div className={adminEyebrowClass}>Engagement Studio</div>
+          <h1 className={adminPageTitleClass}>Member Engagement</h1>
+          <p className={adminPageDescriptionClass}>Manage push campaigns, challenges, social sharing, surveys, and win-back flows with the same cohesive admin design language.</p>
+        </div>
       </div>
 
-      <section className="relative overflow-hidden rounded-[28px] border border-[#dbe7f3] bg-[radial-gradient(circle_at_top_left,_rgba(29,78,216,0.10),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(147,51,234,0.10),_transparent_28%),linear-gradient(180deg,_#fbfdff_0%,_#f5f9fc_100%)] p-4 md:p-6">
+      <section className="relative overflow-hidden rounded-[28px] border border-[#d7e1f5] bg-[radial-gradient(circle_at_top_left,_rgba(15,167,180,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(79,70,229,0.11),_transparent_28%),linear-gradient(180deg,_#ffffff_0%,_#f5f9ff_100%)] p-4 md:p-6 shadow-[0_16px_48px_rgba(16,33,58,0.06)]">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#9cc2ff] to-transparent" />
         <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
@@ -337,7 +391,72 @@ export default function AdminEngagementPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#dbe7f3] bg-white p-5">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <Card className={adminPanelClass}>
+          <h3 className="text-lg font-semibold text-gray-900">Recent Push Campaigns</h3>
+          <p className="mt-1 text-sm text-gray-500">Recent delivery and open rates, without the overdesigned trend chart.</p>
+          <div className="mt-4 space-y-3">
+            {pushCampaignSummary.map((campaign) => (
+              <div key={campaign.id} className="rounded-2xl border border-[#dbe7f3] bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-[#10213a]">{campaign.name}</p>
+                  <Badge variant="outline">Recent</Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
+                    <p className="text-xs text-gray-500">Delivery rate</p>
+                    <p className="mt-1 text-xl font-bold text-gray-900">{campaign.deliveryRate}%</p>
+                  </div>
+                  <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
+                    <p className="text-xs text-gray-500">Open rate</p>
+                    <p className="mt-1 text-xl font-bold text-gray-900">{campaign.openRate}%</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {pushCampaignSummary.length === 0 ? <p className="text-sm text-gray-500">No recent campaigns yet.</p> : null}
+          </div>
+        </Card>
+
+        <Card className={adminPanelClass}>
+          <h3 className="text-lg font-semibold text-gray-900">Recent Surveys</h3>
+          <p className="mt-1 text-sm text-gray-500">A lighter summary of current survey participation and incentives.</p>
+          <div className="mt-4 space-y-3">
+            {surveySummary.map((survey) => (
+              <div key={survey.id} className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-[#10213a]">{survey.title}</p>
+                  <Badge className="bg-[#fff1d6] text-[#b45309]">{survey.bonusPoints} pts</Badge>
+                </div>
+                <p className="mt-3 text-2xl font-bold text-[#10213a]">{survey.responses}</p>
+                <p className="text-sm text-[#6b7b93]">responses submitted</p>
+              </div>
+            ))}
+            {surveySummary.length === 0 ? <p className="text-sm text-gray-500">No recent surveys yet.</p> : null}
+          </div>
+        </Card>
+
+        <Card className={adminPanelClass}>
+          <h3 className="text-lg font-semibold text-gray-900">Win-back Summary</h3>
+          <p className="mt-1 text-sm text-gray-500">Targeted, responded, and re-engaged members in a calmer summary layout.</p>
+          <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-[#f5dcc3] bg-[#fff7ed] p-4">
+              <p className="text-xs uppercase tracking-wide text-[#9a5a2f]">Targeted</p>
+              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.targeted}</p>
+            </div>
+            <div className="rounded-2xl border border-[#d8e8fb] bg-[#f3f9ff] p-4">
+              <p className="text-xs uppercase tracking-wide text-[#47607d]">Responded</p>
+              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.responded}</p>
+            </div>
+            <div className="rounded-2xl border border-[#dceee3] bg-[#f3fcf7] p-4">
+              <p className="text-xs uppercase tracking-wide text-[#2d6a57]">Re-engaged</p>
+              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.reengaged}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <section className={adminPanelClass}>
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-[#10213a]">Referral Tracking</h3>
@@ -351,7 +470,7 @@ export default function AdminEngagementPage() {
         </p>
         <div className="mt-3 space-y-2">
           {referralItems.slice(0, 10).map((row) => (
-            <div key={row.id} className="rounded-lg border border-gray-200 p-3">
+            <div key={row.id} className={adminPanelSoftClass}>
               <p className="text-sm font-semibold text-[#10213a]">
                 Referrer {row.referrerMemberId} → {row.refereeEmail}
               </p>
@@ -367,7 +486,7 @@ export default function AdminEngagementPage() {
 
 
 
-      <section className="rounded-2xl border border-[#dbe7f3] bg-white p-5">
+      <section className={adminPanelClass}>
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-[#10213a]">Member Feedback Dashboard</h3>
@@ -379,7 +498,7 @@ export default function AdminEngagementPage() {
           <div>
             <Label>Filter by category</Label>
             <select
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className={`mt-1 ${adminInputClass}`}
               value={feedbackCategoryFilter}
               onChange={(event) => setFeedbackCategoryFilter(event.target.value)}
             >
@@ -393,7 +512,7 @@ export default function AdminEngagementPage() {
           <div>
             <Label>Filter by rating</Label>
             <select
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className={`mt-1 ${adminInputClass}`}
               value={feedbackRatingFilter}
               onChange={(event) => setFeedbackRatingFilter(event.target.value)}
             >
@@ -411,7 +530,7 @@ export default function AdminEngagementPage() {
             const rows = filteredFeedbackItems.filter((item) => item.category === cat);
             const avg = rows.length ? rows.reduce((sum, row) => sum + row.rating, 0) / rows.length : 0;
             return (
-              <div key={cat} className="rounded-xl border border-gray-200 p-3">
+              <div key={cat} className={adminPanelSoftClass}>
                 <p className="text-xs uppercase tracking-wide text-gray-500">{cat}</p>
                 <p className="mt-2 text-xl font-bold text-[#10213a]">{rows.length}</p>
                 <p className="text-xs text-gray-500">Avg rating {avg.toFixed(1) || "0.0"}/5</p>
@@ -421,7 +540,7 @@ export default function AdminEngagementPage() {
         </div>
         <div className="mt-4 space-y-2">
           {filteredFeedbackItems.slice(0, 8).map((item) => (
-            <div key={item.id} className="rounded-lg border border-gray-200 p-3">
+            <div key={item.id} className={adminPanelSoftClass}>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-[#10213a]">{item.memberName || item.memberId}</p>
                 <Badge variant="outline">{item.category}</Badge>
@@ -438,7 +557,7 @@ export default function AdminEngagementPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-3 rounded-[24px] border border-[#dbe7f3] bg-[linear-gradient(180deg,_#fbfdff_0%,_#f5f9fc_100%)] p-3 shadow-[0_10px_24px_rgba(16,33,58,0.04)]">
+      <div className="flex flex-wrap gap-3 rounded-[24px] border border-[#d7e1f5] bg-[linear-gradient(180deg,_#f9fbff_0%,_#eef4ff_100%)] p-3 shadow-[0_10px_24px_rgba(16,33,58,0.05)]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -458,7 +577,7 @@ export default function AdminEngagementPage() {
 
       {activeTab === "notifications" ? (
         <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fbff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Campaign Builder</h2>
             <p className="mt-1 text-sm text-gray-500">Schedule by trigger, target by segment, and compare A/B message variants.</p>
 
@@ -470,7 +589,7 @@ export default function AdminEngagementPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Trigger</Label>
-                  <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={campaignTrigger} onChange={(event) => setCampaignTrigger(event.target.value as NotificationTrigger)}>
+                  <select className={adminSelectClass} value={campaignTrigger} onChange={(event) => setCampaignTrigger(event.target.value as NotificationTrigger)}>
                     {triggers.map((trigger) => (
                       <option key={trigger} value={trigger}>
                         {trigger}
@@ -480,7 +599,7 @@ export default function AdminEngagementPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Segment</Label>
-                  <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value as EngagementSegment)}>
+                  <select className={adminSelectClass} value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value as EngagementSegment)}>
                     {segments.map((segment) => (
                       <option key={segment} value={segment}>
                         {segment}
@@ -509,13 +628,13 @@ export default function AdminEngagementPage() {
                   {campaignSegment === "Inactive 60+ Days" ? inactiveMembers.length : getSegmentAudienceSize(campaignSegment, members)}
                 </span>
               </div>
-              <Button className="w-full bg-[#10213a] text-white hover:bg-[#1b3153]" onClick={createNotificationCampaign}>
+              <Button className={`w-full ${adminDarkButtonClass}`} onClick={createNotificationCampaign}>
                 Schedule push campaign
               </Button>
             </div>
           </Card>
 
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fbff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Templates and Tracking</h2>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
               {notificationTemplates.map((template) => (
@@ -528,7 +647,7 @@ export default function AdminEngagementPage() {
                     setVariantA(template.message);
                     setVariantB(`${template.message} Open now to stay active.`);
                   }}
-                  className="rounded-2xl border border-[#dbe7f3] bg-white p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[#9ed8ff] hover:bg-[#f8fcff] hover:shadow-[0_10px_24px_rgba(29,78,216,0.08)]"
+                  className="rounded-2xl border border-[#dbe7f3] bg-white p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[#9ed8ff] hover:bg-[#eef5ff] hover:text-[#10213a] hover:shadow-[0_10px_24px_rgba(29,78,216,0.08)]"
                 >
                   <p className="font-semibold text-gray-900">{template.name}</p>
                   <p className="mt-1 text-sm text-gray-600">{template.subject}</p>
@@ -556,7 +675,7 @@ export default function AdminEngagementPage() {
                         </p>
                       </div>
                       {campaign.status !== "completed" ? (
-                        <Button variant="outline" onClick={() => launchScheduledCampaign(campaign.id)}>
+                        <Button variant="outline" className={adminOutlineButtonClass} onClick={() => launchScheduledCampaign(campaign.id)}>
                           Launch now
                         </Button>
                       ) : (
@@ -588,7 +707,7 @@ export default function AdminEngagementPage() {
 
       {activeTab === "challenges" ? (
         <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fffb_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Challenge Catalog</h2>
             <div className="mt-5 space-y-4">
               {state.challenges.map((challenge) => (
@@ -618,7 +737,7 @@ export default function AdminEngagementPage() {
             </div>
           </Card>
 
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fffb_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">Leaderboard Preview</h2>
@@ -656,7 +775,7 @@ export default function AdminEngagementPage() {
 
       {activeTab === "sharing" ? (
         <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fcfaff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Social Sharing Analytics</h2>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
@@ -693,7 +812,7 @@ export default function AdminEngagementPage() {
             </div>
           </Card>
 
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fcfaff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Acceptance Coverage</h2>
             <div className="mt-5 space-y-3 text-sm text-gray-700">
               <div className="rounded-2xl border border-[#eadcff] bg-white p-4">Facebook and Instagram share paths are available on the member side.</div>
@@ -707,7 +826,7 @@ export default function AdminEngagementPage() {
 
       {activeTab === "surveys" ? (
         <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fcfaff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Survey Creator</h2>
             <div className="mt-5 space-y-4">
               <div className="space-y-2">
@@ -717,7 +836,7 @@ export default function AdminEngagementPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Target segment</Label>
-                  <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={surveySegment} onChange={(event) => setSurveySegment(event.target.value as EngagementSegment)}>
+                  <select className={adminSelectClass} value={surveySegment} onChange={(event) => setSurveySegment(event.target.value as EngagementSegment)}>
                     {segments.map((segment) => (
                       <option key={segment} value={segment}>
                         {segment}
@@ -741,7 +860,7 @@ export default function AdminEngagementPage() {
                         placeholder={`Question ${index + 1}`}
                       />
                       <select
-                        className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                        className={adminSelectClass}
                         value={question.type}
                         onChange={(event) => updateSurveyQuestion(question.id, { type: event.target.value as QuestionType })}
                       >
@@ -764,17 +883,17 @@ export default function AdminEngagementPage() {
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" onClick={addSurveyQuestion}>
+                <Button variant="outline" className={adminOutlineButtonClass} onClick={addSurveyQuestion}>
                   Add question
                 </Button>
-                <Button className="bg-[#10213a] text-white hover:bg-[#1b3153]" onClick={createSurvey}>
+                <Button className={adminDarkButtonClass} onClick={createSurvey}>
                   Publish survey
                 </Button>
               </div>
             </div>
           </Card>
 
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fcfaff_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">Survey Results</h2>
@@ -793,7 +912,7 @@ export default function AdminEngagementPage() {
                       </div>
                       <p className="mt-1 text-sm text-gray-600">{survey.description}</p>
                     </div>
-                    <Button variant="outline" onClick={() => exportSurveyResponsesCsv(survey)}>
+                    <Button variant="outline" className={adminOutlineButtonClass} onClick={() => exportSurveyResponsesCsv(survey)}>
                       <Download className="mr-2 h-4 w-4" />
                       Export CSV
                     </Button>
@@ -821,7 +940,7 @@ export default function AdminEngagementPage() {
 
       {activeTab === "winback" ? (
         <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fffaf5_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Inactive Member Detection</h2>
             <p className="mt-1 text-sm text-gray-500">Members with no transaction or login activity in the last 60+ days.</p>
             <div className="mt-5 space-y-3">
@@ -855,7 +974,7 @@ export default function AdminEngagementPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Offer type</Label>
-                    <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={winBackOffer} onChange={(event) => setWinBackOffer(event.target.value as WinBackOfferType)}>
+                    <select className={adminSelectClass} value={winBackOffer} onChange={(event) => setWinBackOffer(event.target.value as WinBackOfferType)}>
                       {offerTypes.map((offer) => (
                         <option key={offer} value={offer}>
                           {offer}
@@ -868,14 +987,14 @@ export default function AdminEngagementPage() {
                     <Input value={winBackValue} onChange={(event) => setWinBackValue(event.target.value)} />
                   </div>
                 </div>
-                <Button className="w-full bg-[#10213a] text-white hover:bg-[#1b3153]" onClick={createWinBackCampaign}>
+                <Button className={`w-full ${adminDarkButtonClass}`} onClick={createWinBackCampaign}>
                   Start campaign
                 </Button>
               </div>
             </div>
           </Card>
 
-          <Card className="rounded-[28px] border-[#d9e7f5] bg-[linear-gradient(180deg,_#ffffff_0%,_#fffaf5_100%)] p-6 shadow-[0_14px_34px_rgba(16,33,58,0.05)]">
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Campaign Dashboard</h2>
             <div className="mt-5 space-y-4">
               {state.winBackCampaigns.map((campaign) => {

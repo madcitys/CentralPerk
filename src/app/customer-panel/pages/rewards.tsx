@@ -16,6 +16,25 @@ import type { AppOutletContext } from "../../types/app-context";
 import { cn } from "../../../components/ui/utils";
 import { loadRewardsCatalog, redeemMemberPoints } from "../../lib/loyalty-supabase";
 import { loadActivePromotionCampaigns, type PromotionCampaign } from "../../lib/promotions";
+import {
+  brandNavyBadgeClass,
+  brandNavySolidClass,
+  brandNavySolidHoverClass,
+  brandTealSolidClass,
+  brandTealSolidHoverClass,
+  brandTealSurfaceClass,
+} from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPanelSoftClass,
+  customerPageTitleClass,
+  customerTabClass,
+  customerTabRailClass,
+} from "../lib/page-theme";
 
 const rewardImages = [
   "https://images.unsplash.com/photo-1657048167114-0942f3a2dc93?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
@@ -338,7 +357,7 @@ export default function Rewards() {
 
           <div className="flex flex-wrap gap-2">
             <Button
-              className="flex-1 min-w-[120px] bg-[#1A2B47] hover:brightness-110 text-white"
+              className={`flex-1 min-w-[120px] ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
               onClick={() => handleRedeem(reward)}
               disabled={saving || soldOut || expired || !canAfford}
             >
@@ -355,10 +374,13 @@ export default function Rewards() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Rewards</h1>
-        <p className="text-gray-500 mt-1">Redeem your points for exclusive rewards</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Reward Studio</div>
+          <h1 className={customerPageTitleClass}>Rewards</h1>
+          <p className={customerPageDescriptionClass}>Redeem your points for curated member rewards, flash sale offers, and partner picks in a calmer, more cohesive portal view.</p>
+        </div>
       </div>
 
       <Card className="p-6 bg-gradient-to-br from-[#1A2B47] to-[#1A2B47] border-0 text-white">
@@ -377,7 +399,7 @@ export default function Rewards() {
             >
               <div className="p-6">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="bg-[#10213a] text-white">{campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}</Badge>
+                  <Badge className={brandNavyBadgeClass}>{campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}</Badge>
                   {campaign.eligibleTiers.length > 0 ? (
                     <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge>
                   ) : null}
@@ -438,7 +460,7 @@ export default function Rewards() {
         </Card>
       ) : null}
 
-      <Card className="p-6 bg-white">
+      <Card className={customerPanelClass}>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 mb-2">Use Points as Partial Payment</h3>
@@ -446,15 +468,15 @@ export default function Rewards() {
             {usePoints && (
               <div className="flex flex-col sm:flex-row gap-3 max-w-md">
                 <Input type="number" placeholder="Enter points" value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)} max={user.points} />
-                <Button className="bg-[#00A3AD] hover:brightness-110 text-white" onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>Apply</Button>
+                <Button className={`${brandTealSolidClass} ${brandTealSolidHoverClass}`} onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>Apply</Button>
               </div>
             )}
           </div>
-          <Button variant={usePoints ? "outline" : "default"} className={cn("w-full sm:w-auto", !usePoints ? "bg-[#1A2B47] hover:brightness-110 text-white" : "")} onClick={() => setUsePoints((prev) => !prev)}>{usePoints ? "Cancel" : "Use Points"}</Button>
+          <Button variant={usePoints ? "outline" : "default"} className={cn("w-full sm:w-auto", !usePoints ? `${brandNavySolidClass} ${brandNavySolidHoverClass}` : "")} onClick={() => setUsePoints((prev) => !prev)}>{usePoints ? "Cancel" : "Use Points"}</Button>
         </div>
       </Card>
 
-      <Card className="p-6 border-[#00A3AD]/25 bg-[#e6f8fa]">
+      <Card className={cn("p-6", brandTealSurfaceClass)}>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 mb-1">Apply Points Automatically at Checkout</h3>
@@ -462,7 +484,7 @@ export default function Rewards() {
             {autoApplyAtCheckout && (
               <div className="flex flex-col sm:flex-row gap-3 max-w-xl">
                 <Input type="number" step="0.01" min="0" placeholder="Checkout amount (e.g. 18.50)" value={checkoutAmount} onChange={(e) => setCheckoutAmount(e.target.value)} />
-                <Button className="bg-[#1A2B47] hover:brightness-110 text-white" onClick={handleAutoApplyCheckout} disabled={saving}>Auto Apply</Button>
+                <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handleAutoApplyCheckout} disabled={saving}>Auto Apply</Button>
               </div>
             )}
           </div>
@@ -471,21 +493,21 @@ export default function Rewards() {
       </Card>
 
       {reservedRewards.length > 0 && (
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><ShoppingBag className="w-5 h-5" />Reserved Rewards ({reservedRewards.length})</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {catalog.filter((reward) => reservedRewards.includes(reward.id)).map((reward, index) => (
               <div key={reward.id} className="flex items-center gap-4 p-4 rounded-xl border-2 border-sky-200 bg-sky-50/50">
                 <ImageWithFallback src={rewardImages[index]} alt={reward.name} className="w-20 h-20 rounded-lg object-cover" />
                 <div className="flex-1 min-w-0"><p className="font-medium text-gray-900 truncate">{reward.name}</p><p className="text-sm text-gray-600">{reward.pointsCost} points</p><Badge className="mt-1 bg-sky-100 text-sky-700">Reserved</Badge></div>
-                <Button size="sm" onClick={() => handleRedeem(reward)} className="bg-[#1A2B47] hover:brightness-110 text-white">Redeem</Button>
+                <Button size="sm" onClick={() => handleRedeem(reward)} className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`}>Redeem</Button>
               </div>
             ))}
           </div>
         </Card>
       )}
 
-      <Card className="p-6 border-orange-200 bg-orange-50/50">
+      <Card className={cn(customerPanelSoftClass, "border-orange-200 bg-orange-50/50")}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h3 className="font-semibold text-gray-900">Redeemed History</h3>
           <Input value={redeemSearch} onChange={(e) => setRedeemSearch(e.target.value)} placeholder="Search redeemed item..." className="sm:w-72 bg-white" />
@@ -509,21 +531,21 @@ export default function Rewards() {
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as RewardCategoryTab)} className="space-y-6">
         <div className="overflow-x-auto pb-1">
-        <TabsList className="h-auto min-w-max flex-nowrap justify-start gap-1 rounded-full bg-[#eef3fb] p-1">
-          <TabsTrigger value="all" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">All Rewards</TabsTrigger>
-          <TabsTrigger value="flash" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Flash Sale</TabsTrigger>
-          <TabsTrigger value="partner" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Partner</TabsTrigger>
-          <TabsTrigger value="beverage" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Beverages</TabsTrigger>
-          <TabsTrigger value="food" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Food</TabsTrigger>
-          <TabsTrigger value="merchandise" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Merchandise</TabsTrigger>
-          <TabsTrigger value="voucher" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Vouchers</TabsTrigger>
+        <TabsList className={`h-auto min-w-max flex-nowrap justify-start gap-1 shadow-sm ${customerTabRailClass}`}>
+          <TabsTrigger value="all" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>All Rewards</TabsTrigger>
+          <TabsTrigger value="flash" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Flash Sale</TabsTrigger>
+          <TabsTrigger value="partner" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Partner</TabsTrigger>
+          <TabsTrigger value="beverage" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Beverages</TabsTrigger>
+          <TabsTrigger value="food" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Food</TabsTrigger>
+          <TabsTrigger value="merchandise" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Merchandise</TabsTrigger>
+          <TabsTrigger value="voucher" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Vouchers</TabsTrigger>
         </TabsList>
         </div>
 
         <TabsContent value="all" className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredRewards.map((reward, index) => renderRewardCard(reward, index))}</div></TabsContent>
         <TabsContent value="flash" className="space-y-4">
           {flashSaleRewards.length === 0 ? (
-            <Card className="p-6 border-dashed border-gray-300">
+            <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
               <p className="text-sm text-gray-600">No live flash sales right now.</p>
             </Card>
           ) : (
@@ -537,7 +559,7 @@ export default function Rewards() {
         </TabsContent>
         <TabsContent value="partner" className="space-y-4">
           {partnerRewards.length === 0 ? (
-            <Card className="p-6 border-dashed border-gray-300">
+            <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
               <p className="text-sm text-gray-600">No partner rewards are available yet.</p>
             </Card>
           ) : (
@@ -555,7 +577,7 @@ export default function Rewards() {
       </Tabs>
 
       {filteredRewards.length === 0 && (
-        <Card className="p-6 border-dashed border-gray-300">
+        <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
           <p className="text-sm text-gray-600">
             No rewards found in database. Add rows to <code>rewards_catalog</code> to show redeemable items.
           </p>
@@ -579,7 +601,7 @@ export default function Rewards() {
               Cancel
             </Button>
             <Button
-              className="h-10 bg-[#1A2B47] hover:brightness-110 text-white"
+              className={`h-10 ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
               onClick={confirmRedeem}
               disabled={saving}
             >
@@ -620,7 +642,7 @@ export default function Rewards() {
             >
               Cancel
             </Button>
-            <Button className="h-10 bg-[#1A2B47] hover:brightness-110 text-white" onClick={confirmReserve}>Reserve Reward</Button>
+            <Button className={`h-10 ${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={confirmReserve}>Reserve Reward</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

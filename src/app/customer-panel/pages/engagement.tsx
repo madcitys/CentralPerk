@@ -46,6 +46,13 @@ import {
   type SharePrivacySettings,
   type SocialChannel,
 } from "../../lib/member-engagement";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
 
 type EngagementTab = "overview" | "rewards" | "challenges" | "sharing" | "surveys";
 
@@ -439,10 +446,13 @@ export default function CustomerEngagementPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Member Engagement</h1>
-        <p className="text-gray-500 mt-1">Challenges, social sharing, and surveys.</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Engagement Hub</div>
+          <h1 className={customerPageTitleClass}>Member Engagement</h1>
+          <p className={customerPageDescriptionClass}>Explore challenges, referrals, sharing, birthday perks, and surveys in a portal that now feels more consistent with the admin experience.</p>
+        </div>
       </div>
 
       <div className="overflow-x-auto pb-1">

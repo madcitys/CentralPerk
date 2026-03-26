@@ -3,6 +3,18 @@ import { Save } from "lucide-react";
 import { fetchActiveEarningRules, fetchTierRules, saveEarningRules, saveTierRules, type EarningRule } from "../../lib/loyalty-supabase";
 import type { TierRule } from "../../lib/loyalty-engine";
 import { toast } from "sonner";
+import {
+  adminEyebrowClass,
+  adminInputClass,
+  adminPageDescriptionClass,
+  adminPageHeroClass,
+  adminPageHeroInnerClass,
+  adminPageShellClass,
+  adminPageTitleClass,
+  adminPanelClass,
+  adminPanelSoftClass,
+  adminPrimaryButtonClass,
+} from "../lib/page-theme";
 
 const FALLBACK_RULES: TierRule[] = [
   { tier_label: "Bronze", min_points: 0 },
@@ -71,13 +83,16 @@ export default function AdminSettingsPage() {
   const earningByTier = (label: string) => earningRules.find((rule) => rule.tier_label.toLowerCase() === label.toLowerCase());
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-500 mt-1">Administrative configuration</p>
+    <div className={adminPageShellClass}>
+      <div className={adminPageHeroClass}>
+        <div className={adminPageHeroInnerClass}>
+          <div className={adminEyebrowClass}>Rules & Configuration</div>
+          <h1 className={adminPageTitleClass}>Settings</h1>
+          <p className={adminPageDescriptionClass}>Administrative configuration for tiers and earning rules, using the same softer analytics visual language.</p>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-[#9ed8ff] bg-white p-6 space-y-4">
+      <div className={adminPanelClass}>
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Tier Rules Configuration</h2>
           <p className="text-gray-600 text-sm mt-1">Configure points thresholds used to calculate member tier.</p>
@@ -85,7 +100,7 @@ export default function AdminSettingsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {(["Bronze", "Silver", "Gold"] as const).map((tier) => (
-            <label key={tier} className="rounded-lg border border-gray-200 p-4 block">
+            <label key={tier} className={`${adminPanelSoftClass} block`}>
               <p className="text-sm font-semibold text-gray-700 mb-2">{tier} minimum points</p>
               <input
                 type="number"
@@ -93,7 +108,7 @@ export default function AdminSettingsPage() {
                 value={byTier(tier)?.min_points ?? 0}
                 onChange={(e) => updateRule(tier, Number(e.target.value))}
                 disabled={tier === "Bronze"}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00A3AD]/30"
+                className={adminInputClass}
               />
               {tier === "Bronze" ? (
                 <p className="mt-2 text-xs text-gray-500">Bronze is the default starting tier and stays at 0 points.</p>
@@ -103,7 +118,7 @@ export default function AdminSettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#9ed8ff] bg-white p-6 space-y-4">
+      <div className={adminPanelClass}>
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Earning Rate Configuration</h2>
           <p className="text-gray-600 text-sm mt-1">Default target is 1 point per PHP 10 with optional tier multipliers.</p>
@@ -111,7 +126,7 @@ export default function AdminSettingsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {(["Bronze", "Silver", "Gold"] as const).map((tier) => (
-            <div key={tier} className="rounded-lg border border-gray-200 p-4 space-y-3">
+            <div key={tier} className={`${adminPanelSoftClass} space-y-3`}>
               <p className="text-sm font-semibold text-gray-700">{tier} earning rule</p>
               <label className="block">
                 <span className="text-xs text-gray-600">Peso per 1 point</span>
@@ -121,7 +136,7 @@ export default function AdminSettingsPage() {
                   step={0.01}
                   value={earningByTier(tier)?.peso_per_point ?? 10}
                   onChange={(e) => updateEarningRule(tier, { peso_per_point: Number(e.target.value) || 10 })}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className={`mt-1 ${adminInputClass}`}
                 />
               </label>
               <label className="block">
@@ -132,7 +147,7 @@ export default function AdminSettingsPage() {
                   step={0.01}
                   value={earningByTier(tier)?.multiplier ?? 1}
                   onChange={(e) => updateEarningRule(tier, { multiplier: Number(e.target.value) || 1 })}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className={`mt-1 ${adminInputClass}`}
                 />
               </label>
             </div>
@@ -143,7 +158,7 @@ export default function AdminSettingsPage() {
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#00A3AD] hover:bg-[#08939c] text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-70"
+          className={`${adminPrimaryButtonClass} mt-6 disabled:opacity-70`}
         >
           <Save className="w-4 h-4" />
           {saving ? "Saving..." : "Save Rules"}

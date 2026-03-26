@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { cn } from "../../components/ui/utils";
 import { supabase } from "../../utils/supabase/client";
 import { loadUserNotifications, type AppNotification } from "../lib/notifications";
+import { brandTealSolidClass } from "../lib/ui-color-tokens";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 
@@ -73,8 +74,8 @@ export default function AdminRoot() {
   };
 
   return (
-    <div className="min-h-screen bg-white" style={{ fontFamily: "'Poppins', sans-serif" }}>
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbff_0%,#ffffff_28%,#f9fbff_100%)]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 border-b border-[#dbe6f7] bg-white/95 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#1A2B47]">
@@ -93,7 +94,7 @@ export default function AdminRoot() {
             >
               <Bell className="w-5 h-5 text-[#1A2B47]" />
               {notifications.length > 0 ? (
-                <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
+                <span className={cn("absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
                   {Math.min(notifications.length, 9)}
                 </span>
               ) : null}
@@ -119,7 +120,7 @@ export default function AdminRoot() {
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-white/15">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#00A3AD] rounded-xl flex items-center justify-center">
+              <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", brandTealSolidClass)}>
                 <span className="text-white font-bold text-lg">A</span>
               </div>
               <div>
@@ -155,7 +156,7 @@ export default function AdminRoot() {
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                    isActive ? "bg-[#00A3AD] text-white" : "text-slate-100 hover:bg-white/10"
+                    isActive ? brandTealSolidClass : "text-slate-100 hover:bg-white/10 hover:text-white"
                   )
                 }
               >
@@ -189,7 +190,7 @@ export default function AdminRoot() {
         />
       )}
 
-      <div className="lg:pl-64 pt-16 lg:pt-0 bg-white">
+      <div className="lg:pl-64 pt-16 lg:pt-0 bg-transparent">
         <main className="p-4 lg:p-8">
           <div className="mb-4 hidden lg:flex justify-end relative">
             <button
@@ -199,7 +200,7 @@ export default function AdminRoot() {
             >
               <Bell className="h-5 w-5 text-[#1A2B47]" />
               {notifications.length > 0 ? (
-                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
+                <span className={cn("absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
                   {Math.min(notifications.length, 9)}
                 </span>
               ) : null}
