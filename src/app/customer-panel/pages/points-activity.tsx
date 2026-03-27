@@ -6,6 +6,7 @@ import { Button } from "../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Badge } from "../../../components/ui/badge";
 import { PointsExpiry } from "../../../components/points-expiry";
+import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import type { AppOutletContext } from "../../types/app-context";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
@@ -249,11 +250,35 @@ export default function PointsActivity() {
           <div className={customerEyebrowClass}>Points Timeline</div>
           <h1 className={customerPageTitleClass}>Points Activity</h1>
           <p className={customerPageDescriptionClass}>View and track all your points transactions with the same softer, more cohesive layout used across the member portal.</p>
-        <div className="mt-4 flex gap-2">
-          <div className="flex items-center gap-2">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-          </div>
+        </div>
+      </div>
+
+      <Card className={customerPanelClass}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-[#4b607f]">Start Date</span>
+            <CalendarDatePicker
+              id="points-activity-start-date"
+              value={startDate}
+              onChange={(value) => {
+                setStartDate(value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-[#4b607f]">End Date</span>
+            <CalendarDatePicker
+              id="points-activity-end-date"
+              value={endDate}
+              onChange={(value) => {
+                setEndDate(value);
+                setPage(1);
+              }}
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="outline" onClick={downloadCsv}>
             <Download className="w-4 h-4 mr-2" />
             Download CSV
@@ -264,8 +289,7 @@ export default function PointsActivity() {
           </Button>
           <Button variant="outline" onClick={handleEmailStatement}>Email Statement</Button>
         </div>
-      </div>
-      </div>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-3">

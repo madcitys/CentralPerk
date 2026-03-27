@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ensureWelcomePackage, uploadRegistrationProfilePhoto } from '../app/lib/loyalty-supabase';
 import { applyReferralCodeForSignup, validateReferralCode } from '../app/lib/member-lifecycle';
+import { CalendarDatePicker } from './calendar-date-picker';
 import {
   isCustomerDemoAuthEnabled,
   isCustomerDemoAuthForced,
@@ -16,6 +17,7 @@ import {
 
 const RATE_LIMIT_COOLDOWN_MS = 60_000;
 const REGISTRATION_COOLDOWN_STORAGE_KEY = 'centralperk-registration-cooldown-until-ms';
+const CURRENT_YEAR = new Date().getFullYear();
 
 interface Member {
   id: string;
@@ -163,6 +165,13 @@ export function RegistrationCard() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitLockRef.current || isSubmitting) return;
+    if (!formData.birthdate) {
+      setMessage({
+        type: 'error',
+        text: 'Please select your birthdate before continuing.',
+      });
+      return;
+    }
     if (isCooldownActive) {
       setMessage({
         type: 'error',
@@ -448,7 +457,7 @@ export function RegistrationCard() {
                   value={formData.phone}
                   onChange={handleChange}
                   className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
-                  placeholder="(555) 123-4567"
+                  placeholder="+63 912 345 6789"
                   required
                 />
               </div>
@@ -459,14 +468,19 @@ export function RegistrationCard() {
               <label htmlFor="birthdate" className="block mb-2 text-gray-700 font-medium">
                 Birthdate
               </label>
-              <input
-                type="date"
+              <CalendarDatePicker
                 id="birthdate"
-                name="birthdate"
                 value={formData.birthdate}
-                onChange={handleChange}
-                className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
-                required
+                onChange={(value) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    birthdate: value,
+                  }))
+                }
+                placeholder="dd/mm/yyyy"
+                fromYear={CURRENT_YEAR - 100}
+                toYear={CURRENT_YEAR}
+                variant="soft"
               />
             </div>
 

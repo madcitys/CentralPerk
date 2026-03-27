@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, Line, LineChart } from "recharts";
-import { AdminDatePicker } from "../components/admin-date-picker";
+import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import { useAdminData } from "../hooks/use-admin-data";
 import { toast } from "sonner";
 import {
@@ -283,11 +283,11 @@ export default function AdminActivityPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-[#4b607f]">Start Date</span>
-            <AdminDatePicker value={startDate} onChange={handleStartDateChange} />
+            <CalendarDatePicker value={startDate} onChange={handleStartDateChange} />
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-[#4b607f]">End Date</span>
-            <AdminDatePicker value={endDate} onChange={handleEndDateChange} />
+            <CalendarDatePicker value={endDate} onChange={handleEndDateChange} />
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-[#4b607f]">Activity Level</span>
@@ -520,3 +520,4 @@ export default function AdminActivityPage() {
     </div>
   );
 }
+

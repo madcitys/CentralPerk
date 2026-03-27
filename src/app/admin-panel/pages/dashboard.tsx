@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
-import { AdminDatePicker } from "../components/admin-date-picker";
+import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import { useAdminData } from "../hooks/use-admin-data";
 import { resolveTier } from "../../lib/loyalty-engine";
 import { buildInactiveMemberInsights, loadEngagementState } from "../../lib/member-engagement";
@@ -143,11 +143,11 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-[#4b607f]">Start Date</span>
-            <AdminDatePicker value={startDate} onChange={setStartDate} />
+            <CalendarDatePicker value={startDate} onChange={setStartDate} />
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-[#4b607f]">End Date</span>
-            <AdminDatePicker value={endDate} onChange={setEndDate} />
+            <CalendarDatePicker value={endDate} onChange={setEndDate} />
           </label>
         </div>
       </div>
@@ -396,3 +396,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
