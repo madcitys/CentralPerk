@@ -169,7 +169,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {showWelcomeNotice && (
+        <Card className={cn(customerPanelSoftClass, "p-4 border-[#9ed8ff] bg-[#eef8ff]")}>
+          <p className="text-sm text-[#1A2B47] font-medium">
+            Welcome to Central Perk Rewards! Your welcome package points were applied to your account.
+          </p>
+        </Card>
+      )}
+
+      <div id="dashboard-overview" className="grid scroll-mt-28 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="p-6 bg-[#1A2B47] text-white border-0">
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -248,7 +256,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div id="dashboard-activity" className="grid scroll-mt-28 grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className={customerPanelClass}>
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -368,49 +376,48 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {showWelcomeNotice && (
-        <Card className={cn(customerPanelSoftClass, "p-4 border-[#9ed8ff] bg-[#eef8ff]")}>
-          <p className="text-sm text-[#1A2B47] font-medium">
-            Welcome to Central Perk Rewards! Your welcome package points were applied to your account.
-          </p>
-        </Card>
-      )}
-
-      {activeCampaigns.length > 0 ? (
-        <Card className="overflow-hidden border-[#c9f3f3] bg-[linear-gradient(135deg,#eefcfc_0%,#ffffff_100%)] p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-[#10213a] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
-                Live Promotions
-              </div>
-              <h2 className="mt-3 text-2xl font-bold text-[#10213d]">Active campaign banners in your portal</h2>
-              <p className="mt-1 text-sm text-[#56708f]">Current multiplier events, bonus point offers, and limited-time drops.</p>
-            </div>
-            <Badge className={brandTealSolidClass}>{activeCampaigns.length} active</Badge>
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {activeCampaigns.slice(0, 4).map((campaign) => (
-              <div key={campaign.id} className="rounded-2xl border border-[#d6e4f5] bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={brandNavyBadgeClass}>
-                    {campaign.campaignType === "flash_sale" ? "Flash Sale" : campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}
-                  </Badge>
-                  {campaign.eligibleTiers.length > 0 ? <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge> : null}
+      <div id="dashboard-promotions" className="scroll-mt-28">
+        {activeCampaigns.length > 0 ? (
+          <Card className="overflow-hidden border-[#c9f3f3] bg-[linear-gradient(135deg,#eefcfc_0%,#ffffff_100%)] p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-[#10213a] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                  Live Promotions
                 </div>
-                <h3 className="mt-3 text-lg font-semibold text-gray-900">{campaign.bannerTitle || campaign.campaignName}</h3>
-                <p className="mt-2 text-sm text-gray-600">{campaign.bannerMessage || campaign.description}</p>
-                <p className="mt-3 text-xs text-[#1A2B47]">
-                  {campaign.multiplier > 1 ? `${campaign.multiplier.toFixed(0)}x points` : `${campaign.bonusPoints} bonus points`} | Ends{" "}
-                  {new Date(campaign.endsAt).toLocaleString()}
-                </p>
+                <h2 className="mt-3 text-2xl font-bold text-[#10213d]">Active campaign banners in your portal</h2>
+                <p className="mt-1 text-sm text-[#56708f]">Current multiplier events, bonus point offers, and limited-time drops.</p>
               </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
+              <Badge className={brandTealSolidClass}>{activeCampaigns.length} active</Badge>
+            </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {activeCampaigns.slice(0, 4).map((campaign) => (
+                <div key={campaign.id} className="rounded-2xl border border-[#d6e4f5] bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={brandNavyBadgeClass}>
+                      {campaign.campaignType === "flash_sale" ? "Flash Sale" : campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}
+                    </Badge>
+                    {campaign.eligibleTiers.length > 0 ? <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge> : null}
+                  </div>
+                  <h3 className="mt-3 text-lg font-semibold text-gray-900">{campaign.bannerTitle || campaign.campaignName}</h3>
+                  <p className="mt-2 text-sm text-gray-600">{campaign.bannerMessage || campaign.description}</p>
+                  <p className="mt-3 text-xs text-[#1A2B47]">
+                    {campaign.multiplier > 1 ? `${campaign.multiplier.toFixed(0)}x points` : `${campaign.bonusPoints} bonus points`} | Ends{" "}
+                    {new Date(campaign.endsAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : (
+          <Card className={customerPanelClass}>
+            <h3 className="text-lg font-semibold text-gray-900">No active promotions right now</h3>
+            <p className="mt-2 text-sm text-gray-600">Check back soon for bonus point campaigns, flash sales, and multiplier events.</p>
+          </Card>
+        )}
+      </div>
+
+      <div id="dashboard-shortcuts" className="grid scroll-mt-28 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Link to="engagement">
           <Card className="cursor-pointer border-[#7fd7de] bg-gradient-to-br from-[#eefafb] to-white p-6 transition-shadow hover:shadow-lg">
             <div className="flex items-center gap-4">
@@ -470,7 +477,7 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <Card className={customerPanelClass}>
+      <Card id="dashboard-benefits" className={cn(customerPanelClass, "scroll-mt-28")}>
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="font-semibold text-gray-900 text-lg">Loyalty Program Capabilities</h3>

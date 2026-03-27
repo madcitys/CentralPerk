@@ -1,6 +1,7 @@
 import { supabase } from "../../utils/supabase/client";
 import type { EarnOpportunity, MemberData, Reward, Transaction } from "../types/loyalty";
 import { getCurrentCustomerSession } from "../auth/auth";
+import { clearPendingEmailAlias } from "../auth/customer-auth";
 import {
   DEFAULT_TIER_RULES,
   monthKey,
@@ -595,9 +596,9 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
   const authRes = await supabase.auth.getUser();
   const authEmail = String(authRes.data.user?.email || localSession?.email || "").trim().toLowerCase();
   const authUser = authRes.data.user;
-  const member = authEmail
-    ? await findMember(undefined, authEmail)
-    : await findMember(localSession?.memberId || currentUser.memberId, localSession?.email || currentUser.email);
+  const memberLookupId = localSession?.memberId || currentUser.memberId;
+  const memberLookupEmail = authEmail || localSession?.email || currentUser.email;
+  const member = await findMember(memberLookupId, memberLookupEmail);
   if (!member) {
     const authFullName =
       String(authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || "").trim() || currentUser.fullName;
@@ -955,9 +956,14 @@ export async function updateMemberProfile(input: {
       }
 
       const authUserEmail = String(authUpdate.data.user?.email || normalizedAuthEmail).trim().toLowerCase();
-      persistedAuthEmail = authUserEmail;
       pendingEmailVerification = authUserEmail !== normalizedNewEmail;
+      persistedAuthEmail = pendingEmailVerification ? normalizedAuthEmail : normalizedNewEmail;
     }
+  }
+
+  if (emailChanged) {
+    clearPendingEmailAlias(normalizedNewEmail);
+    clearPendingEmailAlias(normalizedAuthEmail);
   }
 
   const updateRes = await supabase

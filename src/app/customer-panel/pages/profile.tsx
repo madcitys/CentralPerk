@@ -163,7 +163,11 @@ export default function Profile() {
       setOtpInput("");
       setPendingSave(false);
       setIsEditing(false);
-      toast.success("Profile updated!");
+      toast.success(
+        updateResult.pendingEmailVerification
+          ? "Profile updated. Confirm your new email address to finish the auth email change."
+          : "Profile updated!"
+      );
       await refreshUser();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update profile.");

@@ -6,6 +6,7 @@ import {
   isCustomerDemoAuthEnabled,
   isCustomerDemoAuthForced,
   isDemoEmail,
+  isValidPhilippinePhoneNumber,
   mapAuthErrorToMessage,
   registerCustomer,
 } from '../app/auth/customer-auth';
@@ -43,6 +44,7 @@ const DEMO_AUTH_SUCCESS_MESSAGE =
 export function RegistrationCard() {
   const demoAuthEnabled = isCustomerDemoAuthEnabled();
   const forceDemoAuth = isCustomerDemoAuthForced();
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -456,8 +458,28 @@ export function RegistrationCard() {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
+                  onInvalid={(e) => {
+                    const phoneValue = e.currentTarget.value;
+                    if (!phoneValue.trim()) {
+                      e.currentTarget.setCustomValidity('Please enter your phone number.');
+                      return;
+                    }
+
+                    if (!isValidPhilippinePhoneNumber(phoneValue)) {
+                      e.currentTarget.setCustomValidity(
+                        'Please enter a valid Philippine mobile number, like +63 912 345 6789 or 09123456789.'
+                      );
+                      return;
+                    }
+
+                    e.currentTarget.setCustomValidity('');
+                  }}
+                  onInput={(e) => {
+                    e.currentTarget.setCustomValidity('');
+                  }}
                   className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
                   placeholder="+63 912 345 6789"
+                  inputMode="tel"
                   required
                 />
               </div>
@@ -489,17 +511,40 @@ export function RegistrationCard() {
               <label htmlFor="password" className="block mb-2 text-gray-700 font-medium">
                 Password
               </label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
-                placeholder="Minimum 6 characters"
-                required
-                minLength={6}
-              />
+              <div className="relative">
+                <input
+                  type={isPasswordVisible ? "text" : "password"}
+                  id="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-transparent bg-[#dbe4f2] px-4 py-3 pr-14 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3]"
+                  placeholder="Minimum 8 characters"
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  aria-label={isPasswordVisible ? "Hide password" : "Show password"}
+                  aria-pressed={isPasswordVisible}
+                  onClick={() => setIsPasswordVisible((prev) => !prev)}
+                  className="absolute inset-y-0 right-3 flex items-center text-gray-500 transition-colors hover:text-[#1A2B47] focus:outline-none"
+                >
+                  {isPasswordVisible ? (
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 3l18 18" />
+                      <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                      <path d="M9.88 5.09A10.94 10.94 0 0 1 12 5c5 0 9.27 3.11 11 7-1 2.25-2.72 4.16-4.9 5.32" />
+                      <path d="M6.61 6.61C4.62 7.83 3.06 9.73 2 12c1.73 3.89 6 7 10 7 1.55 0 3.04-.3 4.4-.85" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.64-7 10-7 10 7 10 7-3.64 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div>

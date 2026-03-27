@@ -17,7 +17,7 @@
 
   Supabase connection values are read from `CentralPerk/.env`.
 
-  If you cloned the repo from GitHub, create `CentralPerk/.env` first by copying `CentralPerk/.env.example`.
+  If you cloned the repo from GitHub, create `CentralPerk/.env` first.
 
   For client-side Supabase access in Next.js, define these variables in `CentralPerk/.env.local`
   or `CentralPerk/.env`:
@@ -38,8 +38,6 @@
 
   `NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH`
 
-  The Next config also mirrors existing `VITE_*` values so old env files still work during migration.
-
   ## Member Engagement
 
   Developer 12's sprint scope for `EPIC-LYL-08: Member Engagement` is now available in:
@@ -50,5 +48,5 @@
 
   The feature set includes push campaign scheduling, challenge tracking, social sharing, surveys, and win-back campaign dashboards.
 
-  Additional engagement-related placeholders were added to `.env.example` for app URL and push provider setup.
+  Additional engagement-related environment placeholders may be added to your local `.env` as needed for app URL and push provider setup.
   

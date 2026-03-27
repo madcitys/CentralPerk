@@ -6,6 +6,7 @@ const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
 const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH === "true";
 const MIN_PASSWORD_LENGTH = 8;
 const DEMO_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const PENDING_EMAIL_ALIASES_KEY = "centralperk-pending-email-aliases-v1";
 
 const DEMO_LOCAL_PART_HINTS = [
   "demo",
@@ -59,6 +60,12 @@ type DemoAccount = {
   createdAt: string;
 };
 
+type PendingEmailAlias = {
+  pendingEmail: string;
+  authEmail: string;
+  updatedAt: string;
+};
+
 export type RegisterCustomerResult = {
   authMode: "demo" | "supabase";
   emailConfirmationRequired: boolean;
@@ -78,6 +85,7 @@ class AuthFlowError extends Error {
   constructor(
     public readonly code:
       | "INVALID_EMAIL"
+      | "INVALID_PHONE"
       | "INVALID_PASSWORD"
       | "MISSING_PASSWORD"
       | "DUPLICATE_EMAIL"
@@ -99,12 +107,94 @@ function normalizeEmail(rawEmail: string): string {
   return rawEmail.trim().toLowerCase();
 }
 
+function loadPendingEmailAliases(): PendingEmailAlias[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = localStorage.getItem(PENDING_EMAIL_ALIASES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PendingEmailAlias[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry) => Boolean(entry?.pendingEmail && entry?.authEmail));
+  } catch {
+    return [];
+  }
+}
+
+function savePendingEmailAliases(aliases: PendingEmailAlias[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PENDING_EMAIL_ALIASES_KEY, JSON.stringify(aliases));
+}
+
+export function rememberPendingEmailAlias(pendingEmail: string, authEmail: string): void {
+  const normalizedPendingEmail = normalizeEmail(pendingEmail);
+  const normalizedAuthEmail = normalizeEmail(authEmail);
+  if (!normalizedPendingEmail || !normalizedAuthEmail) return;
+
+  const aliases = loadPendingEmailAliases().filter(
+    (entry) =>
+      entry.pendingEmail !== normalizedPendingEmail &&
+      entry.authEmail !== normalizedPendingEmail
+  );
+
+  aliases.push({
+    pendingEmail: normalizedPendingEmail,
+    authEmail: normalizedAuthEmail,
+    updatedAt: new Date().toISOString(),
+  });
+  savePendingEmailAliases(aliases);
+}
+
+export function clearPendingEmailAlias(email: string): void {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return;
+
+  const aliases = loadPendingEmailAliases().filter(
+    (entry) =>
+      entry.pendingEmail !== normalizedEmail &&
+      entry.authEmail !== normalizedEmail
+  );
+  savePendingEmailAliases(aliases);
+}
+
+function resolvePendingEmailAlias(email: string): string | null {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const alias = loadPendingEmailAliases().find((entry) => entry.pendingEmail === normalizedEmail);
+  return alias?.authEmail ?? null;
+}
+
 function normalizePhoneNumber(rawPhone: string): string {
   const trimmed = rawPhone.trim();
   if (!trimmed) return "";
   const digitsOnly = trimmed.replace(/\D/g, "");
   if (!digitsOnly) return "";
   return trimmed.startsWith("+") ? `+${digitsOnly}` : digitsOnly;
+}
+
+function normalizePhilippinePhoneNumber(rawPhone: string): string {
+  const digitsOnly = rawPhone.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+
+  if (digitsOnly.startsWith("09") && digitsOnly.length === 11) {
+    return `+63${digitsOnly.slice(1)}`;
+  }
+
+  if (digitsOnly.startsWith("639") && digitsOnly.length === 12) {
+    return `+${digitsOnly}`;
+  }
+
+  if (digitsOnly.startsWith("9") && digitsOnly.length === 10) {
+    return `+63${digitsOnly}`;
+  }
+
+  return normalizePhoneNumber(rawPhone);
+}
+
+export function isValidPhilippinePhoneNumber(rawPhone: string): boolean {
+  const digitsOnly = rawPhone.replace(/\D/g, "");
+  return /^(09\d{9}|639\d{9}|9\d{9})$/.test(digitsOnly);
 }
 
 function isValidEmail(email: string): boolean {
@@ -325,10 +415,13 @@ async function createOrRepairMemberProfile(input: {
 
 export async function registerCustomer(input: RegisterCustomerInput): Promise<RegisterCustomerResult> {
   const normalizedEmail = normalizeEmail(input.email);
-  const normalizedPhone = normalizePhoneNumber(input.phone);
+  const normalizedPhone = normalizePhilippinePhoneNumber(input.phone);
 
   if (!isValidEmail(normalizedEmail)) {
     throw new AuthFlowError("INVALID_EMAIL", "Please enter a valid email address.");
+  }
+  if (!isValidPhilippinePhoneNumber(input.phone)) {
+    throw new AuthFlowError("INVALID_PHONE", "Please enter a valid Philippine mobile number.");
   }
   if (!input.password) {
     throw new AuthFlowError("MISSING_PASSWORD", "Password is required.");
@@ -474,10 +567,41 @@ export async function loginCustomer(input: { email: string; password: string; ro
 
   console.info("SUPABASE LOGIN PATH USED");
   const authEmail = input.role === "admin" ? `${input.email.trim()}@admin.loyaltyhub.com` : normalizedEmail;
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: authEmail,
-    password: input.password,
-  });
+  const attemptedEmails =
+    input.role === "customer"
+      ? [authEmail, resolvePendingEmailAlias(normalizedEmail)].filter(
+          (value, index, list): value is string => Boolean(value) && list.indexOf(value) === index
+        )
+      : [authEmail];
+
+  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"] | null = null;
+  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["error"] | null = null;
+
+  for (const attemptedEmail of attemptedEmails) {
+    const result = await supabase.auth.signInWithPassword({
+      email: attemptedEmail,
+      password: input.password,
+    });
+
+    data = result.data;
+    error = result.error;
+
+    if (!error) {
+      if (attemptedEmail === normalizedEmail) {
+        clearPendingEmailAlias(normalizedEmail);
+      }
+      break;
+    }
+
+    const signInCode = String(error.code ?? "").toLowerCase();
+    const signInMessage = String(error.message ?? "").toLowerCase();
+    const isInvalidCredentialsError = signInMessage.includes("invalid login credentials");
+    const isEmailNotConfirmedError = signInCode === "email_not_confirmed" || signInMessage.includes("email not confirmed");
+
+    if (!isInvalidCredentialsError && !isEmailNotConfirmedError) {
+      break;
+    }
+  }
 
   if (error) {
     const signInCode = String(error.code ?? "").toLowerCase();
@@ -516,6 +640,8 @@ export function mapAuthErrorToMessage(error: unknown): string {
   switch (error.code) {
     case "INVALID_EMAIL":
       return "Please enter a valid email address.";
+    case "INVALID_PHONE":
+      return "Please enter a valid Philippine mobile number, like +63 912 345 6789 or 09123456789.";
     case "MISSING_PASSWORD":
       return "Password is required.";
     case "INVALID_PASSWORD":

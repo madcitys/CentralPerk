@@ -7,12 +7,12 @@ import "./styles/index.css";
 const rootElement = document.getElementById("root")!;
 const root = createRoot(rootElement);
 
-const setupEnvText = `VITE_SUPABASE_URL=https://fuvhpohwxyezscryekwq.supabase.co
-VITE_SUPABASE_PROJECT_ID=fuvhpohwxyezscryekwq
-VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key_here
-VITE_SUPABASE_ANON_KEY=your_anon_key_here
-VITE_ENABLE_DEMO_AUTH=true
-VITE_FORCE_CUSTOMER_DEMO_AUTH=false`;
+const setupEnvText = `NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+NEXT_PUBLIC_ENABLE_DEMO_AUTH=true
+NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH=false`;
 
 if (!hasSupabaseConfig) {
   root.render(
@@ -84,9 +84,9 @@ if (!hasSupabaseConfig) {
           </pre>
         </div>
         <div style={{ marginTop: "20px", fontSize: "15px", lineHeight: 1.8, color: "#334155" }}>
-          <div>1. Copy <code>CentralPerk/.env.example</code> to <code>CentralPerk/.env</code>.</div>
+          <div>1. Create <code>CentralPerk/.env</code> if it does not exist yet.</div>
           <div>2. Paste the real publishable key and anon key from your Supabase project.</div>
-          <div>3. Restart <code>npm run dev</code> and reload <code>http://localhost:5173</code>.</div>
+          <div>3. Restart <code>npm run dev</code> and reload <code>http://localhost:3000</code>.</div>
         </div>
       </div>
     </div>,
