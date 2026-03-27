@@ -9,3 +9,4 @@ dist/
 *.md
 !README.md
 !AGENTS.md
+supabase/
