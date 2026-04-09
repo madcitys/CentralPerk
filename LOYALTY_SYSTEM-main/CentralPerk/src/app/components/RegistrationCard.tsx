@@ -381,18 +381,18 @@ export function RegistrationCard() {
               <label htmlFor="password" className="block mb-2 text-gray-700 font-medium">
                 Password
               </label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
-                placeholder="Minimum 6 characters"
-                required
-                minLength={6}
-              />
-            </div>
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
+                  placeholder="Minimum 8 characters"
+                  required
+                  minLength={8}
+                />
+              </div>
 
             <div>
               <label htmlFor="referralCode" className="block mb-2 text-gray-700 font-medium">

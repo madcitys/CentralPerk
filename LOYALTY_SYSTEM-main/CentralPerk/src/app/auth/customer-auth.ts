@@ -171,6 +171,52 @@ function isRateLimitError(rawError: unknown): boolean {
   return status === 429 || code.includes("over_email_send_rate_limit") || hasAnyHint(text, AUTH_RATE_LIMIT_HINTS);
 }
 
+function getMemberDedupKey(member: Record<string, any>): string {
+  const id = member.id ?? member.member_id;
+  if (id !== undefined && id !== null && String(id).trim()) {
+    return `id:${String(id)}`;
+  }
+
+  const email = normalizeEmail(String(member.email ?? ""));
+  const phone = normalizePhoneNumber(String(member.phone ?? ""));
+  return `identity:${email}:${phone}`;
+}
+
+async function findMembersByEmailOrPhone(input: {
+  email: string;
+  phone: string;
+  columns: string;
+}): Promise<Array<Record<string, any>>> {
+  const queries = [
+    supabase.from("loyalty_members").select(input.columns).eq("email", input.email),
+  ];
+
+  if (input.phone) {
+    queries.push(
+      supabase.from("loyalty_members").select(input.columns).eq("phone", input.phone)
+    );
+  }
+
+  const results = await Promise.all(queries);
+  const members: Array<Record<string, any>> = [];
+  const seenKeys = new Set<string>();
+
+  for (const { data, error } of results) {
+    if (error) {
+      throw error;
+    }
+
+    for (const member of data ?? []) {
+      const dedupeKey = getMemberDedupKey(member);
+      if (seenKeys.has(dedupeKey)) continue;
+      seenKeys.add(dedupeKey);
+      members.push(member as Record<string, any>);
+    }
+  }
+
+  return members;
+}
+
 export function isDemoEmail(rawEmail: string): boolean {
   const normalized = normalizeEmail(rawEmail);
   const [localPart = "", domain = ""] = normalized.split("@");
@@ -283,12 +329,19 @@ async function createOrRepairMemberProfile(input: {
     throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", insertError);
   }
 
-  const { data: existingMember, error: existingMemberError } = await supabase
-    .from("loyalty_members")
-    .select(MEMBER_SELECT_COLUMNS)
-    .or(`email.ilike.${input.email},phone.eq.${input.phone}`)
-    .limit(1)
-    .maybeSingle();
+  let existingMember: Record<string, any> | null = null;
+  let existingMemberError: unknown = null;
+
+  try {
+    const existingMembers = await findMembersByEmailOrPhone({
+      email: input.email,
+      phone: input.phone,
+      columns: MEMBER_SELECT_COLUMNS,
+    });
+    existingMember = existingMembers[0] ?? null;
+  } catch (error) {
+    existingMemberError = error;
+  }
 
   if (existingMemberError || !existingMember) {
     throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", existingMemberError);
@@ -337,10 +390,18 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
     throw new AuthFlowError("INVALID_PASSWORD", "Password must be at least 8 characters long.");
   }
 
-  const { data: existingMembers, error: existingMembersError } = await supabase
-    .from("loyalty_members")
-    .select("email, phone")
-    .or(`email.ilike.${normalizedEmail},phone.eq.${normalizedPhone}`);
+  let existingMembers: Array<Record<string, any>> = [];
+  let existingMembersError: unknown = null;
+
+  try {
+    existingMembers = await findMembersByEmailOrPhone({
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      columns: "id, email, phone",
+    });
+  } catch (error) {
+    existingMembersError = error;
+  }
 
   if (existingMembersError) {
     throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to validate existing customer records.", existingMembersError);
