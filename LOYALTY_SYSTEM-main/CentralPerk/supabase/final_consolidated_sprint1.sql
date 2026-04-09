@@ -1775,7 +1775,7 @@ as $$
 declare
   v_campaign public.promotion_campaigns%rowtype;
 begin
-  update public.promotion_campaigns
+  update public.promotion_campaigns as pc
   set
     flash_sale_claimed_count = flash_sale_claimed_count + 1,
     status = case
@@ -1783,18 +1783,18 @@ begin
       else status
     end,
     updated_at = now()
-  where id = p_campaign_id
-    and campaign_type = 'flash_sale'
-    and now() >= starts_at
-    and now() <= ends_at
-    and (flash_sale_quantity_limit is null or flash_sale_claimed_count < flash_sale_quantity_limit)
+  where pc.id = p_campaign_id
+    and pc.campaign_type = 'flash_sale'
+    and now() >= pc.starts_at
+    and now() <= pc.ends_at
+    and (pc.flash_sale_quantity_limit is null or pc.flash_sale_claimed_count < pc.flash_sale_quantity_limit)
   returning * into v_campaign;
 
   if not found then
     select *
     into v_campaign
-    from public.promotion_campaigns
-    where id = p_campaign_id;
+    from public.promotion_campaigns pc
+    where pc.id = p_campaign_id;
 
     if v_campaign.id is null then
       raise exception 'Flash sale campaign not found.';

@@ -9,3 +9,5 @@ dist/
 *.md
 !README.md
 !AGENTS.md
+tests/load/results/
+!tests/load/results/.gitkeep

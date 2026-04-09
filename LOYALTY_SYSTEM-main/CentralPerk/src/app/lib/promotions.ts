@@ -2,6 +2,9 @@ import { supabase } from "../../utils/supabase/client";
 
 type AnyRecord = Record<string, any>;
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type PromotionCampaignType = "bonus_points" | "flash_sale" | "multiplier_event";
 
 export type PromotionCampaignStatus = "draft" | "scheduled" | "active" | "completed" | "archived";
@@ -121,6 +124,12 @@ export type BadgeLeaderboardEntry = {
   badgeCount: number;
 };
 
+function createStatusError(message: string, statusCode: number) {
+  const error = new Error(message);
+  (error as Error & { statusCode?: number }).statusCode = statusCode;
+  return error;
+}
+
 function normalizeCampaign(row: AnyRecord): PromotionCampaign {
   const reward = row.rewards_catalog as AnyRecord | null;
 
@@ -199,6 +208,35 @@ async function lookupMemberId(memberIdentifier?: string, fallbackEmail?: string)
   return null;
 }
 
+export async function resolvePromotionCampaignId(reference: string) {
+  const trimmedReference = reference.trim();
+  if (!trimmedReference) return null;
+
+  if (UUID_PATTERN.test(trimmedReference)) {
+    const byId = await supabase
+      .from("promotion_campaigns")
+      .select("id")
+      .eq("id", trimmedReference)
+      .limit(1)
+      .maybeSingle();
+
+    if (byId.error) throw byId.error;
+    if (byId.data?.id) return String(byId.data.id);
+  }
+
+  const byCode = await supabase
+    .from("promotion_campaigns")
+    .select("id")
+    .ilike("campaign_code", trimmedReference)
+    .limit(1)
+    .maybeSingle();
+
+  if (byCode.error) throw byCode.error;
+  if (byCode.data?.id) return String(byCode.data.id);
+
+  return null;
+}
+
 export async function loadPromotionCampaigns(): Promise<PromotionCampaign[]> {
   const { data, error } = await supabase
     .from("promotion_campaigns")
@@ -266,12 +304,92 @@ export async function savePromotionCampaign(input: PromotionCampaignInput) {
 }
 
 export async function queueCampaignNotifications(campaignId: string) {
+  const resolvedCampaignId = await resolvePromotionCampaignId(campaignId);
+  if (!resolvedCampaignId) {
+    const error = new Error("Campaign not found.");
+    (error as Error & { statusCode?: number }).statusCode = 404;
+    throw error;
+  }
+
   const { data, error } = await supabase.rpc("loyalty_queue_campaign_notifications", {
-    p_campaign_id: campaignId,
+    p_campaign_id: resolvedCampaignId,
   });
 
   if (error) throw error;
   return Number(data || 0);
+}
+
+export async function claimFlashSaleCampaign(campaignReference: string) {
+  const resolvedCampaignId = await resolvePromotionCampaignId(campaignReference);
+  if (!resolvedCampaignId) {
+    throw createStatusError("Campaign not found.", 404);
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const campaignRes = await supabase
+      .from("promotion_campaigns")
+      .select("id,campaign_type,status,flash_sale_quantity_limit,flash_sale_claimed_count,starts_at,ends_at")
+      .eq("id", resolvedCampaignId)
+      .limit(1)
+      .maybeSingle();
+
+    if (campaignRes.error) throw campaignRes.error;
+    if (!campaignRes.data?.id) {
+      throw createStatusError("Flash sale campaign not found.", 404);
+    }
+
+    const campaign = campaignRes.data as AnyRecord;
+    if (String(campaign.campaign_type || "") !== "flash_sale") {
+      throw createStatusError("Campaign is not a flash sale.", 400);
+    }
+
+    const now = Date.now();
+    const startsAt = new Date(String(campaign.starts_at ?? "")).getTime();
+    const endsAt = new Date(String(campaign.ends_at ?? "")).getTime();
+    if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || now < startsAt || now > endsAt) {
+      throw createStatusError("Flash sale time limit expired.", 409);
+    }
+
+    const claimedCount = Number(campaign.flash_sale_claimed_count ?? 0);
+    const quantityLimit =
+      campaign.flash_sale_quantity_limit === null || campaign.flash_sale_quantity_limit === undefined
+        ? null
+        : Number(campaign.flash_sale_quantity_limit);
+
+    if (quantityLimit !== null && claimedCount >= quantityLimit) {
+      throw createStatusError("Flash sale quantity limit reached (Sold Out).", 409);
+    }
+
+    const nextClaimedCount = claimedCount + 1;
+    const updateRes = await supabase
+      .from("promotion_campaigns")
+      .update({
+        flash_sale_claimed_count: nextClaimedCount,
+        status: quantityLimit !== null && nextClaimedCount >= quantityLimit ? "completed" : String(campaign.status || "active"),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", resolvedCampaignId)
+      .eq("flash_sale_claimed_count", claimedCount)
+      .select("id,flash_sale_claimed_count,flash_sale_quantity_limit,ends_at,status")
+      .limit(1)
+      .maybeSingle();
+
+    if (updateRes.error) throw updateRes.error;
+    if (updateRes.data?.id) {
+      return {
+        campaignId: String(updateRes.data.id),
+        claimedCount: Number(updateRes.data.flash_sale_claimed_count ?? nextClaimedCount),
+        quantityLimit:
+          updateRes.data.flash_sale_quantity_limit === null || updateRes.data.flash_sale_quantity_limit === undefined
+            ? null
+            : Number(updateRes.data.flash_sale_quantity_limit),
+        endsAt: String(updateRes.data.ends_at ?? campaign.ends_at ?? new Date().toISOString()),
+        status: String(updateRes.data.status || "active"),
+      };
+    }
+  }
+
+  throw createStatusError("Unable to claim flash sale due to concurrent updates. Please retry.", 409);
 }
 
 export async function loadCampaignPerformance(): Promise<CampaignPerformance[]> {
@@ -393,4 +511,3 @@ export async function loadBadgeLeaderboard(limit = 10) {
     badgeCount: Number(row.badge_count ?? 0),
   })) as BadgeLeaderboardEntry[];
 }
-

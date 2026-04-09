@@ -1,0 +1,322 @@
+{
+  "consumer": {
+    "name": "centralperk-web"
+  },
+  "interactions": [
+    {
+      "description": "a flash sale claim request",
+      "providerStates": [
+        {
+          "name": "an active flash sale still has quantity remaining"
+        }
+      ],
+      "request": {
+        "body": {
+          "campaignId": "cmp-grab-flash",
+          "memberId": 1,
+          "rewardCatalogId": 9
+        },
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.campaignId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.memberId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.rewardCatalogId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          },
+          "header": {}
+        },
+        "method": "POST",
+        "path": "/api/campaigns/flash-sale/claim"
+      },
+      "response": {
+        "body": {
+          "campaignId": "cmp-grab-flash",
+          "claimedCount": 41,
+          "endsAt": "2026-04-08T23:59:59.000Z",
+          "quantityLimit": 100,
+          "status": "active"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "matchingRules": {
+          "body": {
+            "$.campaignId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.claimedCount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.endsAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                  "match": "datetime"
+                }
+              ]
+            },
+            "$.quantityLimit": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "scheduled|active|completed"
+                }
+              ]
+            }
+          },
+          "header": {},
+          "status": {}
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a purchase campaign resolution request",
+      "providerStates": [
+        {
+          "name": "active bonus and multiplier campaigns exist for beverage purchases"
+        }
+      ],
+      "request": {
+        "body": {
+          "basePoints": 18,
+          "memberId": 1,
+          "memberTier": "Gold",
+          "productScope": "beverage",
+          "purchaseAmount": 180.5
+        },
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.basePoints": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.memberId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.memberTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "Bronze|Silver|Gold"
+                }
+              ]
+            },
+            "$.productScope": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.purchaseAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "decimal"
+                }
+              ]
+            }
+          },
+          "header": {}
+        },
+        "method": "POST",
+        "path": "/api/campaigns/resolve-purchase"
+      },
+      "response": {
+        "body": {
+          "campaignCount": 2,
+          "campaigns": [
+            {
+              "appliedMultiplier": 2,
+              "awardedPoints": 18,
+              "campaignId": "cmp-weekend-2x",
+              "campaignName": "Double Points Weekend",
+              "campaignType": "multiplier_event",
+              "endsAt": "2026-04-10T23:59:59.000Z",
+              "minimumPurchaseAmount": 50,
+              "startsAt": "2026-04-08T00:00:00.000Z"
+            }
+          ],
+          "totalAwardedPoints": 36
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "matchingRules": {
+          "body": {
+            "$.campaignCount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.campaigns": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.campaigns[*].appliedMultiplier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaigns[*].awardedPoints": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.campaigns[*].campaignId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaigns[*].campaignName": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaigns[*].campaignType": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "bonus_points|multiplier_event"
+                }
+              ]
+            },
+            "$.campaigns[*].endsAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                  "match": "datetime"
+                }
+              ]
+            },
+            "$.campaigns[*].minimumPurchaseAmount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaigns[*].startsAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                  "match": "datetime"
+                }
+              ]
+            },
+            "$.totalAwardedPoints": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          },
+          "header": {},
+          "status": {}
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "13.2.0"
+    },
+    "pactRust": {
+      "ffi": "0.4.22",
+      "models": "1.2.3"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "campaign-service-api"
+  }
+}

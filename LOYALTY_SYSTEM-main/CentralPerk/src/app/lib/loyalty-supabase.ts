@@ -1,6 +1,7 @@
 import { supabase } from "../../utils/supabase/client";
 import type { EarnOpportunity, MemberData, Reward, Transaction } from "../types/loyalty";
 import { getCurrentCustomerSession } from "../auth/auth";
+import { claimFlashSaleCampaign, loadMemberBadgeProgress } from "./promotions";
 import {
   DEFAULT_TIER_RULES,
   monthKey,
@@ -10,7 +11,6 @@ import {
   type SupportedTier,
   type TierRule,
 } from "./loyalty-engine";
-import { loadMemberBadgeProgress } from "./promotions";
 
 type AnyRecord = Record<string, any>;
 // Demo toggle for profile email edits:
@@ -433,6 +433,37 @@ async function loadActiveFlashSaleCampaignForReward(rewardCatalogId: string | nu
   return active || null;
 }
 
+async function resolveRewardCatalogId(rewardReference?: string | number | null) {
+  if (rewardReference === undefined || rewardReference === null || rewardReference === "") return null;
+
+  if (typeof rewardReference === "number" && Number.isFinite(rewardReference)) {
+    return Number(rewardReference);
+  }
+
+  const trimmedReference = String(rewardReference).trim();
+  if (!trimmedReference) return null;
+
+  if (/^\d+$/.test(trimmedReference)) {
+    return Number(trimmedReference);
+  }
+
+  const { data, error } = await supabase
+    .from("rewards_catalog")
+    .select("id")
+    .ilike("reward_id", trimmedReference)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data?.id) {
+    const notFoundError = new Error("Reward not found.");
+    (notFoundError as Error & { statusCode?: number }).statusCode = 404;
+    throw notFoundError;
+  }
+
+  return Number(data.id);
+}
+
 export async function loadRewardsCatalog(): Promise<Reward[]> {
   let rewardRows: AnyRecord[] = [];
   const rewardsWithPartner = await supabase
@@ -793,6 +824,7 @@ export async function awardMemberPoints(input: {
   amountSpent?: number;
   productCode?: string;
   productCategory?: string;
+  idempotencyKey?: string;
 }) {
   const member = await findMember(input.memberIdentifier, input.fallbackEmail);
   if (!member) throw new Error("Member not found in loyalty_members.");
@@ -824,6 +856,7 @@ export async function awardMemberPoints(input: {
   if (input.amountSpent !== undefined) txPayload.amount_spent = input.amountSpent;
   if (input.productCode) txPayload.product_code = input.productCode.trim();
   if (input.productCategory) txPayload.product_category = input.productCategory.trim();
+  if (input.idempotencyKey?.trim()) txPayload.receipt_id = input.idempotencyKey.trim();
   if (input.transactionType === "PURCHASE") {
     txPayload.expiry_date = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   }
@@ -839,6 +872,7 @@ export async function awardMemberPoints(input: {
         amount_spent: input.amountSpent ?? 0,
         reason: `${campaign.campaign_name} bonus`,
         promotion_campaign_id: campaign.campaign_id,
+        receipt_id: input.idempotencyKey?.trim() ? `${input.idempotencyKey.trim()}:bonus:${campaign.campaign_id}` : undefined,
         product_code: input.productCode?.trim() || null,
         product_category: input.productCategory?.trim() || null,
         expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
@@ -866,6 +900,7 @@ export async function redeemMemberPoints(input: {
   transactionType?: "REDEEM" | "GIFT";
   rewardCatalogId?: string | number;
   promotionCampaignId?: string | null;
+  idempotencyKey?: string;
 }) {
   const member = await findMember(input.memberIdentifier, input.fallbackEmail);
   if (!member) throw new Error("Member not found in loyalty_members.");
@@ -874,19 +909,22 @@ export async function redeemMemberPoints(input: {
 
   const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
   const pointsToDeduct = Math.max(0, Math.floor(input.points));
-  if (pointsToDeduct > currentBalance) throw new Error("Not enough points.");
+  if (pointsToDeduct > currentBalance) {
+    const error = new Error("Not enough points.");
+    (error as Error & { statusCode?: number }).statusCode = 409;
+    throw error;
+  }
+
+  const resolvedRewardCatalogId = await resolveRewardCatalogId(input.rewardCatalogId);
 
   let flashSaleCampaignId = input.promotionCampaignId || null;
-  if (!flashSaleCampaignId && input.rewardCatalogId !== undefined) {
-    const activeFlashSale = await loadActiveFlashSaleCampaignForReward(input.rewardCatalogId);
+  if (!flashSaleCampaignId && resolvedRewardCatalogId !== null) {
+    const activeFlashSale = await loadActiveFlashSaleCampaignForReward(resolvedRewardCatalogId);
     flashSaleCampaignId = activeFlashSale?.id ? String(activeFlashSale.id) : null;
   }
 
   if (flashSaleCampaignId) {
-    const flashSaleClaim = await supabase.rpc("loyalty_claim_flash_sale_campaign", {
-      p_campaign_id: flashSaleCampaignId,
-    });
-    if (flashSaleClaim.error) throw flashSaleClaim.error;
+    await claimFlashSaleCampaign(flashSaleCampaignId);
   }
 
   await insertLoyaltyTransaction({
@@ -894,9 +932,9 @@ export async function redeemMemberPoints(input: {
     transaction_type: input.transactionType ?? "REDEEM",
     points: -Math.abs(pointsToDeduct),
     reason: input.reason,
-    reward_catalog_id:
-      input.rewardCatalogId === undefined || input.rewardCatalogId === null ? null : Number(input.rewardCatalogId),
+    reward_catalog_id: resolvedRewardCatalogId,
     promotion_campaign_id: flashSaleCampaignId,
+    receipt_id: input.idempotencyKey?.trim() || undefined,
   });
 
   const fifoConsume = await supabase.rpc("loyalty_consume_points_fifo", {

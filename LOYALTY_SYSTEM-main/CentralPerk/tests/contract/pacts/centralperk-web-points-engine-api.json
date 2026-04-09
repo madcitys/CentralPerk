@@ -1,0 +1,312 @@
+{
+  "consumer": {
+    "name": "centralperk-web"
+  },
+  "interactions": [
+    {
+      "description": "a purchase points award request",
+      "providerStates": [
+        {
+          "name": "member MEM-000001 exists and is eligible for a purchase award"
+        }
+      ],
+      "request": {
+        "body": {
+          "amountSpent": 125.5,
+          "fallbackEmail": "john@example.com",
+          "memberIdentifier": "MEM-000001",
+          "points": 0,
+          "productCategory": "beverage",
+          "productCode": "LATTE-ICED",
+          "reason": "Iced latte order",
+          "transactionType": "PURCHASE"
+        },
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.amountSpent": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "decimal"
+                }
+              ]
+            },
+            "$.points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          },
+          "header": {}
+        },
+        "method": "POST",
+        "path": "/api/points/award"
+      },
+      "response": {
+        "body": {
+          "appliedCampaigns": [
+            {
+              "applied_multiplier": 2,
+              "awarded_points": 10,
+              "campaign_id": "campaign-weekend-2x",
+              "campaign_name": "Double Points Weekend",
+              "campaign_type": "multiplier_event",
+              "minimum_purchase_amount": 50
+            }
+          ],
+          "bonusPointsAdded": 10,
+          "newBalance": 420,
+          "newTier": "Silver",
+          "pointsAdded": 30
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "matchingRules": {
+          "body": {
+            "$.appliedCampaigns": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].applied_multiplier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].awarded_points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].campaign_id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].campaign_name": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].campaign_type": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "bonus_points|multiplier_event"
+                }
+              ]
+            },
+            "$.appliedCampaigns[*].minimum_purchase_amount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.bonusPointsAdded": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.newBalance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.newTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "Bronze|Silver|Gold"
+                }
+              ]
+            },
+            "$.pointsAdded": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          },
+          "header": {},
+          "status": {}
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a reward redemption request",
+      "providerStates": [
+        {
+          "name": "member MEM-000001 has enough points for redemption"
+        }
+      ],
+      "request": {
+        "body": {
+          "fallbackEmail": "john@example.com",
+          "idempotencyKey": "redeem-MEM-000001-2026-04-08T10:30",
+          "memberIdentifier": "MEM-000001",
+          "points": 120,
+          "reason": "Free Regular Coffee Redemption",
+          "rewardCatalogId": 9,
+          "transactionType": "REDEEM"
+        },
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.idempotencyKey": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.rewardCatalogId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          },
+          "header": {}
+        },
+        "method": "POST",
+        "path": "/api/points/redeem"
+      },
+      "response": {
+        "body": {
+          "idempotencyKey": "redeem-MEM-000001-2026-04-08T10:30",
+          "ledgerEntryId": 9901,
+          "newBalance": 300,
+          "newTier": "Silver",
+          "pointsDeducted": 120,
+          "processedAt": "2026-04-08T10:30:00.000Z"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "matchingRules": {
+          "body": {
+            "$.idempotencyKey": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.ledgerEntryId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.newBalance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.newTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "Bronze|Silver|Gold"
+                }
+              ]
+            },
+            "$.pointsDeducted": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.processedAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                  "match": "datetime"
+                }
+              ]
+            }
+          },
+          "header": {},
+          "status": {}
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "13.2.0"
+    },
+    "pactRust": {
+      "ffi": "0.4.22",
+      "models": "1.2.3"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "points-engine-api"
+  }
+}
