@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../../utils/supabase/client';
+import { hasSupabaseConfig, supabase, supabaseConfigError } from '../../utils/supabase/client';
 import { clearStoredAuth, getRoleFromSession } from '../auth/auth';
 import { trackMemberLoginActivity } from '../lib/loyalty-supabase';
 import { AUTH_REQUIRE_EMAIL_CONFIRMATION_HINT } from '../auth/auth-config';
@@ -19,9 +19,16 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loginRole, setLoginRole] = useState<'customer' | 'admin'>('admin');
+  const [loginRole, setLoginRole] = useState<'customer' | 'admin'>('customer');
   const navigate = useNavigate();
   const normalizeEmail = (rawEmail: string) => rawEmail.trim().toLowerCase();
+  const normalizeAdminEmail = (rawEmail: string) => {
+    const normalized = rawEmail.trim().toLowerCase();
+    if (!normalized) return '';
+    return normalized.endsWith('@admin.loyaltyhub.com')
+      ? normalized
+      : `${normalized}@admin.loyaltyhub.com`;
+  };
 
   const profileExistsForEmail = async (normalizedEmail: string) => {
     const { data, error: profileLookupError } = await supabase
@@ -44,9 +51,15 @@ export function LoginPage() {
     setError(null);
 
     try {
+      if (loginRole === 'admin' && !hasSupabaseConfig) {
+        setError(supabaseConfigError);
+        setIsSubmitting(false);
+        return;
+      }
+
       const normalizedCustomerEmail = normalizeEmail(email);
       const loginResult = await loginCustomer({ email, password, role: loginRole });
-      const authEmail = loginRole === 'admin' ? `${email.trim()}@admin.loyaltyhub.com` : normalizedCustomerEmail;
+      const authEmail = loginRole === 'admin' ? normalizeAdminEmail(email) : normalizedCustomerEmail;
 
       if (loginResult.accessToken) {
         if (loginResult.authMode === 'supabase') {
@@ -89,6 +102,16 @@ export function LoginPage() {
     } catch (err) {
       if (loginRole === 'admin') {
         const message = mapAuthErrorToMessage(err);
+        const normalizedMessage = message.toLowerCase();
+        const isConfigOrProjectIssue =
+          normalizedMessage.includes('missing supabase environment variables') ||
+          normalizedMessage.includes('invalid api key') ||
+          normalizedMessage.includes('project not found') ||
+          normalizedMessage.includes('failed to fetch') ||
+          normalizedMessage.includes('fetch failed') ||
+          normalizedMessage.includes('network') ||
+          normalizedMessage.includes('unable to sign in');
+
         if (message.includes('Email confirmation is still required')) {
           setError(
             AUTH_REQUIRE_EMAIL_CONFIRMATION_HINT
@@ -97,6 +120,8 @@ export function LoginPage() {
           );
         } else if (message.toLowerCase().includes('rate limit')) {
           setError(message);
+        } else if (isConfigOrProjectIssue) {
+          setError(`Admin login could not reach the expected Supabase project. ${message}`);
         } else {
           setError('Invalid Admin ID or password. Please check your credentials and try again. Admin accounts must be created in Supabase with the email format: ADMINID@admin.loyaltyhub.com');
         }

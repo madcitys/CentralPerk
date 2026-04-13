@@ -6,6 +6,7 @@ const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
 const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH === "true";
 const MIN_PASSWORD_LENGTH = 8;
 const DEMO_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ADMIN_SUFFIX = "@admin.loyaltyhub.com";
 
 const DEMO_LOCAL_PART_HINTS = [
   "demo",
@@ -105,6 +106,12 @@ function normalizePhoneNumber(rawPhone: string): string {
   const digitsOnly = trimmed.replace(/\D/g, "");
   if (!digitsOnly) return "";
   return trimmed.startsWith("+") ? `+${digitsOnly}` : digitsOnly;
+}
+
+function normalizeAdminAuthEmail(rawEmail: string): string {
+  const normalized = rawEmail.trim().toLowerCase();
+  if (!normalized) return "";
+  return normalized.endsWith(ADMIN_SUFFIX) ? normalized : `${normalized}${ADMIN_SUFFIX}`;
 }
 
 function isValidEmail(email: string): boolean {
@@ -534,7 +541,7 @@ export async function loginCustomer(input: { email: string; password: string; ro
   }
 
   console.info("SUPABASE LOGIN PATH USED");
-  const authEmail = input.role === "admin" ? `${input.email.trim()}@admin.loyaltyhub.com` : normalizedEmail;
+  const authEmail = input.role === "admin" ? normalizeAdminAuthEmail(input.email) : normalizedEmail;
   const { data, error } = await supabase.auth.signInWithPassword({
     email: authEmail,
     password: input.password,

@@ -16,12 +16,21 @@ export type CustomerSession = {
   expiresAt: string;
 };
 
+function getBrowserStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  if (typeof window.localStorage === "undefined") return null;
+  return window.localStorage;
+}
+
 export function clearStoredAuth() {
-  localStorage.removeItem("role");
-  localStorage.removeItem("token");
-  localStorage.removeItem("user_id");
-  localStorage.removeItem(CUSTOMER_SESSION_KEY);
-  localStorage.removeItem(CUSTOMER_DASHBOARD_USER_KEY);
+  const storage = getBrowserStorage();
+  if (!storage) return;
+
+  storage.removeItem("role");
+  storage.removeItem("token");
+  storage.removeItem("user_id");
+  storage.removeItem(CUSTOMER_SESSION_KEY);
+  storage.removeItem(CUSTOMER_DASHBOARD_USER_KEY);
 }
 
 function inferRoleFromEmail(email?: string | null): Role | null {
@@ -36,18 +45,21 @@ function normalizeRole(raw: unknown): Role | null {
 }
 
 function loadCustomerSession(): CustomerSession | null {
+  const storage = getBrowserStorage();
+  if (!storage) return null;
+
   try {
-    const raw = localStorage.getItem(CUSTOMER_SESSION_KEY);
+    const raw = storage.getItem(CUSTOMER_SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CustomerSession;
     if (!parsed?.memberId || !parsed?.phone || !parsed?.expiresAt) return null;
     if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-      localStorage.removeItem(CUSTOMER_SESSION_KEY);
+      storage.removeItem(CUSTOMER_SESSION_KEY);
       return null;
     }
     return parsed;
   } catch {
-    localStorage.removeItem(CUSTOMER_SESSION_KEY);
+    storage.removeItem(CUSTOMER_SESSION_KEY);
     return null;
   }
 }
@@ -61,14 +73,20 @@ export function getCurrentCustomerSession() {
 }
 
 export function setStoredCustomerSession(session: Omit<CustomerSession, "role">) {
+  const storage = getBrowserStorage();
+  if (!storage) return;
+
   const payload: CustomerSession = { role: "customer", ...session };
-  localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(payload));
+  storage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(payload));
 }
 
 export function touchStoredCustomerSession() {
+  const storage = getBrowserStorage();
+  if (!storage) return;
+
   const session = loadCustomerSession();
   if (!session) return;
-  localStorage.setItem(
+  storage.setItem(
     CUSTOMER_SESSION_KEY,
     JSON.stringify({
       ...session,
