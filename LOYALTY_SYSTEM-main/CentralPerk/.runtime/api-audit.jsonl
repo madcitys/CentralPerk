@@ -1,0 +1,6 @@
+{"route":"/api/notifications","method":"GET","ip":"127.0.0.1","actor":null,"statusCode":200,"durationMs":283,"createdAt":"2026-04-14T13:14:06.536Z","summary":{},"idempotencyKey":null,"error":null}
+{"route":"/api/notifications","method":"GET","ip":"127.0.0.1","actor":null,"statusCode":304,"durationMs":240,"createdAt":"2026-04-14T13:14:06.795Z","summary":{},"idempotencyKey":null,"error":null}
+{"route":"/api/segments/preview","method":"POST","ip":"127.0.0.1","actor":null,"statusCode":500,"durationMs":509,"createdAt":"2026-04-14T13:14:15.447Z","summary":{"logicMode":"AND","conditions":2},"idempotencyKey":null,"error":"Unexpected server error"}
+{"route":"/api/notifications","method":"GET","ip":"127.0.0.1","actor":null,"statusCode":200,"durationMs":415,"createdAt":"2026-04-14T13:20:54.702Z","summary":{},"idempotencyKey":null,"error":null}
+{"route":"/api/notifications","method":"GET","ip":"127.0.0.1","actor":null,"statusCode":304,"durationMs":259,"createdAt":"2026-04-14T13:20:55.011Z","summary":{},"idempotencyKey":null,"error":null}
+{"route":"/api/segments/preview","method":"POST","ip":"127.0.0.1","actor":null,"statusCode":500,"durationMs":2727,"createdAt":"2026-04-14T13:23:41.264Z","summary":{"logicMode":"AND","conditions":2},"idempotencyKey":null,"error":"Unexpected server error"}
