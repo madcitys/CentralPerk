@@ -1,22 +1,23 @@
 import { createBrowserRouter, redirect } from "react-router-dom";
 import { requireRole, roleRedirect } from "./auth/guards";
+import { LoginPage } from "./pages/LoginPage";
+import { RegistrationPage } from "./pages/RegistrationPage";
 
 export const router = createBrowserRouter([
   // Smart landing
   {
     path: "/",
     loader: roleRedirect,
-    Component: () => null,
   },
 
   // Public routes
   {
     path: "/login",
-    lazy: () => import("./pages/LoginPage").then((m) => ({ Component: m.LoginPage })),
+    Component: LoginPage,
   },
   {
     path: "/register",
-    lazy: () => import("./pages/RegistrationPage").then((m) => ({ Component: m.RegistrationPage })),
+    Component: RegistrationPage,
   },
 
   // Customer protected (Member Panel)
@@ -94,8 +95,8 @@ export const router = createBrowserRouter([
   },
 
   // Backwards-compat for your old route:
-  { path: "/home", loader: () => redirect("/customer"), Component: () => null },
+  { path: "/home", loader: () => redirect("/customer") },
 
   // catch-all
-  { path: "*", loader: () => redirect("/"), Component: () => null },
+  { path: "*", loader: () => redirect("/") },
 ]);

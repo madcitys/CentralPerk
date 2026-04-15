@@ -56,6 +56,7 @@ export type ChurnInsights = {
     dormantMembers: number;
     reengagementSuccessRate: number;
   };
+  members: ChurnMemberRow[];
   atRiskMembers: ChurnMemberRow[];
   segmentRates: ChurnSegmentRate[];
   reengagementSummary: {
@@ -599,6 +600,7 @@ export function buildChurnInsights(input: {
       reengagementSuccessRate:
         input.reengagementActions.length > 0 ? toPercent((successfulActions / input.reengagementActions.length) * 100) : 0,
     },
+    members: rows,
     atRiskMembers,
     segmentRates,
     reengagementSummary: {

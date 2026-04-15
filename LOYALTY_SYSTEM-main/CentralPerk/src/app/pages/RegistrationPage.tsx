@@ -1,4 +1,4 @@
-import { RegistrationCard } from '../components/RegistrationCard';
+import { RegistrationCard } from '../../components/RegistrationCard';
 import { Link } from 'react-router-dom';
 
 export function RegistrationPage() {
@@ -16,5 +16,4 @@ export function RegistrationPage() {
     </div>
   );
 }
-
 

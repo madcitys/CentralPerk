@@ -365,7 +365,10 @@ export async function claimFlashSaleCampaign(campaignReference: string) {
       .from("promotion_campaigns")
       .update({
         flash_sale_claimed_count: nextClaimedCount,
-        status: quantityLimit !== null && nextClaimedCount >= quantityLimit ? "completed" : String(campaign.status || "active"),
+        status:
+          quantityLimit !== null && nextClaimedCount >= quantityLimit
+            ? "completed"
+            : String(campaign.status || "active"),
         updated_at: new Date().toISOString(),
       })
       .eq("id", resolvedCampaignId)

@@ -37,22 +37,69 @@ export async function awardPointsViaApi(input: {
   amountSpent?: number;
   productCode?: string;
   productCategory?: string;
-}) {
-  return requestJson<{
-    ok: true;
-    result: {
+}): Promise<{
+  ok: true;
+  result: {
+    newBalance: number;
+    newTier: string;
+    pointsAdded: number;
+    bonusPointsAdded: number;
+    appliedCampaigns: Array<Record<string, unknown>>;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  };
+  replayed: boolean;
+}> {
+  const idempotencyKey = createIdempotencyKey("points-award");
+  const response = await requestJson<{
+    ok?: true;
+    result?: {
       newBalance: number;
       newTier: string;
       pointsAdded: number;
       bonusPointsAdded: number;
       appliedCampaigns: Array<Record<string, unknown>>;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
     };
-    replayed: boolean;
+    replayed?: boolean;
+    newBalance?: number;
+    newTier?: string;
+    pointsAdded?: number;
+    bonusPointsAdded?: number;
+    appliedCampaigns?: Array<Record<string, unknown>>;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
   }>("/api/points/award", {
     method: "POST",
-    body: JSON.stringify(input),
-    idempotencyKey: createIdempotencyKey("points-award"),
+    body: JSON.stringify({
+      ...input,
+      idempotencyKey,
+    }),
+    idempotencyKey,
   });
+
+  if (response.result) {
+    return {
+      ok: true as const,
+      result: response.result,
+      replayed: Boolean(response.replayed ?? response.result.duplicate ?? false),
+    };
+  }
+
+  return {
+    ok: true as const,
+    result: {
+      newBalance: Number(response.newBalance ?? 0),
+      newTier: String(response.newTier ?? "Bronze"),
+      pointsAdded: Number(response.pointsAdded ?? 0),
+      bonusPointsAdded: Number(response.bonusPointsAdded ?? 0),
+      appliedCampaigns: Array.isArray(response.appliedCampaigns) ? response.appliedCampaigns : [],
+      duplicate: Boolean(response.duplicate ?? false),
+      idempotencyKey: response.idempotencyKey ?? idempotencyKey,
+    },
+    replayed: Boolean(response.duplicate ?? false),
+  };
 }
 
 export async function redeemPointsViaApi(input: {
@@ -63,18 +110,57 @@ export async function redeemPointsViaApi(input: {
   transactionType?: "REDEEM" | "GIFT";
   rewardCatalogId?: string | number | null;
   promotionCampaignId?: string | null;
-}) {
-  return requestJson<{
-    ok: true;
-    result: {
+}): Promise<{
+  ok: true;
+  result: {
+    newBalance: number;
+    newTier: string;
+    pointsDeducted: number;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  };
+}> {
+  const idempotencyKey = createIdempotencyKey("points-redeem");
+  const response = await requestJson<{
+    ok?: true;
+    result?: {
       newBalance: number;
       newTier: string;
       pointsDeducted: number;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
     };
+    newBalance?: number;
+    newTier?: string;
+    pointsDeducted?: number;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
   }>("/api/points/redeem", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      idempotencyKey,
+    }),
+    idempotencyKey,
   });
+
+  if (response.result) {
+    return {
+      ok: true as const,
+      result: response.result,
+    };
+  }
+
+  return {
+    ok: true as const,
+    result: {
+      newBalance: Number(response.newBalance ?? 0),
+      newTier: String(response.newTier ?? "Bronze"),
+      pointsDeducted: Number(response.pointsDeducted ?? 0),
+      duplicate: Boolean(response.duplicate ?? false),
+      idempotencyKey: response.idempotencyKey ?? idempotencyKey,
+    },
+  };
 }
 
 export async function saveCampaignViaApi(input: Record<string, unknown>) {

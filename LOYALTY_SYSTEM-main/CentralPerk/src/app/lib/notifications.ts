@@ -1,4 +1,5 @@
 import { supabase } from "../../utils/supabase/client";
+import { getCurrentCustomerSession } from "../auth/auth";
 import { canSendNotificationByPreference, loadCommunicationPreference } from "./member-lifecycle";
 
 export type AppNotification = {
@@ -19,15 +20,53 @@ function normalizeNotification(row: Record<string, any>): AppNotification {
   };
 }
 
+function dedupeNotifications(rows: Record<string, any>[]) {
+  return Array.from(
+    new Map(
+      rows
+        .sort(
+          (left, right) =>
+            new Date(String(right.created_at ?? 0)).getTime() - new Date(String(left.created_at ?? 0)).getTime()
+        )
+        .map((row) => [`${String(row.subject ?? "")}__${String(row.message ?? "")}`, row])
+    ).values()
+  );
+}
+
 export async function loadUserNotifications(limit = 20): Promise<AppNotification[]> {
+  const localSession = getCurrentCustomerSession();
   const authRes = await supabase.auth.getUser();
-  if (authRes.error) throw authRes.error;
+  if (authRes.error && !localSession) throw authRes.error;
 
   const userId = authRes.data.user?.id;
-  const authEmail = String(authRes.data.user?.email || "").trim();
+  const authEmail = String(authRes.data.user?.email || localSession?.email || "").trim();
+  const memberNumber = String(localSession?.memberId || "").trim();
+  const rpcAttempt = await supabase.rpc("loyalty_my_notifications", {
+    p_member_number: memberNumber || null,
+    p_email: authEmail || null,
+    p_limit: limit,
+  });
+  if (!rpcAttempt.error) {
+    return dedupeNotifications((rpcAttempt.data || []) as Record<string, any>[])
+      .slice(0, limit)
+      .map((row) => normalizeNotification(row));
+  }
+
   let memberId: number | null = null;
 
-  if (authEmail) {
+  if (localSession?.memberId) {
+    const memberRes = await supabase
+      .from("loyalty_members")
+      .select("id")
+      .eq("member_number", localSession.memberId)
+      .limit(1)
+      .maybeSingle();
+
+    if (memberRes.error) throw memberRes.error;
+    if (memberRes.data?.id !== undefined) memberId = Number(memberRes.data.id);
+  }
+
+  if (memberId === null && authEmail) {
     const memberRes = await supabase
       .from("loyalty_members")
       .select("id")
@@ -39,25 +78,45 @@ export async function loadUserNotifications(limit = 20): Promise<AppNotification
     if (memberRes.data?.id !== undefined) memberId = Number(memberRes.data.id);
   }
 
-  let query = supabase
-    .from("notification_outbox")
-    .select("id,subject,message,created_at,status,user_id,member_id")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const rows: Record<string, any>[] = [];
 
-  if (userId && memberId !== null) {
-    query = query.or(`user_id.eq.${userId},member_id.eq.${memberId},and(user_id.is.null,member_id.is.null)`);
-  } else if (userId) {
-    query = query.or(`user_id.eq.${userId},and(user_id.is.null,member_id.is.null)`);
-  } else if (memberId !== null) {
-    query = query.or(`member_id.eq.${memberId},and(user_id.is.null,member_id.is.null)`);
-  } else {
-    query = query.is("user_id", null).is("member_id", null);
+  if (memberId !== null) {
+    const memberQuery = await supabase
+      .from("notification_outbox")
+      .select("id,subject,message,created_at,status,user_id,member_id")
+      .eq("member_id", memberId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (memberQuery.error) throw memberQuery.error;
+    rows.push(...((memberQuery.data || []) as Record<string, any>[]));
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data || []).map((row) => normalizeNotification(row as Record<string, any>));
+  if (userId) {
+    const userQuery = await supabase
+      .from("notification_outbox")
+      .select("id,subject,message,created_at,status,user_id,member_id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (userQuery.error) throw userQuery.error;
+    rows.push(...((userQuery.data || []) as Record<string, any>[]));
+  }
+
+  if (rows.length === 0 && !userId && memberId === null) {
+    const fallbackQuery = await supabase
+      .from("notification_outbox")
+      .select("id,subject,message,created_at,status,user_id,member_id")
+      .is("user_id", null)
+      .is("member_id", null)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (fallbackQuery.error) throw fallbackQuery.error;
+    rows.push(...((fallbackQuery.data || []) as Record<string, any>[]));
+  }
+
+  const uniqueRows = dedupeNotifications(rows).slice(0, limit);
+
+  return uniqueRows.map((row) => normalizeNotification(row));
 }
 
 export async function queueSmsNotification(input: {
@@ -136,4 +195,46 @@ export async function queueMemberNotification(input: {
 
   if (error) throw error;
   return { queued: true as const };
+}
+
+export async function ensureMemberNotification(input: {
+  memberId: string;
+  channel: "sms" | "email" | "push";
+  subject: string;
+  message: string;
+  userId?: string | null;
+  isTransactional?: boolean;
+}) {
+  let memberPk: number | null = null;
+  const byMemberNumber = await supabase
+    .from("loyalty_members")
+    .select("id")
+    .eq("member_number", input.memberId)
+    .limit(1)
+    .maybeSingle();
+  if (byMemberNumber.error) throw byMemberNumber.error;
+
+  if (byMemberNumber.data?.id !== undefined) {
+    memberPk = Number(byMemberNumber.data.id);
+  } else if (Number.isFinite(Number(input.memberId))) {
+    memberPk = Number(input.memberId);
+  }
+
+  if (memberPk !== null) {
+    const existingNotification = await supabase
+      .from("notification_outbox")
+      .select("id")
+      .eq("member_id", memberPk)
+      .eq("channel", input.channel)
+      .eq("subject", input.subject)
+      .eq("message", input.message)
+      .limit(1)
+      .maybeSingle();
+    if (existingNotification.error) throw existingNotification.error;
+    if (existingNotification.data?.id) {
+      return { queued: false as const, reason: "duplicate" as const };
+    }
+  }
+
+  return queueMemberNotification(input);
 }

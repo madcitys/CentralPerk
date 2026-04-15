@@ -1,16 +1,19 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cn } from "../components/ui/utils";
+import { cn } from "../../components/ui/utils";
 import { Home, Gift, Activity, Award, User, Menu, X, Bell, Clock3, LogOut, Sparkles } from "lucide-react";
 import type { MemberData } from "../types/loyalty";
-import { ThemeInitializer } from ".././components/theme-initializer";
-import { Toaster } from "../components/ui/sonner";
+import { ThemeInitializer } from "../../components/theme-initializer";
+import { Toaster } from "../../components/ui/sonner";
 import type { AppOutletContext } from "../types/app-context";
 import { loadMemberSnapshot } from "../lib/loyalty-supabase";
-import { loadUserNotifications, type AppNotification } from "../lib/notifications";
+import type { AppNotification } from "../lib/notifications";
+import { loadNotificationsViaApi, markNotificationReadViaApi } from "../lib/api";
 
 import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth, touchStoredCustomerSession } from "../auth/auth";
+import { brandTealSolidClass } from "../lib/ui-color-tokens";
+import { customerPageShellClass } from "./lib/page-theme";
 
 const USER_STORAGE_KEY = "points-dashboard-user-v1";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -86,9 +89,21 @@ export default function Root() {
     }
   }, []);
 
+  const loadNotifications = useCallback(async () => {
+    try {
+      const response = await loadNotificationsViaApi({
+        memberId: userRef.current.memberId || undefined,
+        email: userRef.current.email || undefined,
+        limit: 20,
+      });
+      setNotifications(response.notifications.filter((item) => item.status !== "read"));
+    } catch {
+    }
+  }, []);
+
   useEffect(() => {
     refreshUser().catch(() => {});
-    loadUserNotifications().then(setNotifications).catch(() => {});
+    loadNotifications().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -99,7 +114,7 @@ export default function Root() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notification_outbox" },
         () => {
-          loadUserNotifications().then(setNotifications).catch(() => {});
+          loadNotifications().catch(() => {});
         }
       )
       .subscribe();
@@ -126,7 +141,15 @@ export default function Root() {
       supabase.removeChannel(notificationChannel);
       supabase.removeChannel(memberChannel);
     };
-  }, [refreshUser]);
+  }, [loadNotifications, refreshUser]);
+
+  const handleNotificationClick = async (notificationId: string) => {
+    try {
+      await markNotificationReadViaApi(notificationId);
+      setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+    } catch {
+    }
+  };
 
   useEffect(() => {
     const fromTransactions = deriveCompletedTaskIds(user);
@@ -167,11 +190,53 @@ export default function Root() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     clearStoredAuth();
-    navigate("/login", { replace: true });
+    localStorage.removeItem(USER_STORAGE_KEY);
+    window.location.replace("/login");
   };
 
+  const notificationPanel = (
+    <div className="absolute right-0 top-full z-50 mt-3 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+      <p className="mb-2 text-sm font-semibold text-[#1A2B47]">Notifications</p>
+      {user.expiringPoints > 0 || notifications.length > 0 ? (
+        <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+          {user.expiringPoints > 0 ? <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
+          <div className="flex items-start gap-2">
+            <Clock3 className="h-4 w-4 mt-0.5 text-[#1A2B47]" />
+            <div>
+              <p className="text-sm font-semibold text-[#1A2B47]">{user.expiringPoints} points expiring soon</p>
+              <p className="text-xs text-[#1A2B47]/80">Expires in {user.daysUntilExpiry} days.</p>
+            </div>
+          </div>
+          <NavLink
+            to={`${basePath}/rewards`}
+            onClick={() => setNotifOpen(false)}
+            className="mt-2 inline-flex rounded-md bg-[#1A2B47] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#23385a]"
+          >
+            Redeem now
+          </NavLink>
+          </div> : null}
+
+          {notifications.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleNotificationClick(item.id)}
+              className="block w-full rounded-lg border border-gray-200 bg-gray-50 p-3 text-left transition hover:border-[#c5d6ec] hover:bg-[#f7fbff]"
+            >
+              <p className="text-sm font-semibold text-[#1A2B47]">{item.subject}</p>
+              <p className="text-xs text-gray-600 mt-1">{item.message}</p>
+              <p className="text-[11px] text-gray-500 mt-1">{new Date(item.createdAt).toLocaleString()}</p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">No new notifications.</p>
+      )}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#f2fbfb_0%,#ffffff_34%,#f4f7ff_100%)]">
       <ThemeInitializer />
 
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200">
@@ -186,21 +251,24 @@ export default function Root() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setNotifOpen((s) => !s)}
-              className="relative p-2 rounded-lg hover:bg-gray-100"
-              aria-label="Notifications"
-            >
-              <Bell className="w-5 h-5 text-[#1A2B47]" />
-              {notifications.length > 0 ? (
-                <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
-                  {Math.min(notifications.length, 9)}
-                </span>
-              ) : null}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen((s) => !s)}
+                className="relative rounded-lg p-2 transition hover:bg-[#eef5ff]"
+                aria-label="Notifications"
+              >
+                <Bell className="w-5 h-5 text-[#1A2B47]" />
+                {notifications.length > 0 ? (
+                  <span className={cn("absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
+                    {Math.min(notifications.length, 9)}
+                  </span>
+                ) : null}
+              </button>
+              {notifOpen ? notificationPanel : null}
+            </div>
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 rounded-lg hover:bg-gray-100"
+              className="rounded-lg p-2 transition hover:bg-[#eef5ff]"
             >
               {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -210,7 +278,7 @@ export default function Root() {
 
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-30 w-64 bg-[#1A2B47] border-r border-white/15 transform transition-transform duration-300 ease-in-out",
+          "fixed inset-y-0 left-0 z-30 w-64 border-r border-white/15 bg-[linear-gradient(180deg,#1A2B47_0%,#203558_100%)] transform transition-transform duration-300 ease-in-out",
           "lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
@@ -218,7 +286,7 @@ export default function Root() {
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-white/15">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#00A3AD] rounded-xl flex items-center justify-center">
+              <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", brandTealSolidClass)}>
                 <span className="text-white font-bold text-lg">Z</span>
               </div>
               <div>
@@ -238,7 +306,7 @@ export default function Root() {
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-white truncate">{user.fullName}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#00A3AD] text-white">
+                  <span className="inline-flex items-center rounded bg-[#0b7f88] px-2 py-0.5 text-xs font-medium text-white">
                     {user.tier}
                   </span>
                   <span className="text-xs text-slate-300">{user.points.toLocaleString()} pts</span>
@@ -257,7 +325,7 @@ export default function Root() {
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                    isActive ? "bg-[#00A3AD] text-white" : "text-slate-100 hover:bg-white/10"
+                    isActive ? "bg-[#0b7f88] text-white" : "text-slate-100 hover:bg-white/10 hover:text-white"
                   )
                 }
               >
@@ -274,7 +342,7 @@ export default function Root() {
           <div className="p-4 border-t border-white/15 space-y-2">
             <button
               onClick={handleLogout}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/12"
             >
               <LogOut className="w-4 h-4" />
               Logout
@@ -291,58 +359,25 @@ export default function Root() {
         />
       )}
 
-      <div className="lg:pl-64 pt-16 lg:pt-0 bg-white">
-        <main className="p-4 lg:p-8">
-          <div className="mb-4 hidden lg:flex justify-end relative">
-            <button
-              onClick={() => setNotifOpen((s) => !s)}
-              className="relative inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 hover:bg-gray-50"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5 text-[#1A2B47]" />
-              {notifications.length > 0 ? (
-                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
-                  {Math.min(notifications.length, 9)}
-                </span>
-              ) : null}
-            </button>
-          </div>
-
-          {notifOpen ? (
-            <div className="mb-4 lg:absolute lg:right-8 lg:top-20 z-50 w-full max-w-sm rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
-              <p className="mb-2 text-sm font-semibold text-[#1A2B47]">Notifications</p>
-              {user.expiringPoints > 0 || notifications.length > 0 ? (
-                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-                  {user.expiringPoints > 0 ? <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
-                  <div className="flex items-start gap-2">
-                    <Clock3 className="h-4 w-4 mt-0.5 text-[#1A2B47]" />
-                    <div>
-                      <p className="text-sm font-semibold text-[#1A2B47]">{user.expiringPoints} points expiring soon</p>
-                      <p className="text-xs text-[#1A2B47]/80">Expires in {user.daysUntilExpiry} days.</p>
-                    </div>
-                  </div>
-                  <NavLink
-                    to={`${basePath}/rewards`}
-                    onClick={() => setNotifOpen(false)}
-                    className="mt-2 inline-flex rounded-md bg-[#1A2B47] px-3 py-1.5 text-xs font-medium text-white hover:brightness-110"
-                  >
-                    Redeem now
-                  </NavLink>
-                  </div> : null}
-
-                  {notifications.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                      <p className="text-sm font-semibold text-[#1A2B47]">{item.subject}</p>
-                      <p className="text-xs text-gray-600 mt-1">{item.message}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">{new Date(item.createdAt).toLocaleString()}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500">No new notifications.</p>
-              )}
+      <div className="lg:pl-64 pt-16 lg:pt-0">
+        <main className={`${customerPageShellClass} p-4 lg:p-8`}>
+          <div className="mb-4 hidden lg:flex justify-end">
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen((s) => !s)}
+                className="relative inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 transition hover:border-[#c5d6ec] hover:bg-[#f7fbff]"
+                aria-label="Notifications"
+              >
+                <Bell className="h-5 w-5 text-[#1A2B47]" />
+                {notifications.length > 0 ? (
+                  <span className={cn("absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
+                    {Math.min(notifications.length, 9)}
+                  </span>
+                ) : null}
+              </button>
+              {notifOpen ? notificationPanel : null}
             </div>
-          ) : null}
+          </div>
 
           <Outlet
             context={

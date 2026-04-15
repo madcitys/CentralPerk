@@ -4,6 +4,7 @@ import type { MemberData } from "../types/loyalty";
 const STORAGE_KEYS = {
   referrals: "centralperk-referrals-v1",
   birthdayClaims: "centralperk-birthday-claims-v1",
+  birthdaySettings: "centralperk-birthday-settings-v1",
 } as const;
 
 export type MemberSegment = "High Value" | "Active" | "At Risk" | "Inactive";
@@ -56,8 +57,63 @@ export interface FeedbackRecord {
   createdAt: string;
 }
 
+export interface BirthdayRewardSettings {
+  amounts: Record<MemberData["tier"], number>;
+  releaseTiming: "first_day_of_birthday_month" | "birthday_date";
+  fulfillmentMode: "manual_claim" | "auto_credit";
+  claimWindow: "birthday_month_only" | "birthday_week";
+}
+
+export const DEFAULT_BIRTHDAY_REWARD_SETTINGS: BirthdayRewardSettings = {
+  amounts: {
+    Bronze: 100,
+    Silver: 500,
+    Gold: 1000,
+  },
+  releaseTiming: "first_day_of_birthday_month",
+  fulfillmentMode: "auto_credit",
+  claimWindow: "birthday_month_only",
+};
+
 function safeWindow() {
   return typeof window === "undefined" ? null : window;
+}
+
+export function loadBirthdayRewardSettings(): BirthdayRewardSettings {
+  const win = safeWindow();
+  if (!win) return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
+
+  try {
+    const raw = win.localStorage.getItem(STORAGE_KEYS.birthdaySettings);
+    if (!raw) return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<BirthdayRewardSettings>;
+
+    const releaseTiming =
+      parsed.releaseTiming === "birthday_date" ? "birthday_date" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.releaseTiming;
+    const fulfillmentMode =
+      parsed.fulfillmentMode === "auto_credit" ? "auto_credit" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.fulfillmentMode;
+    const claimWindow =
+      parsed.claimWindow === "birthday_week" ? "birthday_week" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.claimWindow;
+
+    return {
+      amounts: {
+        Bronze: Math.max(0, Number(parsed.amounts?.Bronze ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Bronze) || 0),
+        Silver: Math.max(0, Number(parsed.amounts?.Silver ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Silver) || 0),
+        Gold: Math.max(0, Number(parsed.amounts?.Gold ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Gold) || 0),
+      },
+      releaseTiming,
+      fulfillmentMode,
+      claimWindow,
+    };
+  } catch {
+    return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
+  }
+}
+
+export function saveBirthdayRewardSettings(settings: BirthdayRewardSettings) {
+  const win = safeWindow();
+  if (!win) return;
+  win.localStorage.setItem(STORAGE_KEYS.birthdaySettings, JSON.stringify(settings));
 }
 
 function normalizeManualSegment(value: string): MemberSegment | null {
@@ -377,7 +433,7 @@ export async function loadReferrals(memberNumber: string): Promise<ReferralRecor
         referee_member_number: referee?.member_number,
       });
     })
-    .filter((row) => row.referrerMemberId === memberNumber || row.refereeMemberId === memberNumber);
+    .filter((row) => row.referrerMemberId === memberNumber);
 }
 
 export async function loadAllReferrals(): Promise<ReferralRecord[]> {
@@ -432,6 +488,42 @@ export async function getMemberReferralCode(memberId: string, fallbackEmail?: st
   return existing || buildReferralCode({ memberId: memberNumber, fullName: "" } as Pick<MemberData, "memberId" | "fullName">);
 }
 
+export async function validateReferralCode(referralCode: string) {
+  const normalized = referralCode.trim().toUpperCase();
+  if (!normalized) {
+    return {
+      isValid: false,
+      reason: "empty" as const,
+      referrerMemberId: null,
+      referrerName: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("loyalty_members")
+    .select("member_number,first_name,last_name,referral_code")
+    .eq("referral_code", normalized)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    return {
+      isValid: false,
+      reason: "invalid" as const,
+      referrerMemberId: null,
+      referrerName: null,
+    };
+  }
+
+  return {
+    isValid: true,
+    reason: "valid" as const,
+    referrerMemberId: String(data.member_number ?? ""),
+    referrerName: `${String(data.first_name ?? "")} ${String(data.last_name ?? "")}`.trim() || null,
+  };
+}
+
 export async function applyReferralCodeForSignup(input: {
   referralCode: string;
   refereeMemberId: string;
@@ -454,9 +546,7 @@ export async function applyReferralCodeForSignup(input: {
 }
 
 export function getBirthdayRewardPoints(tier: MemberData["tier"]) {
-  if (tier === "Gold") return 1000;
-  if (tier === "Silver") return 500;
-  return 100;
+  return loadBirthdayRewardSettings().amounts[tier] ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Bronze;
 }
 
 export function isBirthdayMonth(member: Pick<MemberData, "birthdate">) {
@@ -464,6 +554,24 @@ export function isBirthdayMonth(member: Pick<MemberData, "birthdate">) {
   const d = new Date(member.birthdate);
   if (Number.isNaN(d.getTime())) return false;
   return d.getMonth() === new Date().getMonth();
+}
+
+export function shouldAutoCreditBirthdayReward(
+  member: Pick<MemberData, "birthdate">,
+  settings: BirthdayRewardSettings = loadBirthdayRewardSettings(),
+  now = new Date()
+) {
+  if (settings.fulfillmentMode !== "auto_credit" || !member.birthdate) return false;
+
+  const birthday = new Date(member.birthdate);
+  if (Number.isNaN(birthday.getTime())) return false;
+  if (birthday.getMonth() !== now.getMonth()) return false;
+
+  if (settings.releaseTiming === "birthday_date") {
+    return now.getDate() >= birthday.getDate();
+  }
+
+  return true;
 }
 
 export async function hasBirthdayClaimedThisYear(memberId: string, fallbackEmail?: string) {
@@ -504,12 +612,16 @@ export async function claimBirthdayReward(memberId: string, fallbackEmail?: stri
   });
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
+  const granted = Boolean((row as Record<string, unknown> | undefined)?.granted);
+  const pointsAwarded = Number((row as Record<string, unknown> | undefined)?.points_awarded ?? 0);
+  const voucherCode = (row as Record<string, unknown> | undefined)?.voucher_code
+    ? String((row as Record<string, unknown>)?.voucher_code)
+    : null;
+
   return {
-    granted: Boolean((row as Record<string, unknown> | undefined)?.granted),
-    pointsAwarded: Number((row as Record<string, unknown> | undefined)?.points_awarded ?? 0),
-    voucherCode: (row as Record<string, unknown> | undefined)?.voucher_code
-      ? String((row as Record<string, unknown>)?.voucher_code)
-      : null,
+    granted,
+    pointsAwarded,
+    voucherCode,
   };
 }
 
