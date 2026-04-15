@@ -2,6 +2,7 @@ node_modules/
 .next/
 dist/
 .vite/
+.npm-cache/
 *.log
 .env
 .env.*
@@ -9,5 +10,10 @@ dist/
 *.md
 !README.md
 !AGENTS.md
-tests/load/results/
-!tests/load/results/.gitkeep
+!JIAN_REYES_SPRINT4_RECREATE_PROMPT.md
+supabase/
+*.sql
+!SQL_CODES/*.sql
+!SQL_CODES/**/*.sql
+tsconfig.tsbuildinfo
+/git

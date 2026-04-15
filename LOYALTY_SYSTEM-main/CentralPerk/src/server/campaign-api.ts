@@ -2,12 +2,12 @@
 import { z } from "zod";
 import type { PromotionCampaign, PromotionCampaignInput } from "../app/lib/promotions";
 import {
-  listCampaigns,
-  listActiveCampaigns,
-  saveCampaign,
+  loadPromotionCampaigns,
+  loadActivePromotionCampaigns,
+  savePromotionCampaign,
   loadCampaignPerformance,
   queueCampaignNotifications,
-} from "../app/lib/campaign-service-client";
+} from "../app/lib/promotions";
 import { HttpError } from "./http-error";
 import { createApiHandler } from "./route-utils";
 
@@ -102,9 +102,8 @@ export const campaignsHandler = createApiHandler({
     campaignType: body.campaignType,
   }),
   handler: async ({ body }) => {
-    const response = await saveCampaign(body);
-    if (!response.ok) throw new HttpError(502, "Campaign service save failed");
-    return { ok: true as const, campaign: response.campaign };
+    const campaign = await savePromotionCampaign(body);
+    return { ok: true as const, campaign };
   },
 });
 
@@ -117,20 +116,18 @@ export const publishCampaignHandler = createApiHandler({
     const campaignId = String(req.query.id || "").trim();
     if (!campaignId) throw new HttpError(400, "Campaign ID is required.");
 
-    const campaignsRes = await listCampaigns();
-    if (!campaignsRes.ok) throw new HttpError(502, "Campaign service list failed");
-    const existing = (campaignsRes.campaigns || []).find((campaign: any) => campaign.id === campaignId);
+    const campaigns = await loadPromotionCampaigns();
+    const existing = campaigns.find((campaign: any) => campaign.id === campaignId);
     if (!existing) throw new HttpError(404, "Campaign not found.");
 
-    const response = await saveCampaign(toCampaignInput(existing as PromotionCampaign, { status: "active" }));
-    if (!response.ok) throw new HttpError(502, "Campaign service publish failed");
+    const campaign = await savePromotionCampaign(toCampaignInput(existing as PromotionCampaign, { status: "active" }));
     const notificationsQueued = body.queueNotifications
-      ? await queueCampaignNotifications(campaignId).then((r) => (r.ok ? r.notificationsQueued : 0)).catch(() => 0)
+      ? await queueCampaignNotifications(campaignId).catch(() => 0)
       : 0;
 
     return {
       ok: true as const,
-      campaign: response.campaign,
+      campaign,
       notificationsQueued,
     };
   },
@@ -142,20 +139,14 @@ export const activeCampaignsHandler = createApiHandler({
   rateLimit: { limit: 60, windowMs: 60_000 },
   handler: async ({ req }) => {
     const tier = typeof req.query.tier === "string" ? req.query.tier.trim() : undefined;
-    const [activeRes, performanceRes] = await Promise.all([listActiveCampaigns(), loadCampaignPerformance()]);
-    if (!activeRes.ok) throw new HttpError(502, "Campaign service active failed");
-    if (!performanceRes.ok) throw new HttpError(502, "Campaign service performance failed");
+    const [activeRes, performanceRes] = await Promise.all([
+      loadActivePromotionCampaigns(tier),
+      loadCampaignPerformance(),
+    ]);
     const performanceById = new Map(
-      (performanceRes.performance || []).map((row: any) => [row.campaign_id ?? row.campaignId, row] as const),
+      (performanceRes || []).map((row: any) => [row.campaignId ?? row.campaign_id, row] as const),
     );
-    const campaigns = (activeRes.campaigns || []).filter((campaign: any) => {
-      if (!tier) return true;
-      return (
-        !campaign.eligible_tiers ||
-        campaign.eligible_tiers.length === 0 ||
-        campaign.eligible_tiers.some((entry: string) => entry.toLowerCase() === tier.toLowerCase())
-      );
-    });
+    const campaigns = activeRes || [];
 
     return {
       ok: true as const,

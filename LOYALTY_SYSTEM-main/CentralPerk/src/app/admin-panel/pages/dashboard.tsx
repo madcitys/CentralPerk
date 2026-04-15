@@ -1,9 +1,25 @@
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
+import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import { useAdminData } from "../hooks/use-admin-data";
 import { resolveTier } from "../../lib/loyalty-engine";
 import { buildInactiveMemberInsights, loadEngagementState } from "../../lib/member-engagement";
+import {
+  adminDarkButtonClass,
+  adminEyebrowClass,
+  adminInputClass,
+  adminMetricPanelClass,
+  adminMetricVariantClass,
+  adminPageDescriptionClass,
+  adminPageHeroClass,
+  adminPageHeroInnerClass,
+  adminPageShellClass,
+  adminPageTitleClass,
+  adminPanelClass,
+  adminPanelSoftClass,
+  adminSelectClass,
+} from "../lib/page-theme";
 
 function toInputDate(value: Date) {
   const year = value.getFullYear();
@@ -12,8 +28,28 @@ function toInputDate(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
+type GrowthRange = "24m" | "12m" | "6m" | "3m" | "30d" | "7d";
+
+const growthRangeOptions: Array<{ value: GrowthRange; label: string }> = [
+  { value: "24m", label: "2 years" },
+  { value: "12m", label: "1 year" },
+  { value: "6m", label: "6 months" },
+  { value: "3m", label: "3 months" },
+  { value: "30d", label: "1 month" },
+  { value: "7d", label: "Last 7 days" },
+];
+
+function formatMonthLabel(value: Date) {
+  return value.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+
+function formatDayLabel(value: Date) {
+  return value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export default function AdminDashboard() {
   const { members, transactions, loading, error, metrics, tierRules } = useAdminData();
+  const [growthRange, setGrowthRange] = useState<GrowthRange>("12m");
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 6);
@@ -43,6 +79,47 @@ export default function AdminDashboard() {
   );
   const engagementState = useMemo(() => loadEngagementState(), []);
   const inactiveMembers = useMemo(() => buildInactiveMemberInsights(members, transactions, []), [members, transactions]);
+  const growthSeries = useMemo(() => {
+    const now = new Date();
+
+    if (growthRange === "30d" || growthRange === "7d") {
+      const totalDays = growthRange === "7d" ? 7 : 30;
+      const points = Array.from({ length: totalDays }, (_, index) => {
+        const date = new Date(now);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(now.getDate() - (totalDays - 1 - index));
+        const key = toInputDate(date);
+        return { key, label: formatDayLabel(date), count: 0 };
+      });
+
+      for (const member of members) {
+        const joined = new Date(member.enrollment_date);
+        if (Number.isNaN(joined.getTime())) continue;
+        joined.setHours(0, 0, 0, 0);
+        const point = points.find((entry) => entry.key === toInputDate(joined));
+        if (point) point.count += 1;
+      }
+
+      return points;
+    }
+
+    const months = growthRange === "24m" ? 24 : growthRange === "12m" ? 12 : growthRange === "6m" ? 6 : 3;
+    const points = Array.from({ length: months }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (months - 1 - index), 1);
+      const key = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}`;
+      return { key, label: formatMonthLabel(date), count: 0 };
+    });
+
+    for (const member of members) {
+      const joined = new Date(member.enrollment_date);
+      if (Number.isNaN(joined.getTime())) continue;
+      const key = `${joined.getFullYear()}-${`${joined.getMonth() + 1}`.padStart(2, "0")}`;
+      const point = points.find((entry) => entry.key === key);
+      if (point) point.count += 1;
+    }
+
+    return points;
+  }, [growthRange, members]);
 
   const totalTierMembers =
     metrics.tierDistribution.gold +
@@ -53,41 +130,44 @@ export default function AdminDashboard() {
   if (error) return <p className="text-red-600">{error}</p>;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Loyalty Program Analytics & Reports</p>
+    <div className={adminPageShellClass}>
+      <div className={adminPageHeroClass}>
+        <div className={adminPageHeroInnerClass}>
+          <div className={adminEyebrowClass}>Admin Overview</div>
+          <h1 className={adminPageTitleClass}>Dashboard</h1>
+          <p className={adminPageDescriptionClass}>Loyalty Program analytics, trends, and operational highlights in one workspace.</p>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl p-6 border border-gray-200">
+      <div className={adminPanelClass}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-gray-700">Start Date</span>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            <span className="mb-2 block text-sm font-medium text-[#4b607f]">Start Date</span>
+            <CalendarDatePicker value={startDate} onChange={setStartDate} />
           </label>
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-gray-700">End Date</span>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            <span className="mb-2 block text-sm font-medium text-[#4b607f]">End Date</span>
+            <CalendarDatePicker value={endDate} onChange={setEndDate} />
           </label>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-gradient-to-br from-[#eef6ff] to-white rounded-xl p-6 border border-[#9ed8ff]">
+        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}>
           <h3 className="text-gray-600 text-sm font-medium mb-1">Total Members</h3>
           <p className="text-3xl font-bold text-gray-800">{metrics.totalMembers.toLocaleString()}</p>
         </div>
-        <div className="bg-gradient-to-br from-[#e6f8fa] to-white rounded-xl p-6 border border-[#7fd7de]">
+        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}>
           <h3 className="text-gray-600 text-sm font-medium mb-1">Points Liability</h3>
           <p className="text-3xl font-bold text-gray-800">{metrics.pointsLiability.toLocaleString()}</p>
           <p className="text-xs text-gray-500 mt-1">Total unredeemed points</p>
         </div>
-        <div className="bg-gradient-to-br from-[#fff7ed] to-white rounded-xl p-6 border border-[#f7c58b]">
+        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}>
           <h3 className="text-gray-600 text-sm font-medium mb-1">Points Redeemed</h3>
           <p className="text-3xl font-bold text-gray-800">{metrics.totalPointsRedeemed.toLocaleString()}</p>
           <p className="text-xs text-gray-500 mt-1">All-time redemptions</p>
         </div>
-        <div className="bg-gradient-to-br from-[#f5f0ff] to-white rounded-xl p-6 border border-[#d7c2ff]">
+        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}>
           <h3 className="text-gray-600 text-sm font-medium mb-1">Member Growth</h3>
           <p className="text-3xl font-bold text-gray-800">{metrics.newMembersThisMonth.toLocaleString()}</p>
           <p className="text-xs text-gray-500 mt-1">
@@ -98,19 +178,19 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 border border-gray-200">
+        <div className={adminPanelSoftClass}>
           <p className="text-sm text-gray-500">New Members Today</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{metrics.newMembersToday}</p>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-gray-200">
+        <div className={adminPanelSoftClass}>
           <p className="text-sm text-gray-500">New Members This Week</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{metrics.newMembersThisWeek}</p>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-gray-200">
+        <div className={adminPanelSoftClass}>
           <p className="text-sm text-gray-500">New Members This Month</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{metrics.newMembersThisMonth}</p>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-gray-200">
+        <div className={adminPanelSoftClass}>
           <p className="text-sm text-gray-500">Active Members (30d)</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{metrics.activeMembers}</p>
         </div>
@@ -144,23 +224,58 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-xl p-6 border border-[#9ed8ff]">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Member Growth Report</h2>
-            <p className="text-sm text-gray-500 mb-4">Monthly new member signups (last 6 months)</p>
+          <div className={adminPanelClass}>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Member Growth Report</h2>
+                <p className="text-sm text-gray-500">
+                  {growthRange === "7d"
+                    ? "Daily new member signups for the last 7 days."
+                    : growthRange === "30d"
+                    ? "Daily new member signups for the last 30 days."
+                    : "New member signups over time."}
+                </p>
+              </div>
+              <label className="block sm:min-w-[160px]">
+                <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">Overview</span>
+                <select
+                  value={growthRange}
+                  onChange={(e) => setGrowthRange(e.target.value as GrowthRange)}
+                  className={adminSelectClass}
+                >
+                  {growthRangeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={metrics.growthSeries}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: number) => [`${value} members`, "New Signups"]} />
-                  <Bar dataKey="count" fill="#1A2B47" radius={[6, 6, 0, 0]} />
-                </BarChart>
+                <LineChart data={growthSeries} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }}
+                    formatter={(value: number) => [`${value} members`, "New Signups"]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="count"
+                    name="New Signups"
+                    stroke="#1A2B47"
+                    strokeWidth={3}
+                    dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-[#d7c2ff]">
+          <div className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Recent Members</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -211,7 +326,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-[#f7c58b]">
+          <div className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Recent Points Activity</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -244,7 +359,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl p-6 border border-[#7fd7de] sticky top-8">
+          <div className={`${adminPanelClass} sticky top-8`}>
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Rewards & Member Distribution</h2>
             {totalTierMembers > 0 ? (
               <div className="h-80 mb-6">
@@ -281,3 +396,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+

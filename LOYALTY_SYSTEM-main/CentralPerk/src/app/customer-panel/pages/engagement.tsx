@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Award, Download, Facebook, Instagram, Share2, Trophy } from "lucide-react";
+import { Award, Download, Facebook, Instagram, Share2, Star, Trophy } from "lucide-react";
 import { toast } from "sonner";
-import { Card } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Progress } from "../../components/ui/progress";
-import { Textarea } from "../../components/ui/textarea";
+import { Card } from "../../../components/ui/card";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../components/ui/dialog";
+import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
+import { Progress } from "../../../components/ui/progress";
+import { Textarea } from "../../../components/ui/textarea";
 import type { AppOutletContext } from "../../types/app-context";
 import { awardMemberPoints } from "../../lib/loyalty-supabase";
+import { supabase } from "../../../utils/supabase/client";
+import type { LoyaltyTransaction, Member } from "../../admin-panel/types";
 import {
   claimBirthdayReward,
   createReferral,
@@ -18,28 +28,69 @@ import {
   getBirthdayRewardPoints,
   hasBirthdayClaimedThisYear,
   isBirthdayMonth,
+  loadBirthdayRewardSettings,
   loadBirthdayRewardStatus,
   loadReferrals,
   queueManagerFeedbackNotification,
+  shouldAutoCreditBirthdayReward,
   submitFeedback,
   type ReferralRecord,
 } from "../../lib/member-lifecycle";
 import {
   buildShareAssetDataUrl,
+  deleteSurveyResponseRecord,
+  getChallengeLeaderboard,
   getChallengeProgress,
   getMemberPrivacySettings,
+  incrementSocialShareConversion,
+  loadChallengeDefinitions,
+  loadChallengeLeaderboard as loadChallengeLeaderboardFromDb,
+  loadChallengeProgressByMember,
   loadEngagementState,
+  loadSurveyDefinitions,
+  loadSocialShareEvents,
+  recordSocialShareEvent,
   saveEngagementState,
-  triggerDownload,
+  submitSurveyResponseRecord,
+  triggerImageDownload,
+  type ShareEvent,
+  type ChallengeLeaderboardEntry,
+  type ChallengeProgressSnapshot,
   type EngagementState,
   type SharePrivacySettings,
   type SocialChannel,
 } from "../../lib/member-engagement";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
+
+type EngagementTab = "overview" | "rewards" | "challenges" | "sharing" | "surveys";
+
+const engagementTabs: { value: EngagementTab; label: string; hash: string }[] = [
+  { value: "overview", label: "Overview", hash: "#engagement-overview" },
+  { value: "rewards", label: "Referral & Feedback", hash: "#engagement-rewards" },
+  { value: "challenges", label: "Challenges", hash: "#engagement-challenges" },
+  { value: "sharing", label: "Sharing", hash: "#engagement-sharing" },
+  { value: "surveys", label: "Surveys", hash: "#engagement-surveys" },
+];
+
+function resolveInitialEngagementTab(): EngagementTab {
+  if (typeof window === "undefined") return "overview";
+  const hash = window.location.hash;
+  return engagementTabs.find((tab) => tab.hash === hash)?.value ?? "overview";
+}
 
 export default function CustomerEngagementPage() {
   const { user, refreshUser, setUser } = useOutletContext<AppOutletContext>();
+  const [activeTab, setActiveTab] = useState<EngagementTab>(resolveInitialEngagementTab);
   const [state, setState] = useState<EngagementState>(() => loadEngagementState());
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [selectedAchievement, setSelectedAchievement] = useState("Tier upgrade unlocked");
+  const [birthdaySettings] = useState(() => loadBirthdayRewardSettings());
   const [surveyAnswers, setSurveyAnswers] = useState<Record<string, Record<string, string>>>({});
   const [submittingSurveyId, setSubmittingSurveyId] = useState<string | null>(null);
   const [claimingChallengeId, setClaimingChallengeId] = useState<string | null>(null);
@@ -52,15 +103,68 @@ export default function CustomerEngagementPage() {
     pointsAwarded: 0,
     badgeLabel: null,
   });
+  const [completedSurveyIds, setCompletedSurveyIds] = useState<string[]>([]);
   const [feedbackCategory, setFeedbackCategory] = useState<"points" | "rewards" | "service" | "app">("service");
   const [feedbackRating, setFeedbackRating] = useState<1 | 2 | 3 | 4 | 5>(5);
   const [feedbackComment, setFeedbackComment] = useState("");
   const [feedbackContactOptIn, setFeedbackContactOptIn] = useState(false);
   const [feedbackContactInfo, setFeedbackContactInfo] = useState("");
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [leaderboardMembers, setLeaderboardMembers] = useState<Member[]>([]);
+  const [leaderboardTransactions, setLeaderboardTransactions] = useState<LoyaltyTransaction[]>([]);
+  const [challengeProgressMap, setChallengeProgressMap] = useState<Map<string, ChallengeProgressSnapshot>>(new Map());
+  const [dbChallengeLeaderboard, setDbChallengeLeaderboard] = useState<ChallengeLeaderboardEntry[]>([]);
+  const [dbShareEvents, setDbShareEvents] = useState<ShareEvent[]>([]);
+  const [shareEventsBackedByDb, setShareEventsBackedByDb] = useState(false);
 
   useEffect(() => {
     saveEngagementState(state);
   }, [state]);
+
+  useEffect(() => {
+    let alive = true;
+    loadChallengeDefinitions()
+      .then((rows) => {
+        if (!alive || rows.length === 0) return;
+        setState((prev) => ({ ...prev, challenges: rows }));
+      })
+      .catch(() => {
+        // Keep local fallback data when the challenges backend is unavailable.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    loadSurveyDefinitions()
+      .then((rows) => {
+        if (!alive || rows.length === 0) return;
+        setState((prev) => ({ ...prev, surveys: rows }));
+      })
+      .catch(() => {
+        // Keep local fallback state when survey tables are unavailable.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const current = engagementTabs.find((tab) => tab.value === activeTab);
+    if (!current) return;
+    const nextUrl = `${window.location.pathname}${window.location.search}${current.hash}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, [activeTab]);
 
   const privacySettings = useMemo<SharePrivacySettings>(
     () => getMemberPrivacySettings(state, user.memberId),
@@ -77,6 +181,143 @@ export default function CustomerEngagementPage() {
       .then(setBirthdayStatus)
       .catch(() => setBirthdayStatus({ hasReward: false, voucherCode: null, pointsAwarded: 0, badgeLabel: null }));
   }, [user.memberId, user.email]);
+
+  useEffect(() => {
+    let alive = true;
+    loadChallengeProgressByMember(user.memberId)
+      .then((rows) => {
+        if (alive) setChallengeProgressMap(rows);
+      })
+      .catch(() => {
+        if (alive) setChallengeProgressMap(new Map());
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [user.memberId]);
+
+  useEffect(() => {
+    let alive = true;
+    loadSocialShareEvents({ memberIdentifier: user.memberId })
+      .then((rows) => {
+        if (!alive) return;
+        setDbShareEvents(rows);
+        setShareEventsBackedByDb(true);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setDbShareEvents([]);
+        setShareEventsBackedByDb(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [user.memberId]);
+
+  useEffect(() => {
+    let alive = true;
+
+    Promise.all([
+      supabase
+        .from("loyalty_members")
+        .select("member_id,id,member_number,first_name,last_name,email,phone,enrollment_date,points_balance,tier,last_activity_at"),
+      supabase
+        .from("loyalty_transactions")
+        .select("transaction_id,member_id,points,transaction_type,transaction_date,amount_spent,receipt_id,expiry_date,reward_catalog_id,promotion_campaign_id,product_code,product_category,reason,description"),
+    ])
+      .then(([membersRes, transactionsRes]) => {
+        if (!alive) return;
+        setLeaderboardMembers((membersRes.data as Member[] | null) ?? []);
+        setLeaderboardTransactions((transactionsRes.data as LoyaltyTransaction[] | null) ?? []);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLeaderboardMembers([]);
+        setLeaderboardTransactions([]);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const claimedChallenges = new Set(state.claimedChallengeRewardsByMember[user.memberId] ?? []);
+  const activeSurveys = state.surveys.filter((survey) => survey.status === "live");
+  const completedSurveyIdSet = useMemo(() => {
+    const completed = new Set(completedSurveyIds);
+    state.surveys.forEach((survey) => {
+      const hasResponseFromCurrentMember = survey.responses.some(
+        (response) => response.memberId === user.memberId || response.memberName === user.fullName
+      );
+      if (hasResponseFromCurrentMember) completed.add(survey.id);
+    });
+    return completed;
+  }, [completedSurveyIds, state.surveys, user.fullName, user.memberId]);
+  const memberShareEvents = shareEventsBackedByDb
+    ? dbShareEvents
+    : state.shareEvents.filter((item) => item.memberId === user.memberId);
+  const competitiveChallenge = state.challenges.find((challenge) => challenge.competitive);
+  const activeChallenges = state.challenges.filter((challenge) => new Date(challenge.endAt).getTime() > countdownNow);
+  const resolveChallengeProgress = (challenge: (typeof state.challenges)[number]) =>
+    challengeProgressMap.get(challenge.id) ?? getChallengeProgress(challenge, user);
+  const completedChallengesCount = activeChallenges.filter((challenge) => resolveChallengeProgress(challenge).completed).length;
+  const nextChallenge = activeChallenges
+    .map((challenge) => ({ challenge, progress: resolveChallengeProgress(challenge) }))
+    .sort((left, right) => right.progress.percent - left.progress.percent)[0];
+  const recentShare = memberShareEvents[0];
+
+  useEffect(() => {
+    let alive = true;
+    if (!competitiveChallenge) {
+      setDbChallengeLeaderboard([]);
+      return () => {
+        alive = false;
+      };
+    }
+
+    loadChallengeLeaderboardFromDb(competitiveChallenge.id)
+      .then((rows) => {
+        if (alive) setDbChallengeLeaderboard(rows);
+      })
+      .catch(() => {
+        if (alive) setDbChallengeLeaderboard([]);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [competitiveChallenge?.id]);
+
+  const challengeLeaderboard = useMemo(
+    () =>
+      dbChallengeLeaderboard.length > 0
+        ? dbChallengeLeaderboard
+        : competitiveChallenge
+          ? getChallengeLeaderboard(competitiveChallenge, leaderboardMembers, leaderboardTransactions)
+          : [],
+    [competitiveChallenge, dbChallengeLeaderboard, leaderboardMembers, leaderboardTransactions]
+  );
+  const highlightedLeaderboard = useMemo(() => {
+    const topRows = challengeLeaderboard.slice(0, 5);
+    const currentMemberRow = challengeLeaderboard.find((row) => row.memberId === user.memberId);
+    if (!currentMemberRow || topRows.some((row) => row.memberId === currentMemberRow.memberId)) {
+      return topRows;
+    }
+    return [...topRows, currentMemberRow];
+  }, [challengeLeaderboard, user.memberId]);
+  const currentMemberRank = useMemo(() => {
+    const index = challengeLeaderboard.findIndex((row) => row.memberId === user.memberId);
+    return index >= 0 ? index + 1 : null;
+  }, [challengeLeaderboard, user.memberId]);
+  const shareBadgeLabel = useMemo(() => {
+    if (currentMemberRank === 1) return "Champion Circle";
+    if (currentMemberRank === 2) return "Silver Spotlight";
+    if (currentMemberRank === 3) return "Bronze Breakout";
+    if (user.tier === "Gold") return "Gold Status";
+    if (user.tier === "Silver") return "Silver Momentum";
+    return "Bronze Builder";
+  }, [currentMemberRank, user.tier]);
   const sharePreview = useMemo(
     () =>
       buildShareAssetDataUrl({
@@ -84,14 +325,27 @@ export default function CustomerEngagementPage() {
         tier: user.tier,
         achievement: selectedAchievement,
         referralCode,
+        badgeLabel: shareBadgeLabel,
+        ranking: currentMemberRank,
         privacy: privacySettings,
       }),
-    [privacySettings, referralCode, selectedAchievement, user.fullName, user.tier]
+    [currentMemberRank, privacySettings, referralCode, selectedAchievement, shareBadgeLabel, user.fullName, user.tier]
   );
 
-  const claimedChallenges = new Set(state.claimedChallengeRewardsByMember[user.memberId] ?? []);
-  const activeSurveys = state.surveys.filter((survey) => survey.status === "live");
-  const memberShareEvents = state.shareEvents.filter((item) => item.memberId === user.memberId);
+  const formatTimeRemaining = (targetDate: string) => {
+    const diffMs = new Date(targetDate).getTime() - countdownNow;
+    if (diffMs <= 0) return "Ended";
+
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s remaining`;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s remaining`;
+    return `${minutes}m ${seconds}s remaining`;
+  };
 
   const updatePrivacy = (patch: Partial<SharePrivacySettings>) => {
     setState((prev) => ({
@@ -106,44 +360,100 @@ export default function CustomerEngagementPage() {
     }));
   };
 
-  const handleShare = (channel: SocialChannel) => {
-    const nextEvent = {
-      id: crypto.randomUUID(),
-      memberId: user.memberId,
-      memberName: user.fullName,
-      tier: user.tier,
-      channel,
-      achievement: selectedAchievement,
-      referralCode,
-      conversions: 0,
-      createdAt: new Date().toISOString(),
-    };
+  const handleShare = async (channel: SocialChannel) => {
+    setShareSheetOpen(false);
+    try {
+      if (channel === "facebook") {
+        const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent("https://centralperk.example/member")}&quote=${encodeURIComponent(`${selectedAchievement} | Referral code: ${referralCode}`)}`;
+        const popup = window.open(shareUrl, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          throw new Error("Facebook share popup was blocked. Allow popups and try again.");
+        }
+      } else {
+        await triggerImageDownload(sharePreview, `centralperk-${user.memberId}-story-card.png`);
+        toast.success("Instagram share asset downloaded.", {
+          description: "Upload the generated image to your story or post.",
+        });
+      }
 
-    setState((prev) => ({
-      ...prev,
-      shareEvents: [nextEvent, ...prev.shareEvents],
-    }));
+      const nextEvent: ShareEvent = {
+        id: crypto.randomUUID(),
+        memberId: user.memberId,
+        memberName: user.fullName,
+        tier: user.tier,
+        channel,
+        achievement: selectedAchievement,
+        referralCode,
+        conversions: 0,
+        createdAt: new Date().toISOString(),
+      };
 
-    if (channel === "facebook") {
-      const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent("https://centralperk.example/member")}&quote=${encodeURIComponent(`${selectedAchievement} | Referral code: ${referralCode}`)}`;
-      window.open(shareUrl, "_blank", "noopener,noreferrer");
-    } else {
-      triggerDownload(sharePreview, `centralperk-${user.memberId}-story-card.svg`);
-      toast.success("Instagram share asset downloaded.", {
-        description: "Upload the generated image to your story or post.",
+      setState((prev) => ({
+        ...prev,
+        shareEvents: [nextEvent, ...prev.shareEvents],
+      }));
+
+      const savedEvent = await recordSocialShareEvent({
+        memberIdentifier: user.memberId,
+        memberName: user.fullName,
+        tier: user.tier,
+        channel,
+        achievement: selectedAchievement,
+        referralCode,
+        badgeLabel: shareBadgeLabel,
+        shareText: shareMessage,
+        destinationUrl: referralLink,
       });
-    }
 
-    toast.success(`Shared to ${channel === "facebook" ? "Facebook" : "Instagram"}.`);
+      if (savedEvent) {
+        setShareEventsBackedByDb(true);
+        setDbShareEvents((prev) => [savedEvent, ...prev.filter((item) => item.id !== savedEvent.id)]);
+        setState((prev) => ({
+          ...prev,
+          shareEvents: prev.shareEvents.map((item) => (item.id === nextEvent.id ? savedEvent : item)),
+        }));
+      }
+      toast.success(`Shared to ${channel === "facebook" ? "Facebook" : "Instagram"}.`);
+    } catch (error) {
+      console.error("Failed to complete social share flow", error);
+      toast.error(error instanceof Error ? error.message : "Failed to complete this share action.");
+    }
   };
 
-  const handleMockConversion = (shareId: string) => {
+  const handleMockConversion = async (shareId: string) => {
     setState((prev) => ({
       ...prev,
       shareEvents: prev.shareEvents.map((item) =>
         item.id === shareId ? { ...item, conversions: item.conversions + 1 } : item
       ),
     }));
+
+    setDbShareEvents((prev) =>
+      prev.map((item) => (item.id === shareId ? { ...item, conversions: item.conversions + 1 } : item))
+    );
+
+    try {
+      const updatedEvent = await incrementSocialShareConversion(shareId);
+      if (updatedEvent) {
+        setShareEventsBackedByDb(true);
+        setDbShareEvents((prev) =>
+          prev.map((item) =>
+            item.id === shareId
+              ? { ...item, conversions: updatedEvent.conversions }
+              : item
+          )
+        );
+        setState((prev) => ({
+          ...prev,
+          shareEvents: prev.shareEvents.map((item) =>
+            item.id === shareId ? { ...item, conversions: updatedEvent.conversions } : item
+          ),
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to update social share conversion", error);
+      toast.error(error instanceof Error ? error.message : "Failed to update the tracked conversion count.");
+    }
   };
 
   const handleClaimChallenge = async (challengeId: string, rewardPoints: number, title: string) => {
@@ -197,6 +507,17 @@ export default function CustomerEngagementPage() {
   };
 
   const handleBirthdayClaim = async () => {
+    if (birthdaySettings.fulfillmentMode === "auto_credit") {
+      await refreshUser();
+      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
+      setBirthdayStatus(status);
+      toast.success(
+        status.hasReward
+          ? `Birthday reward already credited: +${status.pointsAwarded || getBirthdayRewardPoints(user.tier)} points.`
+          : "Birthday rewards are credited automatically once your schedule window starts."
+      );
+      return;
+    }
     if (!isBirthdayMonth(user)) {
       toast.error("Birthday rewards unlock on your birthday month.");
       return;
@@ -222,6 +543,7 @@ export default function CustomerEngagementPage() {
   };
 
   const referralLink = referralCode ? `${window.location.origin}/register?ref=${encodeURIComponent(referralCode)}` : "";
+  const shareMessage = `${selectedAchievement} | Referral code: ${referralCode || "pending"} | Join here: ${referralLink || "link pending"}`;
 
   const handleFeedbackSubmit = async () => {
     const comment = feedbackComment.trim();
@@ -281,7 +603,7 @@ export default function CustomerEngagementPage() {
       return;
     }
 
-    const alreadySubmitted = survey.responses.some((response) => response.memberId === user.memberId);
+    const alreadySubmitted = completedSurveyIdSet.has(survey.id);
     if (alreadySubmitted) {
       toast.error("You already completed this survey.");
       return;
@@ -289,13 +611,27 @@ export default function CustomerEngagementPage() {
 
     try {
       setSubmittingSurveyId(surveyId);
-      await awardMemberPoints({
+      const savedResponse = await submitSurveyResponseRecord({
+        surveyId,
         memberIdentifier: user.memberId,
-        fallbackEmail: user.email,
-        points: survey.bonusPoints,
-        transactionType: "MANUAL_AWARD",
-        reason: `Survey completion (${surveyId}): ${survey.title}`,
+        answers,
+        bonusPoints: survey.bonusPoints,
       });
+
+      try {
+        await awardMemberPoints({
+          memberIdentifier: user.memberId,
+          fallbackEmail: user.email,
+          points: survey.bonusPoints,
+          transactionType: "MANUAL_AWARD",
+          reason: `Survey completion (${surveyId}): ${survey.title}`,
+        });
+      } catch (awardError) {
+        if (savedResponse) {
+          await deleteSurveyResponseRecord(surveyId, user.memberId);
+        }
+        throw awardError;
+      }
 
       setState((prev) => ({
         ...prev,
@@ -305,7 +641,7 @@ export default function CustomerEngagementPage() {
                 ...item,
                 responses: [
                   ...item.responses,
-                  {
+                  savedResponse ?? {
                     memberId: user.memberId,
                     memberName: user.fullName,
                     answers,
@@ -316,6 +652,12 @@ export default function CustomerEngagementPage() {
             : item
         ),
       }));
+      setCompletedSurveyIds((prev) => (prev.includes(surveyId) ? prev : [...prev, surveyId]));
+      setSurveyAnswers((prev) => {
+        const next = { ...prev };
+        delete next[surveyId];
+        return next;
+      });
 
       setUser((prev) => ({ ...prev, surveysCompleted: prev.surveysCompleted + 1 }));
       await refreshUser();
@@ -328,36 +670,178 @@ export default function CustomerEngagementPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Member Engagement</h1>
-        <p className="text-gray-500 mt-1">Challenges, social sharing, and surveys.</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Engagement Hub</div>
+          <h1 className={customerPageTitleClass}>Member Engagement</h1>
+          <p className={customerPageDescriptionClass}>Explore challenges, referrals, sharing, birthday perks, and surveys in a portal that now feels more consistent with the admin experience.</p>
+        </div>
       </div>
 
-      <Card className="p-6 border-[#9ed8ff] bg-gradient-to-br from-[#10213a] to-[#00a3ad] text-white">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-3xl font-bold">Keep members active, visible, and coming back.</h2>
-            <p className="mt-2 max-w-2xl text-sm text-[#ddfbff]">
-              Your member hub now includes time-limited challenges, shareable achievement cards, privacy controls,
-              and bonus-point surveys.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-2xl bg-white/10 p-4">
-              <p className="text-[#b9f6ff]">Surveys done</p>
-              <p className="mt-1 text-2xl font-bold">{user.surveysCompleted}</p>
+      <div className="overflow-x-auto pb-1">
+      <div className="inline-flex min-w-max items-center gap-1 rounded-full bg-[#eef3fb] p-1">
+        {engagementTabs.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => setActiveTab(tab.value)}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              activeTab === tab.value
+                ? "bg-white text-[#1A2B47] ring-2 ring-[#2b4468]"
+                : "bg-transparent text-gray-700 hover:bg-white/70"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      </div>
+
+      {activeTab === "overview" ? (
+      <div className="space-y-6">
+        <Card className="overflow-hidden border-[#9ed8ff] bg-gradient-to-br from-[#10213a] via-[#153457] to-[#00a3ad] p-6 text-white">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.24em] text-[#b9f6ff]">Engagement Hub</p>
+              <h2 className="mt-3 text-3xl font-bold">Keep members active, visible, and coming back.</h2>
+              <p className="mt-2 max-w-2xl text-sm text-[#ddfbff]">
+                Track your challenge streaks, share milestone cards, and unlock more value from surveys,
+                referrals, and birthday perks.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
+                  {activeChallenges.length} live challenges
+                </Badge>
+                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
+                  {activeSurveys.length} active surveys
+                </Badge>
+                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
+                  {myReferrals.filter((referral) => referral.status === "joined").length} referral joins
+                </Badge>
+              </div>
             </div>
-            <div className="rounded-2xl bg-white/10 p-4">
-              <p className="text-[#b9f6ff]">Shares tracked</p>
-              <p className="mt-1 text-2xl font-bold">{memberShareEvents.length}</p>
+            <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[320px]">
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                <p className="text-[#b9f6ff]">Surveys done</p>
+                <p className="mt-1 text-2xl font-bold">{user.surveysCompleted}</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                <p className="text-[#b9f6ff]">Shares tracked</p>
+                <p className="mt-1 text-2xl font-bold">{memberShareEvents.length}</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                <p className="text-[#b9f6ff]">Challenges done</p>
+                <p className="mt-1 text-2xl font-bold">{completedChallengesCount}</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                <p className="text-[#b9f6ff]">Birthday perk</p>
+                <p className="mt-1 text-base font-bold">{birthdayStatus.hasReward ? "Claimed" : "Ready soon"}</p>
+              </div>
             </div>
           </div>
+        </Card>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <Card className="border-[#dce9f7] p-5">
+              <p className="text-sm font-medium text-gray-500">Referral conversions</p>
+              <p className="mt-3 text-3xl font-bold text-[#10213a]">
+                {myReferrals.filter((referral) => referral.status === "joined").length}
+              </p>
+              <p className="mt-2 text-sm text-gray-600">Friends who already joined using your code.</p>
+            </Card>
+            <Card className="border-[#dce9f7] p-5">
+              <p className="text-sm font-medium text-gray-500">Challenge completion</p>
+              <p className="mt-3 text-3xl font-bold text-[#10213a]">
+                {activeChallenges.length ? Math.round((completedChallengesCount / activeChallenges.length) * 100) : 0}%
+              </p>
+              <p className="mt-2 text-sm text-gray-600">How much of your live challenge board is already done.</p>
+            </Card>
+            <Card className="border-[#dce9f7] p-5">
+              <p className="text-sm font-medium text-gray-500">Survey momentum</p>
+              <p className="mt-3 text-3xl font-bold text-[#10213a]">{activeSurveys.length}</p>
+              <p className="mt-2 text-sm text-gray-600">Live feedback opportunities you can answer for bonus points.</p>
+            </Card>
+          </div>
+
+          <Card className="border-[#dce9f7] bg-[#f8fbff] p-5">
+            <p className="text-sm font-medium uppercase tracking-[0.18em] text-[#5f6f86]">Next best move</p>
+            {nextChallenge ? (
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-[#10213a]">{nextChallenge.challenge.title}</h3>
+                  <Badge className="bg-[#10213a] text-white">{nextChallenge.challenge.rewardPoints} pts</Badge>
+                </div>
+                <p className="text-sm text-gray-600">{nextChallenge.challenge.description}</p>
+                <Progress value={nextChallenge.progress.percent} className="h-2" />
+                <p className="text-sm text-[#1A2B47]">
+                  {nextChallenge.progress.current}/{nextChallenge.progress.target} {nextChallenge.challenge.unitLabel}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-[#c8d8eb] bg-white p-4 text-sm text-gray-600">
+                No live challenge is available right now. Check the other tabs for surveys and referrals.
+              </div>
+            )}
+          </Card>
         </div>
-      </Card>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Card className="p-5">
+            <h3 className="text-lg font-semibold text-gray-900">Referral Snapshot</h3>
+            <p className="mt-1 text-sm text-gray-500">Bring in friends and grow your point balance faster.</p>
+            <div className="mt-4 rounded-2xl bg-[#f7fbff] p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Your code</p>
+              <p className="mt-2 text-2xl font-bold text-[#10213a]">{referralCode || "Loading..."}</p>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              {myReferrals.length} tracked referral{myReferrals.length === 1 ? "" : "s"} and{" "}
+              {myReferrals.filter((referral) => referral.status === "joined").length} completed join
+              {myReferrals.filter((referral) => referral.status === "joined").length === 1 ? "" : "s"}.
+            </p>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-semibold text-gray-900">Sharing Snapshot</h3>
+            <p className="mt-1 text-sm text-gray-500">See how your latest member moment is performing.</p>
+            {recentShare ? (
+              <div className="mt-4 rounded-2xl border border-gray-200 p-4">
+                <p className="font-medium text-[#10213a]">{recentShare.achievement}</p>
+                <p className="mt-2 text-sm text-gray-600">
+                  Shared on {recentShare.channel} with {recentShare.conversions} conversion
+                  {recentShare.conversions === 1 ? "" : "s"}.
+                </p>
+                <p className="mt-2 text-xs text-gray-500">{new Date(recentShare.createdAt).toLocaleString()}</p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-600">
+                No shares yet. Create your first member moment in the Sharing tab.
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-lg font-semibold text-gray-900">Birthday Reward</h3>
+            <p className="mt-1 text-sm text-gray-500">A yearly surprise tied to your current tier.</p>
+            <div className="mt-4 rounded-2xl bg-[#fff8eb] p-4">
+              <p className="text-sm text-[#9a6700]">Current bonus</p>
+              <p className="mt-2 text-2xl font-bold text-[#7c4a00]">{getBirthdayRewardPoints(user.tier)} points</p>
+              <p className="mt-2 text-sm text-[#9a6700]">
+                {birthdayStatus.hasReward
+                  ? "Already credited this year."
+                  : birthdaySettings.fulfillmentMode === "auto_credit"
+                    ? "Auto-credited during your birthday schedule."
+                    : "Claimable during your birthday month."}
+              </p>
+            </div>
+          </Card>
+        </div>
+      </div>
+      ) : null}
 
 
-
+      {activeTab === "rewards" ? (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card className="p-6">
           <h2 className="text-xl font-semibold text-gray-900">Referral Program</h2>
@@ -399,15 +883,43 @@ export default function CustomerEngagementPage() {
 
         <Card className="p-6">
           <h2 className="text-xl font-semibold text-gray-900">Birthday Rewards</h2>
-          <p className="text-sm text-gray-500 mt-1">Auto-credited on the 1st of your birthday month. Claim once per year.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {birthdaySettings.fulfillmentMode === "auto_credit"
+              ? birthdaySettings.releaseTiming === "birthday_date"
+                ? "Auto-credited on your birthday date once per year."
+                : "Auto-credited starting on the 1st of your birthday month once per year."
+              : "Available to claim once per year during your birthday month."}
+          </p>
           <p className="mt-3 text-sm">Current tier bonus: <span className="font-semibold">{getBirthdayRewardPoints(user.tier)} points</span></p>
           <p className="mt-1 text-xs text-gray-500">
             Voucher + birthday badge are included in your month benefits.
             {birthdayStatus.voucherCode ? ` Voucher: ${birthdayStatus.voucherCode}` : ""}
           </p>
           {birthdayStatus.badgeLabel ? <Badge className="mt-2">{birthdayStatus.badgeLabel}</Badge> : null}
-          <Button onClick={handleBirthdayClaim} className="mt-3 bg-[#00A3AD] text-white hover:bg-[#08939c]" disabled={!isBirthdayMonth(user) || birthdayStatus.hasReward}>
-            {birthdayStatus.hasReward ? "Claimed this year" : "Claim Birthday Reward"}
+          <div className="mt-4 rounded-2xl border border-[#fde68a] bg-[#fffdf4] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Birthday email preview</p>
+            <p className="mt-2 font-semibold text-gray-900">Happy birthday, {user.fullName.split(" ")[0] || "member"}.</p>
+            <p className="mt-1 text-sm text-gray-600">
+              Your {getBirthdayRewardPoints(user.tier)}-point surprise is ready, with your
+              {birthdayStatus.voucherCode ? ` voucher ${birthdayStatus.voucherCode}` : " birthday voucher"} and badge included.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">Subject: Happy Birthday from Central Perk Rewards</p>
+          </div>
+          <Button
+            onClick={handleBirthdayClaim}
+            className="mt-3 bg-[#00A3AD] text-white hover:bg-[#08939c]"
+            disabled={
+              birthdayStatus.hasReward ||
+              (birthdaySettings.fulfillmentMode === "manual_claim"
+                ? !isBirthdayMonth(user)
+                : !shouldAutoCreditBirthdayReward(user, birthdaySettings))
+            }
+          >
+            {birthdayStatus.hasReward
+              ? "Credited this year"
+              : birthdaySettings.fulfillmentMode === "auto_credit"
+                ? "Check Birthday Reward Status"
+                : "Claim Birthday Reward"}
           </Button>
         </Card>
 
@@ -419,8 +931,25 @@ export default function CustomerEngagementPage() {
             <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={feedbackCategory} onChange={(e) => setFeedbackCategory(e.target.value as any)}>
               <option value="points">Points</option><option value="rewards">Rewards</option><option value="service">Service</option><option value="app">App</option>
             </select>
-            <Label>Rating (1-5)</Label>
-            <Input type="number" min={1} max={5} value={feedbackRating} onChange={(e) => setFeedbackRating(Math.max(1, Math.min(5, Number(e.target.value) || 5)) as 1 | 2 | 3 | 4 | 5)} />
+            <Label>Star Rating</Label>
+            <div className="flex items-center gap-2">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={`${value} star${value > 1 ? "s" : ""}`}
+                  onClick={() => setFeedbackRating(value as 1 | 2 | 3 | 4 | 5)}
+                  className={`rounded-xl border px-3 py-2 transition-colors ${
+                    feedbackRating >= value
+                      ? "border-[#f59e0b] bg-[#fff7ed] text-[#b45309]"
+                      : "border-gray-200 bg-white text-gray-400"
+                  }`}
+                >
+                  <Star className={`h-5 w-5 ${feedbackRating >= value ? "fill-current" : ""}`} />
+                </button>
+              ))}
+              <span className="text-sm text-gray-500">{feedbackRating}/5</span>
+            </div>
             <Label>Comments</Label>
             <Textarea maxLength={500} value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="Share your suggestions (max 500 chars)" />
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={feedbackContactOptIn} onChange={(e) => setFeedbackContactOptIn(e.target.checked)} /> Contact me for follow-up</label>
@@ -434,8 +963,10 @@ export default function CustomerEngagementPage() {
           </div>
         </Card>
       </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
+      {activeTab === "challenges" ? (
+      <div className="grid grid-cols-1 gap-6">
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-[#e6f8fa] p-3">
@@ -449,7 +980,7 @@ export default function CustomerEngagementPage() {
 
           <div className="mt-5 space-y-4">
             {state.challenges.map((challenge) => {
-              const progress = getChallengeProgress(challenge, user);
+              const progress = resolveChallengeProgress(challenge);
               const claimed = claimedChallenges.has(challenge.id);
               return (
                 <div key={challenge.id} className="rounded-2xl border border-gray-200 p-4">
@@ -461,6 +992,9 @@ export default function CustomerEngagementPage() {
                         {challenge.competitive ? <Badge className="bg-[#10213a] text-white">Leaderboard</Badge> : null}
                       </div>
                       <p className="mt-1 text-sm text-gray-600">{challenge.description}</p>
+                      <p className="mt-1 text-xs font-medium text-[#0f5f65]">
+                        Time remaining: {formatTimeRemaining(challenge.endAt)}
+                      </p>
                       <p className="mt-2 text-xs text-gray-500">
                         Runs until {new Date(challenge.endAt).toLocaleDateString()} • Reward {challenge.rewardPoints} pts • {challenge.rewardBadge}
                       </p>
@@ -490,8 +1024,62 @@ export default function CustomerEngagementPage() {
               );
             })}
           </div>
-        </Card>
 
+          {competitiveChallenge ? (
+            <div className="mt-6 rounded-2xl border border-[#d8e4f4] bg-[#f8fbff] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Member Leaderboard</h3>
+                  <p className="text-sm text-gray-500">{competitiveChallenge.title}</p>
+                </div>
+                <Badge className="bg-[#10213a] text-white">Current member highlighted</Badge>
+              </div>
+              <div className="mt-4 space-y-3">
+                {highlightedLeaderboard.map((entry, index) => {
+                  const isCurrentMember = entry.memberId === user.memberId;
+                  const rank = challengeLeaderboard.findIndex((row) => row.memberId === entry.memberId) + 1 || index + 1;
+                  return (
+                    <div
+                      key={entry.memberId}
+                      className={`rounded-2xl border p-4 ${
+                        isCurrentMember ? "border-[#00A3AD] bg-[#e6f8fa]" : "border-gray-200 bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white ${
+                            isCurrentMember ? "bg-[#00A3AD]" : "bg-[#10213a]"
+                          }`}>
+                            {rank}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              {entry.memberName}
+                              {isCurrentMember ? " (You)" : ""}
+                            </p>
+                            <p className="text-xs text-gray-500">{entry.tier}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-gray-900">{entry.value}</p>
+                          <p className="text-xs text-gray-500">{competitiveChallenge.unitLabel}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {highlightedLeaderboard.length === 0 ? (
+                  <p className="text-sm text-gray-500">Leaderboard data will appear once challenge activity is recorded.</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      </div>
+      ) : null}
+
+      {activeTab === "sharing" ? (
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-[#f5f0ff] p-3">
@@ -510,11 +1098,11 @@ export default function CustomerEngagementPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 p-3 text-sm">
+              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
                 <input type="checkbox" checked={privacySettings.showName} onChange={(event) => updatePrivacy({ showName: event.target.checked })} />
                 Show name
               </label>
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 p-3 text-sm">
+              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
                 <input
                   type="checkbox"
                   checked={privacySettings.showReferralCode}
@@ -522,7 +1110,7 @@ export default function CustomerEngagementPage() {
                 />
                 Show referral code
               </label>
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 p-3 text-sm">
+              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
                 <input
                   type="checkbox"
                   checked={privacySettings.publicProfile}
@@ -532,22 +1120,29 @@ export default function CustomerEngagementPage() {
               </label>
             </div>
 
-            <div className="overflow-hidden rounded-3xl border border-gray-200 bg-[#f7fbff]">
-              <img src={sharePreview} alt="Share card preview" className="w-full object-cover" />
+            <div className="rounded-[26px] border border-dashed border-[#c8d8eb] bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-[#10213a]">Share text preview</p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-medium text-[#26466f]">Referral ready</span>
+                  <span className="rounded-full bg-[#f6f3ff] px-3 py-1 text-xs font-medium text-[#6a45ba]">{privacySettings.publicProfile ? "Public profile" : "Private profile"}</span>
+                </div>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-gray-600">{shareMessage}</p>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button className="bg-[#1877f2] text-white hover:bg-[#1669d6]" onClick={() => handleShare("facebook")}>
-                <Facebook className="mr-2 h-4 w-4" />
-                Share to Facebook
+              <Button className="bg-[#10213a] text-white hover:bg-[#1b3153]" onClick={() => setShareSheetOpen(true)}>
+                <Share2 className="mr-2 h-4 w-4" />
+                Open Share Sheet
               </Button>
-              <Button className="bg-[#d62976] text-white hover:bg-[#c02268]" onClick={() => handleShare("instagram")}>
-                <Instagram className="mr-2 h-4 w-4" />
-                Share to Instagram
-              </Button>
-              <Button variant="outline" onClick={() => triggerDownload(sharePreview, `centralperk-${user.memberId}-achievement.svg`)}>
+              <Button
+                variant="outline"
+                className="border-[#d1deeb] bg-white hover:bg-[#f8fbff]"
+                onClick={() => void triggerImageDownload(sharePreview, `centralperk-${user.memberId}-achievement.png`)}
+              >
                 <Download className="mr-2 h-4 w-4" />
-                Download card
+                Download PNG
               </Button>
             </div>
 
@@ -569,8 +1164,131 @@ export default function CustomerEngagementPage() {
             </div>
           </div>
         </Card>
-      </div>
 
+        <Card className="overflow-hidden border-[#dce9f7] bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.95),_rgba(240,247,255,0.92)_55%,_rgba(230,240,250,0.88))] p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-[#5f6f86]">Preview</p>
+              <h3 className="mt-2 text-xl font-semibold text-[#10213a]">Share card</h3>
+              <p className="mt-1 text-sm text-gray-600">Styled for polished posting, quick downloads, and cleaner share moments.</p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Badge variant="outline" className="border-[#c8d8eb] bg-white text-[#10213a]">
+                {privacySettings.publicProfile ? "Public" : "Private"}
+              </Badge>
+              <Badge variant="outline" className="border-[#d6dff1] bg-white text-[#445979]">
+                PNG export
+              </Badge>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Tier</p>
+              <p className="mt-2 text-lg font-semibold text-[#10213a]">{user.tier}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Badge</p>
+              <p className="mt-2 text-lg font-semibold text-[#10213a]">{shareBadgeLabel}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Referral</p>
+              <p className="mt-2 text-lg font-semibold text-[#10213a]">
+                {privacySettings.showReferralCode ? referralCode || "Pending" : "Hidden"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-[#dce9f7] bg-white/80 px-4 py-3 text-sm text-[#445979] shadow-sm">
+            Best for sharing achievements, referral perks, and badge moments with a cleaner card-first presentation.
+          </div>
+
+          <div className="mt-6 flex justify-center">
+            <div className="w-full max-w-[420px] rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(241,247,255,0.92))] p-4 shadow-[0_22px_46px_rgba(16,33,58,0.12)]">
+              <div className="mb-3 flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#5f6f86]">
+                <span>Live preview</span>
+                <span>{privacySettings.showReferralCode ? "Referral visible" : "Referral hidden"}</span>
+              </div>
+              <div className="overflow-hidden rounded-[24px] border border-[#d5e4f2] bg-white shadow-[0_16px_36px_rgba(16,33,58,0.12)]">
+                <img src={sharePreview} alt="Share card preview" className="block h-auto w-full object-contain" />
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+      ) : null}
+
+      <Dialog open={shareSheetOpen} onOpenChange={setShareSheetOpen}>
+        <DialogContent className="sm:max-w-xl !bg-white !text-gray-900 border border-gray-200 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Share member moment</DialogTitle>
+            <DialogDescription className="text-gray-500">
+              Choose a channel and share your achievement with the referral code embedded in the share text.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-[#dce9f7] bg-[#f8fbff] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5f6f86]">Share text</p>
+              <p className="mt-3 text-sm leading-6 text-[#10213a]">{shareMessage}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void handleShare("facebook")}
+                className="rounded-2xl border border-[#dce9f7] bg-[#f7fbff] p-5 text-left transition hover:border-[#1877f2] hover:bg-[#eef5ff]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-[#1877f2] p-3 text-white">
+                    <Facebook className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-[#10213a]">Facebook</p>
+                    <p className="text-sm text-gray-500">Opens a share window with your referral text.</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleShare("instagram")}
+                className="rounded-2xl border border-[#dce9f7] bg-[#fdf7fb] p-5 text-left transition hover:border-[#d62976] hover:bg-[#fff0f7]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-[#d62976] p-3 text-white">
+                    <Instagram className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-[#10213a]">Instagram</p>
+                    <p className="text-sm text-gray-500">Downloads the card for your story or post.</p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 p-4">
+              <p className="text-sm font-medium text-[#10213a]">Embedded referral details</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-[#f7fbff] p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Referral code</p>
+                  <p className="mt-2 font-semibold text-[#10213a]">{referralCode || "Pending"}</p>
+                </div>
+                <div className="rounded-xl bg-[#f7fbff] p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Destination</p>
+                  <p className="mt-2 break-all text-sm font-medium text-[#10213a]">{referralLink || "Link pending"}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-3">
+            <Button variant="outline" onClick={() => setShareSheetOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {activeTab === "surveys" ? (
       <Card className="p-6">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-[#fff7ed] p-3">
@@ -584,7 +1302,7 @@ export default function CustomerEngagementPage() {
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           {activeSurveys.map((survey) => {
-            const alreadySubmitted = survey.responses.some((response) => response.memberId === user.memberId);
+            const alreadySubmitted = completedSurveyIdSet.has(survey.id);
             return (
               <div key={survey.id} className="rounded-2xl border border-gray-200 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -663,8 +1381,14 @@ export default function CustomerEngagementPage() {
               </div>
             );
           })}
+          {activeSurveys.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#d7e7f8] bg-[#f8fbff] p-6 text-center text-sm text-[#5f6f86] lg:col-span-2">
+              No live surveys are available right now. The built-in survey set will appear here until new survey records are published.
+            </div>
+          ) : null}
         </div>
       </Card>
+      ) : null}
     </div>
   );
 }

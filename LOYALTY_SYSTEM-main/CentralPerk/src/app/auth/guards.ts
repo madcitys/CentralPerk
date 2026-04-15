@@ -8,7 +8,7 @@ export async function requireAuth() {
   return null;
 }
 
-// Blocks logged-in users who donâ€™t match the allowed role(s)
+// Blocks logged-in users who don't match the allowed role(s)
 export function requireRole(allowed: Role[]) {
   return async () => {
     const session = await getSession();
@@ -33,4 +33,3 @@ export async function roleRedirect() {
   const role = await getRoleFromSession();
   throw redirect(role === "admin" ? "/admin" : "/customer");
 }
-

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { hasSupabaseConfig, supabase, supabaseConfigError } from '../../utils/supabase/client';
 import { clearStoredAuth, getRoleFromSession } from '../auth/auth';
 import { trackMemberLoginActivity } from '../lib/loyalty-supabase';
@@ -20,15 +20,7 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginRole, setLoginRole] = useState<'customer' | 'admin'>('customer');
-  const navigate = useNavigate();
   const normalizeEmail = (rawEmail: string) => rawEmail.trim().toLowerCase();
-  const normalizeAdminEmail = (rawEmail: string) => {
-    const normalized = rawEmail.trim().toLowerCase();
-    if (!normalized) return '';
-    return normalized.endsWith('@admin.loyaltyhub.com')
-      ? normalized
-      : `${normalized}@admin.loyaltyhub.com`;
-  };
 
   const profileExistsForEmail = async (normalizedEmail: string) => {
     const { data, error: profileLookupError } = await supabase
@@ -59,7 +51,7 @@ export function LoginPage() {
 
       const normalizedCustomerEmail = normalizeEmail(email);
       const loginResult = await loginCustomer({ email, password, role: loginRole });
-      const authEmail = loginRole === 'admin' ? normalizeAdminEmail(email) : normalizedCustomerEmail;
+      const authEmail = loginRole === 'admin' ? `${email.trim()}@admin.loyaltyhub.com` : normalizedCustomerEmail;
 
       if (loginResult.accessToken) {
         if (loginResult.authMode === 'supabase') {
@@ -97,7 +89,7 @@ export function LoginPage() {
           }
         }
 
-        navigate('/', { replace: true });
+        window.location.replace('/');
       }
     } catch (err) {
       if (loginRole === 'admin') {
@@ -252,7 +244,7 @@ export function LoginPage() {
                   )}
                   {loginRole === 'customer' && demoAuthEnabled && !forceDemoAuth && email && isDemoEmail(email) && (
                     <p className="mt-2 text-xs text-[#1A2B47]">
-                      Demo/test email detected and demo auth is enabled. Login will use local demo auth only.
+                      Demo/test email detected and demo auth is enabled. Existing demo accounts sign in locally, and seeded demo members can bootstrap a local session in development.
                     </p>
                   )}
                   {loginRole === 'customer' && !demoAuthEnabled && email && isDemoEmail(email) && (

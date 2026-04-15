@@ -1,21 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
 import { Award, ShoppingBag, Gift, Store, Truck } from "lucide-react";
 import type { Reward } from "../../types/loyalty";
-import { Card } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { Switch } from "../../components/ui/switch";
-import { ImageWithFallback } from "../../components/figma/ImageWithFallback";
+import { Card } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Badge } from "../../../components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../../components/ui/dialog";
+import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
+import { Switch } from "../../../components/ui/switch";
+import { ImageWithFallback } from "../../../components/figma/ImageWithFallback";
 import { toast } from "sonner";
 import { useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "../../types/app-context";
-import { cn } from "../../components/ui/utils";
-import { loadRewardsCatalog, redeemMemberPoints } from "../../lib/loyalty-supabase";
+import { cn } from "../../../components/ui/utils";
+import { loadRewardsCatalog } from "../../lib/loyalty-supabase";
+import { ensureMemberNotification } from "../../lib/notifications";
 import { loadActivePromotionCampaigns, type PromotionCampaign } from "../../lib/promotions";
+import { loadActiveCampaignsViaApi, recordPartnerTransactionViaApi, redeemPointsViaApi } from "../../lib/api";
+import {
+  brandNavyBadgeClass,
+  brandNavySolidClass,
+  brandNavySolidHoverClass,
+  brandTealSolidClass,
+  brandTealSolidHoverClass,
+  brandTealSurfaceClass,
+} from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelClass,
+  customerPanelSoftClass,
+  customerPageTitleClass,
+  customerTabClass,
+  customerTabRailClass,
+} from "../lib/page-theme";
 
 const rewardImages = [
   "https://images.unsplash.com/photo-1657048167114-0942f3a2dc93?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
@@ -29,6 +50,17 @@ const rewardImages = [
 ];
 
 type RedemptionMethod = "in-store" | "online";
+type RewardCategoryTab = "all" | "flash" | "partner" | "beverage" | "food" | "merchandise" | "voucher";
+
+const rewardCategoryTabs: { value: RewardCategoryTab; label: string; hash: string }[] = [
+  { value: "all", label: "All Rewards", hash: "#rewards-all" },
+  { value: "flash", label: "Flash Sale", hash: "#rewards-flash" },
+  { value: "partner", label: "Partner", hash: "#rewards-partner" },
+  { value: "beverage", label: "Beverages", hash: "#rewards-beverage" },
+  { value: "food", label: "Food", hash: "#rewards-food" },
+  { value: "merchandise", label: "Merchandise", hash: "#rewards-merchandise" },
+  { value: "voucher", label: "Vouchers", hash: "#rewards-voucher" },
+];
 
 function formatCountdown(targetDate?: string | null, nowTs = Date.now()) {
   if (!targetDate) return null;
@@ -39,14 +71,17 @@ function formatCountdown(targetDate?: string | null, nowTs = Date.now()) {
   const days = Math.floor(totalSeconds / 86400);
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedSeconds = `${seconds}`.padStart(2, "0");
 
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${paddedSeconds}s`;
+  if (hours > 0) return `${hours}h ${minutes}m ${paddedSeconds}s`;
+  return `${minutes}m ${paddedSeconds}s`;
 }
 
 export default function Rewards() {
   const { user, refreshUser } = useOutletContext<AppOutletContext>();
+  const [activeTab, setActiveTab] = useState<RewardCategoryTab>("all");
   const [catalog, setCatalog] = useState<Reward[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<PromotionCampaign[]>([]);
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
@@ -66,24 +101,99 @@ export default function Rewards() {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
 
   useEffect(() => {
-    Promise.all([
-      loadRewardsCatalog().catch(() => []),
-      loadActivePromotionCampaigns(user.tier).catch(() => []),
-    ]).then(([rewards, campaigns]) => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    const matchedTab = rewardCategoryTabs.find((tab) => tab.hash === hash);
+    if (matchedTab) {
+      setActiveTab(matchedTab.value);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const current = rewardCategoryTabs.find((tab) => tab.value === activeTab);
+    if (!current) return;
+    const nextUrl = `${window.location.pathname}${window.location.search}${current.hash}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, [activeTab]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      const [rewards, campaignsResponse] = await Promise.all([
+        loadRewardsCatalog().catch(() => []),
+        loadActiveCampaignsViaApi(user.tier).catch(async () => ({
+          ok: true as const,
+          campaigns: await loadActivePromotionCampaigns(user.tier).catch(() => []),
+        })),
+      ]);
+
+      if (!active) return;
       setCatalog(rewards);
-      setActiveCampaigns(campaigns);
-    });
+      setActiveCampaigns(campaignsResponse.campaigns);
+    };
+
+    void loadData();
+    const interval = window.setInterval(() => {
+      void loadActiveCampaignsViaApi(user.tier)
+        .then((response) => setActiveCampaigns(response.campaigns))
+        .catch(() => undefined);
+    }, 30_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [user.tier]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000 * 30);
+    if (!user.memberId) return;
+
+    const activeFlashRewards = catalog.filter((reward) => {
+      if (!reward.activeFlashSaleId || !reward.flashSaleStartsAt || !reward.flashSaleEndsAt) return false;
+      const startsAt = new Date(reward.flashSaleStartsAt).getTime();
+      const endsAt = new Date(reward.flashSaleEndsAt).getTime();
+      return startsAt <= Date.now() && endsAt > Date.now();
+    });
+
+    activeFlashRewards.forEach((reward) => {
+      const notificationKey = `flash-live:${user.memberId}:${reward.id}:${reward.flashSaleEndsAt ?? ""}`;
+      if (typeof window !== "undefined" && window.sessionStorage.getItem(notificationKey)) {
+        return;
+      }
+
+      void ensureMemberNotification({
+        memberId: user.memberId,
+        channel: "push",
+        subject: "Flash Sale Live",
+        message: `Flash sale now live: ${reward.name}. Redeem it before ${new Date(String(reward.flashSaleEndsAt)).toLocaleString()}.`,
+        isTransactional: true,
+      })
+        .then((result) => {
+          if (result.queued && typeof window !== "undefined") {
+            window.sessionStorage.setItem(notificationKey, "1");
+          }
+        })
+        .catch(() => undefined);
+    });
+  }, [catalog, user.memberId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
 
   const filteredRewards = useMemo(() => catalog.filter((reward) => reward.available), [catalog]);
   const flashSaleRewards = useMemo(
-    () => filteredRewards.filter((reward) => Boolean(reward.activeFlashSaleId)),
-    [filteredRewards]
+    () =>
+      filteredRewards.filter((reward) => {
+        if (!reward.activeFlashSaleId || !reward.flashSaleStartsAt) return false;
+        const startsAt = new Date(reward.flashSaleStartsAt).getTime();
+        const endsAt = reward.flashSaleEndsAt ? new Date(reward.flashSaleEndsAt).getTime() : Number.POSITIVE_INFINITY;
+        return startsAt <= countdownNow && endsAt > countdownNow;
+      }),
+    [filteredRewards, countdownNow]
   );
   const partnerRewards = useMemo(
     () => filteredRewards.filter((reward) => Boolean(reward.partnerId)),
@@ -118,7 +228,7 @@ export default function Rewards() {
     type: "redeemed" | "gifted" = "redeemed",
     reward?: Reward | null
   ) => {
-    await redeemMemberPoints({
+    await redeemPointsViaApi({
       memberIdentifier: user.memberId,
       fallbackEmail: user.email,
       points,
@@ -127,6 +237,26 @@ export default function Rewards() {
       rewardCatalogId: reward?.rewardCatalogId,
       promotionCampaignId: reward?.activeFlashSaleId || null,
     });
+
+    if (type !== "gifted" && reward?.partnerId && reward.partnerCode && reward.partnerName) {
+      await recordPartnerTransactionViaApi({
+        partnerId: String(reward.partnerId),
+        partnerCode: reward.partnerCode,
+        partnerName: reward.partnerName,
+        memberId: user.memberId,
+        memberEmail: user.email,
+        orderId: `reward-${reward.id}-${Date.now()}`,
+        points,
+        grossAmount:
+          Number(reward.cashValue ?? 0) > 0
+            ? Number(reward.cashValue ?? 0)
+            : Number(reward.partnerConversionRate ?? 0) > 0
+              ? Number((points / Number(reward.partnerConversionRate)).toFixed(2))
+              : 0,
+        note: description,
+      }).catch(() => undefined);
+    }
+
     await refreshUser();
   };
 
@@ -148,6 +278,14 @@ export default function Rewards() {
   };
 
   const handleRedeem = (reward: Reward) => {
+    if (isFlashSaleSoldOut(reward)) {
+      toast.error("This flash sale reward is sold out.");
+      return;
+    }
+    if (isFlashSaleExpired(reward)) {
+      toast.error("This reward has expired.");
+      return;
+    }
     setSelectedReward(reward);
     setRedeemDialogOpen(true);
   };
@@ -181,7 +319,11 @@ export default function Rewards() {
       setRedeemDialogOpen(false);
       setRedemptionMethod("in-store");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Redeem failed");
+      const errorMessage =
+        error && typeof error === "object" && "message" in error && typeof error.message === "string"
+          ? error.message
+          : "Redeem failed";
+      toast.error("Redeem failed", { description: errorMessage });
     } finally {
       setSaving(false);
     }
@@ -262,10 +404,17 @@ export default function Rewards() {
     const canAfford = user.points >= reward.pointsCost;
     const soldOut = isFlashSaleSoldOut(reward);
     const expired = isFlashSaleExpired(reward);
+    const unavailable = soldOut || expired;
     const imageSrc = reward.imageUrl || rewardImages[imageIndex % rewardImages.length];
 
     return (
-      <Card key={reward.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+      <Card
+        key={reward.id}
+        className={cn(
+          "overflow-hidden transition-shadow",
+          unavailable ? "relative border-[#f3c2c2] bg-[#fff8f8] shadow-sm" : "hover:shadow-lg"
+        )}
+      >
         <div className="relative">
           <ImageWithFallback src={imageSrc} alt={reward.name} className="w-full h-48 object-cover" />
           {isReserved && <Badge className="absolute top-3 right-3 bg-sky-600 text-white">Reserved</Badge>}
@@ -274,9 +423,21 @@ export default function Rewards() {
               {soldOut ? "Sold Out" : expired ? "Ended" : `Flash Sale ${formatCountdown(reward.flashSaleEndsAt, countdownNow)}`}
             </Badge>
           ) : null}
+          {unavailable ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/62 backdrop-blur-[2px]">
+              <div className="mx-6 rounded-2xl border border-[#f3c2c2] bg-white/90 px-4 py-3 text-center shadow-sm">
+                <p className="text-sm font-semibold text-[#991b1b]">
+                  {expired ? "This reward has expired" : "This reward is sold out"}
+                </p>
+                <p className="mt-1 text-xs text-[#b45309]">
+                  {expired ? "Flash sale redemption is no longer available." : "All flash sale slots have been claimed."}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        <div className="p-6">
+        <div className={cn("p-6", unavailable && "opacity-80")}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-gray-900">{reward.name}</h3>
             {reward.partnerName ? <Badge variant="outline">{reward.partnerName}</Badge> : null}
@@ -307,27 +468,36 @@ export default function Rewards() {
 
           <div className="flex flex-wrap gap-2">
             <Button
-              className="flex-1 min-w-[120px] bg-[#1A2B47] hover:brightness-110 text-white"
+              className={`flex-1 min-w-[120px] ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
               onClick={() => handleRedeem(reward)}
-              disabled={saving || soldOut || expired || !canAfford}
+              disabled={saving || unavailable || !canAfford}
             >
-              {soldOut ? "Sold Out" : expired ? "Offer Ended" : isReserved ? "Redeem Now" : "Redeem"}
+              {expired ? "This Reward Has Expired" : soldOut ? "Sold Out" : isReserved ? "Redeem Now" : "Redeem"}
             </Button>
-            {!isReserved && canAfford && !soldOut && !expired ? <Button variant="outline" className="border-gray-200 text-[#1A2B47] hover:bg-[#e9edf5] hover:text-[#1A2B47]" onClick={() => handleReserve(reward)}>Reserve</Button> : null}
+            {!isReserved && canAfford && !unavailable ? <Button variant="outline" className="border-gray-200 text-[#1A2B47] hover:bg-[#e9edf5] hover:text-[#1A2B47]" onClick={() => handleReserve(reward)}>Reserve</Button> : null}
             <Button variant="outline" className="border-gray-200 text-[#1A2B47] hover:bg-[#e9edf5] hover:text-[#1A2B47]" size="icon" onClick={() => handleGift(reward)} disabled={saving}><Gift className="w-4 h-4" /></Button>
           </div>
 
-          {!canAfford && <p className="text-xs text-orange-600 mt-2">Need {reward.pointsCost - user.points} more points</p>}
+          {expired ? (
+            <p className="mt-2 text-xs font-medium text-[#991b1b]">This flash sale reward has expired.</p>
+          ) : soldOut ? (
+            <p className="mt-2 text-xs font-medium text-[#991b1b]">This flash sale reward is sold out.</p>
+          ) : !canAfford ? (
+            <p className="text-xs text-orange-600 mt-2">Need {reward.pointsCost - user.points} more points</p>
+          ) : null}
         </div>
       </Card>
     );
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Rewards</h1>
-        <p className="text-gray-500 mt-1">Redeem your points for exclusive rewards</p>
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Reward Studio</div>
+          <h1 className={customerPageTitleClass}>Rewards</h1>
+          <p className={customerPageDescriptionClass}>Redeem your points for curated member rewards, flash sale offers, and partner picks in a calmer, more cohesive portal view.</p>
+        </div>
       </div>
 
       <Card className="p-6 bg-gradient-to-br from-[#1A2B47] to-[#1A2B47] border-0 text-white">
@@ -346,7 +516,7 @@ export default function Rewards() {
             >
               <div className="p-6">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="bg-[#10213a] text-white">{campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}</Badge>
+                  <Badge className={brandNavyBadgeClass}>{campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}</Badge>
                   {campaign.eligibleTiers.length > 0 ? (
                     <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge>
                   ) : null}
@@ -375,7 +545,22 @@ export default function Rewards() {
           </div>
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {flashSaleRewards.map((reward, index) => (
-              <div key={`flash-${reward.id}`} className="rounded-2xl border border-[#f3c2c2] bg-white p-4 shadow-sm">
+              <div
+                key={`flash-${reward.id}`}
+                className={cn(
+                  "relative rounded-2xl border border-[#f3c2c2] bg-white p-4 shadow-sm",
+                  (isFlashSaleSoldOut(reward) || isFlashSaleExpired(reward)) && "overflow-hidden bg-[#fff8f8]"
+                )}
+              >
+                {isFlashSaleSoldOut(reward) || isFlashSaleExpired(reward) ? (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+                    <div className="rounded-2xl border border-[#f3c2c2] bg-white/92 px-4 py-3 text-center shadow-sm">
+                      <p className="text-sm font-semibold text-[#991b1b]">
+                        {isFlashSaleExpired(reward) ? "This reward has expired" : "This reward is sold out"}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex gap-4">
                   <ImageWithFallback
                     src={reward.imageUrl || rewardImages[index % rewardImages.length]}
@@ -397,7 +582,11 @@ export default function Rewards() {
                       disabled={saving || isFlashSaleSoldOut(reward) || isFlashSaleExpired(reward)}
                       onClick={() => handleRedeem(reward)}
                     >
-                      {isFlashSaleSoldOut(reward) ? "Sold Out" : `Redeem for ${reward.pointsCost} pts`}
+                      {isFlashSaleExpired(reward)
+                        ? "This Reward Has Expired"
+                        : isFlashSaleSoldOut(reward)
+                          ? "Sold Out"
+                          : `Redeem for ${reward.pointsCost} pts`}
                     </Button>
                   </div>
                 </div>
@@ -407,7 +596,7 @@ export default function Rewards() {
         </Card>
       ) : null}
 
-      <Card className="p-6 bg-white">
+      <Card className={customerPanelClass}>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 mb-2">Use Points as Partial Payment</h3>
@@ -415,15 +604,15 @@ export default function Rewards() {
             {usePoints && (
               <div className="flex flex-col sm:flex-row gap-3 max-w-md">
                 <Input type="number" placeholder="Enter points" value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)} max={user.points} />
-                <Button className="bg-[#00A3AD] hover:brightness-110 text-white" onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>Apply</Button>
+                <Button className={`${brandTealSolidClass} ${brandTealSolidHoverClass}`} onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>Apply</Button>
               </div>
             )}
           </div>
-          <Button variant={usePoints ? "outline" : "default"} className={cn("w-full sm:w-auto", !usePoints ? "bg-[#1A2B47] hover:brightness-110 text-white" : "")} onClick={() => setUsePoints((prev) => !prev)}>{usePoints ? "Cancel" : "Use Points"}</Button>
+          <Button variant={usePoints ? "outline" : "default"} className={cn("w-full sm:w-auto", !usePoints ? `${brandNavySolidClass} ${brandNavySolidHoverClass}` : "")} onClick={() => setUsePoints((prev) => !prev)}>{usePoints ? "Cancel" : "Use Points"}</Button>
         </div>
       </Card>
 
-      <Card className="p-6 border-[#00A3AD]/25 bg-[#e6f8fa]">
+      <Card className={cn("p-6", brandTealSurfaceClass)}>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 mb-1">Apply Points Automatically at Checkout</h3>
@@ -431,7 +620,7 @@ export default function Rewards() {
             {autoApplyAtCheckout && (
               <div className="flex flex-col sm:flex-row gap-3 max-w-xl">
                 <Input type="number" step="0.01" min="0" placeholder="Checkout amount (e.g. 18.50)" value={checkoutAmount} onChange={(e) => setCheckoutAmount(e.target.value)} />
-                <Button className="bg-[#1A2B47] hover:brightness-110 text-white" onClick={handleAutoApplyCheckout} disabled={saving}>Auto Apply</Button>
+                <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handleAutoApplyCheckout} disabled={saving}>Auto Apply</Button>
               </div>
             )}
           </div>
@@ -440,21 +629,21 @@ export default function Rewards() {
       </Card>
 
       {reservedRewards.length > 0 && (
-        <Card className="p-6">
+        <Card className={customerPanelClass}>
           <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><ShoppingBag className="w-5 h-5" />Reserved Rewards ({reservedRewards.length})</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {catalog.filter((reward) => reservedRewards.includes(reward.id)).map((reward, index) => (
               <div key={reward.id} className="flex items-center gap-4 p-4 rounded-xl border-2 border-sky-200 bg-sky-50/50">
                 <ImageWithFallback src={rewardImages[index]} alt={reward.name} className="w-20 h-20 rounded-lg object-cover" />
                 <div className="flex-1 min-w-0"><p className="font-medium text-gray-900 truncate">{reward.name}</p><p className="text-sm text-gray-600">{reward.pointsCost} points</p><Badge className="mt-1 bg-sky-100 text-sky-700">Reserved</Badge></div>
-                <Button size="sm" onClick={() => handleRedeem(reward)} className="bg-[#1A2B47] hover:brightness-110 text-white">Redeem</Button>
+                <Button size="sm" onClick={() => handleRedeem(reward)} className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`}>Redeem</Button>
               </div>
             ))}
           </div>
         </Card>
       )}
 
-      <Card className="p-6 border-orange-200 bg-orange-50/50">
+      <Card className={cn(customerPanelSoftClass, "border-orange-200 bg-orange-50/50")}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h3 className="font-semibold text-gray-900">Redeemed History</h3>
           <Input value={redeemSearch} onChange={(e) => setRedeemSearch(e.target.value)} placeholder="Search redeemed item..." className="sm:w-72 bg-white" />
@@ -476,21 +665,23 @@ export default function Rewards() {
         )}
       </Card>
 
-      <Tabs defaultValue="all" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="all">All Rewards</TabsTrigger>
-          <TabsTrigger value="flash">Flash Sale</TabsTrigger>
-          <TabsTrigger value="partner">Partner</TabsTrigger>
-          <TabsTrigger value="beverage">Beverages</TabsTrigger>
-          <TabsTrigger value="food">Food</TabsTrigger>
-          <TabsTrigger value="merchandise">Merchandise</TabsTrigger>
-          <TabsTrigger value="voucher">Vouchers</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as RewardCategoryTab)} className="space-y-6">
+        <div className="overflow-x-auto pb-1">
+        <TabsList className={`h-auto min-w-max flex-nowrap justify-start gap-1 shadow-sm ${customerTabRailClass}`}>
+          <TabsTrigger value="all" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>All Rewards</TabsTrigger>
+          <TabsTrigger value="flash" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Flash Sale</TabsTrigger>
+          <TabsTrigger value="partner" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Partner</TabsTrigger>
+          <TabsTrigger value="beverage" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Beverages</TabsTrigger>
+          <TabsTrigger value="food" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Food</TabsTrigger>
+          <TabsTrigger value="merchandise" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Merchandise</TabsTrigger>
+          <TabsTrigger value="voucher" className={cn(customerTabClass, "data-[state=active]:bg-white data-[state=active]:text-[#1A2B47] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]/18 data-[state=active]:shadow-sm")}>Vouchers</TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="all" className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredRewards.map((reward, index) => renderRewardCard(reward, index))}</div></TabsContent>
         <TabsContent value="flash" className="space-y-4">
           {flashSaleRewards.length === 0 ? (
-            <Card className="p-6 border-dashed border-gray-300">
+            <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
               <p className="text-sm text-gray-600">No live flash sales right now.</p>
             </Card>
           ) : (
@@ -504,7 +695,7 @@ export default function Rewards() {
         </TabsContent>
         <TabsContent value="partner" className="space-y-4">
           {partnerRewards.length === 0 ? (
-            <Card className="p-6 border-dashed border-gray-300">
+            <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
               <p className="text-sm text-gray-600">No partner rewards are available yet.</p>
             </Card>
           ) : (
@@ -522,7 +713,7 @@ export default function Rewards() {
       </Tabs>
 
       {filteredRewards.length === 0 && (
-        <Card className="p-6 border-dashed border-gray-300">
+        <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
           <p className="text-sm text-gray-600">
             No rewards found in database. Add rows to <code>rewards_catalog</code> to show redeemable items.
           </p>
@@ -533,8 +724,20 @@ export default function Rewards() {
         <DialogContent className="sm:max-w-lg !bg-white !text-gray-900 border border-gray-200 shadow-2xl"><DialogHeader><DialogTitle className="text-gray-900">Redeem Reward</DialogTitle><DialogDescription className="text-gray-500">Choose how you'd like to receive your reward</DialogDescription></DialogHeader>
           {selectedReward && (
             <div className="space-y-6 py-4">
+              {isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward) ? (
+                <div className="rounded-2xl border border-[#f3c2c2] bg-[#fff5f5] px-4 py-3">
+                  <p className="text-sm font-semibold text-[#991b1b]">
+                    {isFlashSaleExpired(selectedReward) ? "This reward has expired." : "This reward is sold out."}
+                  </p>
+                  <p className="mt-1 text-xs text-[#7f1d1d]">
+                    {isFlashSaleExpired(selectedReward)
+                      ? "Flash sale redemption is closed for this item."
+                      : "No more flash sale redemptions are available for this item."}
+                  </p>
+                </div>
+              ) : null}
               <div className="flex items-center gap-4 p-4 rounded-xl bg-gray-50"><div className="flex-1"><p className="font-semibold text-gray-900">{selectedReward.name}</p><p className="text-sm text-gray-600">{selectedReward.description}</p></div><div className="text-right"><p className="text-4xl font-bold leading-none text-[#1A2B47]">{selectedReward.pointsCost}</p><p className="text-xs text-gray-500 mt-1">points</p></div></div>
-              <div className="space-y-3"><Label className="text-gray-900">Redemption Method</Label><div className="grid grid-cols-2 gap-3"><button className={`p-4 rounded-2xl border transition-all ${redemptionMethod === "in-store" ? "border-[#1A2B47] bg-[#e9f2f8]" : "border-gray-200 bg-white hover:bg-gray-50"}`} onClick={() => setRedemptionMethod("in-store")}><Store className={`w-6 h-6 mx-auto mb-2 ${redemptionMethod === "in-store" ? "text-[#1A2B47]" : "text-gray-400"}`} /><p className="font-medium text-sm text-gray-900">In-Store</p><p className="text-xs text-gray-500 mt-1">Pick up at counter</p></button><button className={`p-4 rounded-2xl border transition-all ${redemptionMethod === "online" ? "border-[#1A2B47] bg-[#e9f2f8]" : "border-gray-200 bg-white hover:bg-gray-50"}`} onClick={() => setRedemptionMethod("online")}><Truck className={`w-6 h-6 mx-auto mb-2 ${redemptionMethod === "online" ? "text-[#1A2B47]" : "text-gray-400"}`} /><p className="font-medium text-sm text-gray-900">Delivery</p><p className="text-xs text-gray-500 mt-1">Redeem online for delivery</p></button></div></div>
+              <div className="space-y-3"><Label className="text-gray-900">Redemption Method</Label><div className="grid grid-cols-2 gap-3"><button className={`p-4 rounded-2xl border transition-all ${redemptionMethod === "in-store" ? "border-[#1A2B47] bg-[#e9f2f8]" : "border-gray-200 bg-white hover:bg-gray-50"} ${(isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward)) ? "cursor-not-allowed opacity-50" : ""}`} onClick={() => setRedemptionMethod("in-store")} disabled={isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward)}><Store className={`w-6 h-6 mx-auto mb-2 ${redemptionMethod === "in-store" ? "text-[#1A2B47]" : "text-gray-400"}`} /><p className="font-medium text-sm text-gray-900">In-Store</p><p className="text-xs text-gray-500 mt-1">Pick up at counter</p></button><button className={`p-4 rounded-2xl border transition-all ${redemptionMethod === "online" ? "border-[#1A2B47] bg-[#e9f2f8]" : "border-gray-200 bg-white hover:bg-gray-50"} ${(isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward)) ? "cursor-not-allowed opacity-50" : ""}`} onClick={() => setRedemptionMethod("online")} disabled={isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward)}><Truck className={`w-6 h-6 mx-auto mb-2 ${redemptionMethod === "online" ? "text-[#1A2B47]" : "text-gray-400"}`} /><p className="font-medium text-sm text-gray-900">Delivery</p><p className="text-xs text-gray-500 mt-1">Redeem online for delivery</p></button></div></div>
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-3">
@@ -546,11 +749,18 @@ export default function Rewards() {
               Cancel
             </Button>
             <Button
-              className="h-10 bg-[#1A2B47] hover:brightness-110 text-white"
+              className={`h-10 ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
               onClick={confirmRedeem}
-              disabled={saving}
+              disabled={
+                saving ||
+                (selectedReward ? isFlashSaleExpired(selectedReward) || isFlashSaleSoldOut(selectedReward) : false)
+              }
             >
-              Confirm Redemption
+              {selectedReward && isFlashSaleExpired(selectedReward)
+                ? "Reward Expired"
+                : selectedReward && isFlashSaleSoldOut(selectedReward)
+                  ? "Sold Out"
+                  : "Confirm Redemption"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -587,11 +797,10 @@ export default function Rewards() {
             >
               Cancel
             </Button>
-            <Button className="h-10 bg-[#1A2B47] hover:brightness-110 text-white" onClick={confirmReserve}>Reserve Reward</Button>
+            <Button className={`h-10 ${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={confirmReserve}>Reserve Reward</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
-
