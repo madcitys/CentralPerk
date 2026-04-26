@@ -1,13 +1,15 @@
 import { Activity, Award, BarChart3, Bell, Home, LogOut, Menu, Settings, Sparkles, Users, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { cn } from "../../components/ui/utils";
 import { supabase } from "../../utils/supabase/client";
 import type { AppNotification } from "../lib/notifications";
 import { brandTealSolidClass } from "../lib/ui-color-tokens";
 import { loadNotificationsViaApi, markNotificationReadViaApi } from "../lib/api";
+import { ensureArray } from "../lib/defaults";
 import { clearStoredAuth, touchStoredAdminSession } from "../auth/auth";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const NOTIFICATION_REFRESH_INTERVAL_MS = 30_000;
 
 function useLocalDemoRealtimeFallback() {
   return (
@@ -33,13 +35,14 @@ export default function AdminRoot() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       const response = await loadNotificationsViaApi({ limit: 20 });
-      setNotifications(response.notifications.filter((item) => item.status !== "read"));
+      const nextNotifications = ensureArray(response.notifications).filter((item) => item.status !== "read");
+      setNotifications(nextNotifications);
     } catch {
     }
-  };
+  }, []);
 
 
 
@@ -62,7 +65,25 @@ export default function AdminRoot() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") {
+        loadNotifications().catch(() => {});
+      }
+    };
+
+    const interval = window.setInterval(refresh, NOTIFICATION_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadNotifications]);
 
   const handleNotificationClick = async (notificationId: string) => {
     try {

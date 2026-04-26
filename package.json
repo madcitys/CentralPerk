@@ -8,12 +8,19 @@
     "src/backend"
   ],
   "scripts": {
+    "dev": "npm run dev:frontend",
+    "server": "npm run dev:backend",
     "dev:frontend": "npm --prefix src/frontend run dev",
-    "dev:backend": "npm --prefix src/backend run start",
+    "dev:backend": "npm --prefix src/backend run start:dev",
     "build:frontend": "npm --prefix src/frontend run build",
     "build:backend": "npm --prefix src/backend run build",
     "build:all": "npm run build:backend && npm run build:frontend",
     "start:frontend": "npm --prefix src/frontend run start",
-    "start:backend": "npm --prefix src/backend run start"
+    "start:backend": "npm --prefix src/backend run start",
+    "health": "node scripts/health-check.mjs",
+    "test:api": "node scripts/api-smoke-test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
   }
 }

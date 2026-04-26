@@ -165,6 +165,9 @@ async function loadLocalRuntimePointMembers() {
 }
 
 function adminCacheKey(scope: AdminDataScope, includeInsights: boolean, localDemoMode: boolean) {
+  if (localDemoMode) {
+    return `local-demo:${includeInsights ? "insights" : "base"}`;
+  }
   return `${scope}:${includeInsights ? "insights" : "base"}:${localDemoMode ? "local" : "remote"}`;
 }
 

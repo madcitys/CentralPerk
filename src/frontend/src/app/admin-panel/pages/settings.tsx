@@ -4,6 +4,7 @@ import type { EarningRule } from "../../lib/loyalty-supabase";
 import { normalizeTierLabel, type TierRule } from "../../lib/loyalty-engine";
 import { toast } from "sonner";
 import { loadTierRulesViaApi, recalculateTiersViaApi, saveTierRulesViaApi } from "../../lib/api";
+import { DEFAULT_EARNING_RULES, DEFAULT_TIER_RULES, ensureArray } from "../../lib/defaults";
 import {
   DEFAULT_BIRTHDAY_REWARD_SETTINGS,
   loadBirthdayRewardSettings,
@@ -23,17 +24,8 @@ import {
   adminPrimaryButtonClass,
 } from "../lib/page-theme";
 
-const FALLBACK_RULES: TierRule[] = [
-  { tier_label: "Bronze", min_points: 0 },
-  { tier_label: "Silver", min_points: 250 },
-  { tier_label: "Gold", min_points: 750 },
-];
-
-const FALLBACK_EARNING_RULES: EarningRule[] = [
-  { tier_label: "Bronze", peso_per_point: 10, multiplier: 1, is_active: true },
-  { tier_label: "Silver", peso_per_point: 10, multiplier: 1.25, is_active: true },
-  { tier_label: "Gold", peso_per_point: 10, multiplier: 1.5, is_active: true },
-];
+const FALLBACK_RULES: TierRule[] = DEFAULT_TIER_RULES;
+const FALLBACK_EARNING_RULES: EarningRule[] = DEFAULT_EARNING_RULES;
 
 export default function AdminSettingsPage() {
   const [rules, setRules] = useState<TierRule[]>(FALLBACK_RULES);
@@ -44,17 +36,19 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     loadTierRulesViaApi()
       .then((data) => {
+        const safeTiers = ensureArray(data.tiers);
+        const safeEarningRules = ensureArray(data.earningRules);
         setRules(
-          data.tiers.length > 0
-            ? data.tiers.map((rule) => ({
+          safeTiers.length > 0
+            ? safeTiers.map((rule) => ({
                 tier_label: rule.tier_label,
                 min_points: Number(rule.min_points || 0),
               }))
             : FALLBACK_RULES,
         );
         setEarningRules(
-          data.earningRules.length > 0
-            ? data.earningRules.map((rule) => ({
+          safeEarningRules.length > 0
+            ? safeEarningRules.map((rule) => ({
                 tier_label: normalizeTierLabel(rule.tier_label),
                 peso_per_point: Number(rule.peso_per_point || 10),
                 multiplier: Number(rule.multiplier || 1),
@@ -113,13 +107,13 @@ export default function AdminSettingsPage() {
       const recalc = await recalculateTiersViaApi();
       saveBirthdayRewardSettings(birthdaySettings);
       setRules(
-        response.tiers.map((rule) => ({
+        ensureArray(response.tiers).map((rule) => ({
           tier_label: rule.tier_label,
           min_points: Number(rule.min_points || 0),
         })),
       );
       setEarningRules(
-        response.earningRules.map((rule) => ({
+        ensureArray(response.earningRules).map((rule) => ({
           tier_label: normalizeTierLabel(rule.tier_label),
           peso_per_point: Number(rule.peso_per_point || 10),
           multiplier: Number(rule.multiplier || 1),

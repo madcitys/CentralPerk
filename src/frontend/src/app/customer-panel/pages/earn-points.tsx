@@ -12,6 +12,7 @@ import type { AppOutletContext } from "../../types/app-context";
 import { normalizeTierLabel } from "../../lib/loyalty-engine";
 import { createPurchaseViaApi, loadPurchasesViaApi, loadTasksViaApi, startTaskViaApi, submitTaskViaApi } from "../../lib/api";
 import type { EarnOpportunity } from "../../types/loyalty";
+import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 import {
   brandNavySolidClass,
   brandNavySolidHoverClass,
@@ -30,6 +31,7 @@ import {
 
 export default function EarnPoints() {
   const { user, refreshUser, completedTaskIds, setCompletedTaskIds } = useOutletContext<AppOutletContext>();
+  const safeUser = createDefaultMemberData(user);
   type EarnTask = EarnOpportunity & { type?: string; memberStatus?: string };
 
   const [tasks, setTasks] = useState<EarnTask[]>([]);
@@ -48,11 +50,11 @@ export default function EarnPoints() {
 
   const refreshEarnData = async () => {
     const [taskResponse, purchaseResponse] = await Promise.all([
-      loadTasksViaApi(user.memberId).catch(() => ({ tasks: [] as Array<Record<string, unknown>> })),
-      loadPurchasesViaApi(user.memberId).catch(() => ({ purchases: [] as Array<Record<string, unknown>> })),
+      loadTasksViaApi(safeUser.memberId).catch(() => ({ tasks: [] as Array<Record<string, unknown>> })),
+      loadPurchasesViaApi(safeUser.memberId).catch(() => ({ purchases: [] as Array<Record<string, unknown>> })),
     ]);
 
-    const normalizedTasks = (taskResponse.tasks || []).map((row) => ({
+    const normalizedTasks = ensureArray(taskResponse.tasks).map((row) => ({
         id: String(row.id || ""),
         title: String(row.title || "Task"),
         description: String(row.description || ""),
@@ -68,7 +70,7 @@ export default function EarnPoints() {
     if (firstSurveyTask) {
       setActiveSurveyTaskId(firstSurveyTask.id);
     }
-    setRecentPurchases(purchaseResponse.purchases || []);
+    setRecentPurchases(ensureArray(purchaseResponse.purchases));
   };
 
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function EarnPoints() {
       setTasks([]);
       setRecentPurchases([]);
     });
-  }, [user.memberId]);
+  }, [safeUser.memberId]);
 
   const completedSet = useMemo(() => new Set(completedTaskIds), [completedTaskIds]);
 
@@ -88,7 +90,7 @@ export default function EarnPoints() {
 
     try {
       setSaving(true);
-      const startResponse = await startTaskViaApi(task.id, { memberId: user.memberId });
+      const startResponse = await startTaskViaApi(task.id, { memberId: safeUser.memberId });
       if (startResponse.status === "already_claimed") {
         toast.error("This task was already claimed.");
         await refreshEarnData();
@@ -101,8 +103,8 @@ export default function EarnPoints() {
         toast.success("Survey opened. Submit all required answers to earn points.");
       } else {
         const response = await submitTaskViaApi(task.id, {
-          memberId: user.memberId,
-          email: user.email,
+          memberId: safeUser.memberId,
+          email: safeUser.email,
           title: task.title,
           description: task.description,
           type: task.type || "task",
@@ -125,15 +127,15 @@ export default function EarnPoints() {
   const handleSurveyComplete = async () => {
     try {
       setSaving(true);
-      const surveyTask = tasks.find((task) => task.id === activeSurveyTaskId) || {
+      const surveyTask = safeTasks.find((task) => task.id === activeSurveyTaskId) || {
         id: activeSurveyTaskId,
         title: "Customer Experience Survey",
         description: "Answer the quick survey to unlock bonus points.",
         points: 50,
       };
       const response = await submitTaskViaApi(surveyTask.id, {
-        memberId: user.memberId,
-        email: user.email,
+        memberId: safeUser.memberId,
+        email: safeUser.email,
         title: surveyTask.title,
         description: surveyTask.description,
         type: "survey",
@@ -169,8 +171,8 @@ export default function EarnPoints() {
     try {
       setSaving(true);
       const response = await createPurchaseViaApi({
-        memberId: user.memberId,
-        email: user.email,
+        memberId: safeUser.memberId,
+        email: safeUser.email,
         receiptReference: receiptReference.trim(),
         amount,
         date: purchaseDate,
@@ -200,11 +202,13 @@ export default function EarnPoints() {
   const [projectedPointsEarned, setProjectedPointsEarned] = useState(0);
 
   useEffect(() => {
-    const multiplier = normalizeTierLabel(user.tier) === "Gold" ? 1.5 : normalizeTierLabel(user.tier) === "Silver" ? 1.25 : 1;
+    const multiplier = normalizeTierLabel(safeUser.tier) === "Gold" ? 1.5 : normalizeTierLabel(safeUser.tier) === "Silver" ? 1.25 : 1;
     setProjectedPointsEarned(purchaseValue > 0 ? Math.max(1, Math.floor((purchaseValue / 10) * multiplier)) : 0);
-  }, [purchaseValue, user.tier]);
+  }, [purchaseValue, safeUser.tier]);
 
-  const projectedPostPurchaseBalance = user.points + projectedPointsEarned;
+  const safeTasks = ensureArray(tasks);
+  const safeRecentPurchases = ensureArray(recentPurchases);
+  const projectedPostPurchaseBalance = safeUser.points + projectedPointsEarned;
 
   const getIcon = (iconName: string) => {
     const icons: Record<string, any> = {
@@ -246,7 +250,7 @@ export default function EarnPoints() {
         <Card
           className={`${customerPanelSoftClass} cursor-pointer border-[#9ed8ff]/60 bg-[#f7fbff] transition-shadow hover:shadow-lg`}
           onClick={() => {
-            setActiveSurveyTaskId(tasks.find((task) => task.type === "survey")?.id || "survey-feedback");
+            setActiveSurveyTaskId(safeTasks.find((task) => task.type === "survey")?.id || "survey-feedback");
             setSurveyOpen(true);
           }}
         >
@@ -258,7 +262,7 @@ export default function EarnPoints() {
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Available Tasks</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {tasks.map((opportunity) => {
+          {safeTasks.map((opportunity) => {
             const Icon = getIcon(opportunity.icon);
             const completed = completedSet.has(opportunity.id) || opportunity.completed;
             return (
@@ -288,7 +292,7 @@ export default function EarnPoints() {
             );
           })}
         </div>
-        {tasks.length === 0 && (
+        {safeTasks.length === 0 && (
           <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
             <p className="text-sm text-gray-600">
               No earn tasks found in database. Add rows to <code>earn_tasks</code> to show task-based earning.
@@ -300,7 +304,7 @@ export default function EarnPoints() {
       <Card className={customerPanelClass}>
         <h3 className="font-semibold text-gray-900 mb-4">Recent Purchases</h3>
         <div className="space-y-3">
-          {recentPurchases.slice(0, 5).map((purchase) => (
+          {safeRecentPurchases.slice(0, 5).map((purchase) => (
             <div key={String(purchase.id || purchase.receiptReference)} className="flex items-center justify-between p-4 rounded-lg bg-gray-50">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#dbeafe] rounded-lg flex items-center justify-center"><Receipt className="w-5 h-5 text-[#2563eb]" /></div>
@@ -317,7 +321,7 @@ export default function EarnPoints() {
               </div>
             </div>
           ))}
-          {recentPurchases.length === 0 ? (
+          {safeRecentPurchases.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-[#fbfdff] p-4 text-sm text-gray-500">
               No recorded purchases yet. Use Record Purchase to save a validated receipt/reference and earn points.
             </div>

@@ -1,10 +1,27 @@
 import type { MemberData, Transaction } from "../types/loyalty";
 import type { PromotionCampaign } from "./promotions";
 import type { AppNotification } from "./notifications";
+import {
+  createDefaultCommunicationAnalytics,
+  createDefaultMemberData,
+  createDefaultPartnerDashboardRow,
+  DEFAULT_EARNING_RULES,
+  DEFAULT_NOTIFICATIONS,
+  DEFAULT_SEGMENTS,
+  DEFAULT_TIER_RULES,
+  ensureArray,
+  ensureNumber,
+  ensureNumberRecord,
+  type PartnerDashboardRow,
+} from "./defaults";
 
 const GET_CACHE_TTL_MS = 20_000;
 const getCache = new Map<string, { loadedAt: number; payload: unknown }>();
 const getInFlight = new Map<string, Promise<unknown>>();
+
+export type SafeApiResult<TData> =
+  | { ok: true; data: TData }
+  | { ok: false; error: string; data: TData };
 
 export const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000").replace(/\/+$/, "");
@@ -63,6 +80,38 @@ export async function requestJson<TResponse = unknown>(
   return request;
 }
 
+function normalizeApiError(error: unknown) {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (!message) return "API_UNAVAILABLE";
+  if (/failed to fetch|fetch failed|network|connection|refused|load failed/i.test(message)) {
+    return "API_UNAVAILABLE";
+  }
+  return message;
+}
+
+function fallbackValue<TResponse>(fallback: TResponse | (() => TResponse)) {
+  return typeof fallback === "function" ? (fallback as () => TResponse)() : fallback;
+}
+
+export async function requestJsonSafe<TResponse = unknown>(
+  path: string,
+  fallback: TResponse | (() => TResponse),
+  init?: RequestInit & { idempotencyKey?: string },
+): Promise<SafeApiResult<TResponse>> {
+  try {
+    return {
+      ok: true,
+      data: await requestJson<TResponse>(path, init),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: normalizeApiError(error),
+      data: fallbackValue(fallback),
+    };
+  }
+}
+
 export function clearApiReadCache() {
   getCache.clear();
   getInFlight.clear();
@@ -82,6 +131,53 @@ function normalizeTier(value: unknown): MemberData["tier"] {
   if (tier === "gold") return "Gold";
   if (tier === "silver") return "Silver";
   return "Bronze";
+}
+
+function normalizeNotification(input: Partial<AppNotification> | null | undefined): AppNotification {
+  return {
+    id: String(input?.id ?? crypto.randomUUID()),
+    subject: String(input?.subject ?? "Notification"),
+    message: String(input?.message ?? ""),
+    createdAt: String(input?.createdAt ?? new Date().toISOString()),
+    status: String(input?.status ?? "pending"),
+  };
+}
+
+function normalizePartnerDashboardRow(input: Partial<PartnerDashboardRow> | null | undefined): PartnerDashboardRow {
+  const fallback = createDefaultPartnerDashboardRow();
+  return {
+    partner: {
+      id: String(input?.partner?.id ?? fallback.partner.id),
+      partnerCode: String(input?.partner?.partnerCode ?? fallback.partner.partnerCode),
+      partnerName: String(input?.partner?.partnerName ?? fallback.partner.partnerName),
+      description: input?.partner?.description ?? fallback.partner.description,
+      logoUrl: input?.partner?.logoUrl ?? fallback.partner.logoUrl,
+      conversionRate: ensureNumber(input?.partner?.conversionRate, fallback.partner.conversionRate),
+      isActive: input?.partner?.isActive ?? fallback.partner.isActive,
+    },
+    totals: {
+      transactions: ensureNumber(input?.totals?.transactions, 0),
+      pendingTransactions: ensureNumber(input?.totals?.pendingTransactions, 0),
+      settledTransactions: ensureNumber(input?.totals?.settledTransactions, 0),
+      points: ensureNumber(input?.totals?.points, 0),
+      grossAmount: ensureNumber(input?.totals?.grossAmount, 0),
+      totalCommission: ensureNumber(input?.totals?.totalCommission, 0),
+    },
+  };
+}
+
+function normalizeCommunicationAnalytics(input: {
+  total?: unknown;
+  byChannel?: Record<string, unknown> | null;
+  byStatus?: Record<string, unknown> | null;
+} | null | undefined) {
+  const fallback = createDefaultCommunicationAnalytics();
+  return {
+    total: ensureNumber(input?.total, 0),
+    byChannel: ensureNumberRecord(input?.byChannel, fallback.byChannel),
+    byStatus: ensureNumberRecord(input?.byStatus, fallback.byStatus),
+    recent: [],
+  };
 }
 
 function mapApiTransactionType(value: unknown): Transaction["type"] {
@@ -108,37 +204,60 @@ function monthKey(value: string | Date) {
 }
 
 export async function loadMemberSnapshotViaApi(currentUser: MemberData): Promise<Partial<MemberData>> {
-  const memberId = currentUser.memberId;
-  const email = currentUser.email;
+  const safeCurrentUser = createDefaultMemberData(currentUser);
+  const memberId = safeCurrentUser.memberId;
+  const email = safeCurrentUser.email;
   if (!memberId && !email) return {};
 
   const resolvedMemberId = memberId || email;
   const query = email ? `?email=${encodeURIComponent(email)}` : "";
 
   const [pointsResponse, historyResponse, profileResponse] = await Promise.all([
-    requestJson<{
+    requestJsonSafe<{
       ok: true;
       memberId: string;
       points: number;
       balance: { member_id: string; points_balance: number; tier: string };
-    }>(`/members/${encodeURIComponent(resolvedMemberId)}/points${query}`),
-    requestJson<{
+    }>(
+      `/members/${encodeURIComponent(resolvedMemberId)}/points${query}`,
+      () => ({
+        ok: true as const,
+        memberId: resolvedMemberId,
+        points: ensureNumber(safeCurrentUser.points, 0),
+        balance: {
+          member_id: resolvedMemberId,
+          points_balance: ensureNumber(safeCurrentUser.points, 0),
+          tier: safeCurrentUser.tier,
+        },
+      }),
+    ),
+    requestJsonSafe<{
       ok: true;
       memberId: string;
       history: Array<Record<string, unknown>>;
-    }>(`/members/${encodeURIComponent(resolvedMemberId)}/points-history${query}`),
-    requestJson<{
+    }>(
+      `/members/${encodeURIComponent(resolvedMemberId)}/points-history${query}`,
+      () => ({
+        ok: true as const,
+        memberId: resolvedMemberId,
+        history: [],
+      }),
+    ),
+    requestJsonSafe<{
       ok: true;
       memberId: string;
       profile: Record<string, unknown>;
-    }>(`/members/${encodeURIComponent(resolvedMemberId)}/profile${query}`).catch(() => ({
-      ok: true as const,
-      memberId: resolvedMemberId,
-      profile: {},
-    })),
+    }>(
+      `/members/${encodeURIComponent(resolvedMemberId)}/profile${query}`,
+      () => ({
+        ok: true as const,
+        memberId: resolvedMemberId,
+        profile: {},
+      }),
+    ),
   ]);
 
-  const profile = (profileResponse.profile || {}) as {
+  const profile = (profileResponse.data.profile || {}) as {
     id?: string;
     name?: string;
     email?: string;
@@ -151,8 +270,13 @@ export async function loadMemberSnapshotViaApi(currentUser: MemberData): Promise
     surveysCompleted?: number;
     tier?: string;
   };
-  const balance = Number(pointsResponse.points ?? pointsResponse.balance?.points_balance ?? currentUser.points ?? 0);
-  const sortedHistory = [...(historyResponse.history || [])].sort(
+  const balance = Number(
+    pointsResponse.data.points ??
+      pointsResponse.data.balance?.points_balance ??
+      safeCurrentUser.points ??
+      0,
+  );
+  const sortedHistory = [...ensureArray(historyResponse.data.history)].sort(
     (left, right) => new Date(transactionDate(right)).getTime() - new Date(transactionDate(left)).getTime(),
   );
 
@@ -214,24 +338,24 @@ export async function loadMemberSnapshotViaApi(currentUser: MemberData): Promise
     : 0;
 
   return {
-    memberId: String(profile.id || pointsResponse.balance?.member_id || currentUser.memberId),
-    fullName: String(profile.name || currentUser.fullName || "Member"),
-    email: String(profile.email || currentUser.email || ""),
-    phone: String(profile.mobile || currentUser.phone || ""),
-    birthdate: String(profile.birthdate || currentUser.birthdate || ""),
-    address: String(profile.address || currentUser.address || ""),
-    profileImage: currentUser.profileImage || "",
-    memberSince: String(profile.memberSince || currentUser.memberSince || ""),
+    memberId: String(profile.id || pointsResponse.data.balance?.member_id || safeCurrentUser.memberId),
+    fullName: String(profile.name || safeCurrentUser.fullName || "Member"),
+    email: String(profile.email || safeCurrentUser.email || ""),
+    phone: String(profile.mobile || safeCurrentUser.phone || ""),
+    birthdate: String(profile.birthdate || safeCurrentUser.birthdate || ""),
+    address: String(profile.address || safeCurrentUser.address || ""),
+    profileImage: safeCurrentUser.profileImage || "",
+    memberSince: String(profile.memberSince || safeCurrentUser.memberSince || ""),
     points: balance,
     pendingPoints,
-    lifetimePoints: Number(profile.lifetimePoints ?? lifetimePoints ?? currentUser.lifetimePoints ?? 0),
+    lifetimePoints: Number(profile.lifetimePoints ?? lifetimePoints ?? safeCurrentUser.lifetimePoints ?? 0),
     earnedThisMonth,
     redeemedThisMonth,
     expiringPoints,
     daysUntilExpiry,
-    tier: normalizeTier(profile.tier || pointsResponse.balance?.tier),
-    status: String(profile.status || currentUser.status || "Active") === "Inactive" ? "Inactive" : "Active",
-    surveysCompleted: Number(profile.surveysCompleted ?? currentUser.surveysCompleted ?? 0),
+    tier: normalizeTier(profile.tier || pointsResponse.data.balance?.tier),
+    status: String(profile.status || safeCurrentUser.status || "Active") === "Inactive" ? "Inactive" : "Active",
+    surveysCompleted: Number(profile.surveysCompleted ?? safeCurrentUser.surveysCompleted ?? 0),
     transactions,
   };
 }
@@ -335,8 +459,8 @@ export async function loadActiveCampaignsViaApi(tier?: string) {
   const params = new URLSearchParams();
   if (tier) params.set("tier", tier);
   const query = params.toString();
-  return requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     campaigns: Array<
       PromotionCampaign & {
         budgetUtilizationPercent: number;
@@ -345,7 +469,17 @@ export async function loadActiveCampaignsViaApi(tier?: string) {
         notificationsSent: number;
       }
     >;
-  }>(`/campaigns/active${query ? `?${query}` : ""}`);
+  }>(
+    `/campaigns/active${query ? `?${query}` : ""}`,
+    () => ({
+      campaigns: [],
+    }),
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    campaigns: ensureArray(response.data.campaigns),
+  };
 }
 
 export async function loadCampaignBudgetStatusViaApi(campaignId: string) {
@@ -402,19 +536,31 @@ export async function saveSegmentViaApi(input: {
 }
 
 export async function listSegmentsViaApi() {
-  return requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     segments: Array<{ id: string; name: string; description: string | null; is_system: boolean }>;
     source?: string;
-  }>("/segments");
+  }>(
+    "/segments",
+    () => ({
+      segments: DEFAULT_SEGMENTS,
+      source: "fallback",
+    }),
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    segments: ensureArray(response.data.segments),
+    source: response.data.source,
+  };
 }
 
 export async function previewSegmentViaApi(input: {
   logicMode: "AND" | "OR";
   conditions: Array<{ id: string; field: "Tier" | "Last Activity" | "Points Balance"; operator: string; value: string }>;
 }) {
-  return requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     preview: {
       count: number;
       members: Array<{
@@ -427,10 +573,27 @@ export async function previewSegmentViaApi(input: {
         lastActivityAt: string | null;
       }>;
     };
-  }>("/segments/preview", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  }>(
+    "/segments/preview",
+    () => ({
+      preview: {
+        count: 0,
+        members: [],
+      },
+    }),
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    preview: {
+      count: ensureNumber(response.data.preview?.count, 0),
+      members: ensureArray(response.data.preview?.members),
+    },
+  };
 }
 
 export async function triggerSmsViaApi(input: {
@@ -472,9 +635,17 @@ export async function loadNotificationsViaApi(input: {
   if (input.email) params.set("email", input.email);
   if (input.limit) params.set("limit", String(input.limit));
 
-  return requestJson<{ ok: true; notifications: AppNotification[] }>(
+  const response = await requestJsonSafe<{ ok?: boolean; notifications?: AppNotification[] }>(
     `/notifications${params.toString() ? `?${params.toString()}` : ""}`,
+    () => ({
+      notifications: DEFAULT_NOTIFICATIONS,
+    }),
   );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    notifications: ensureArray(response.data.notifications).map((item) => normalizeNotification(item)),
+  };
 }
 
 export async function markNotificationReadViaApi(id: string) {
@@ -492,14 +663,24 @@ export async function unsubscribeEmailViaApi(input: { memberId?: string; email?:
 }
 
 export async function loadCommunicationAnalyticsViaApi() {
-  return requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     analytics: {
       total: number;
       byChannel: Record<string, number>;
       byStatus: Record<string, number>;
     };
-  }>("/communications/analytics");
+  }>(
+    "/communications/analytics",
+    () => ({
+      analytics: createDefaultCommunicationAnalytics(),
+    }),
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    analytics: normalizeCommunicationAnalytics(response.data.analytics),
+  };
 }
 
 export async function loadCommunicationOutboxViaApi() {
@@ -521,12 +702,26 @@ export async function loadCommunicationOutboxViaApi() {
 }
 
 export async function loadTierRulesViaApi() {
-  return requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     tiers: Array<{ tier_label: string; min_points: number; is_active?: boolean }>;
     earningRules: Array<{ tier_label: string; peso_per_point: number; multiplier: number; is_active?: boolean }>;
     mode?: string;
-  }>("/tiers/rules");
+  }>(
+    "/tiers/rules",
+    () => ({
+      tiers: DEFAULT_TIER_RULES,
+      earningRules: DEFAULT_EARNING_RULES,
+      mode: "fallback",
+    }),
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    tiers: ensureArray(response.data.tiers),
+    earningRules: ensureArray(response.data.earningRules),
+    mode: response.data.mode,
+  };
 }
 
 export async function saveTierRulesViaApi(input: {
@@ -573,17 +768,37 @@ export async function createPurchaseViaApi(input: {
 }
 
 export async function loadPurchasesViaApi(memberId: string) {
-  return requestJson<{ ok: true; purchases: Array<Record<string, unknown>> }>(
+  const response = await requestJsonSafe<{ ok?: boolean; purchases?: Array<Record<string, unknown>> }>(
     `/purchases?memberId=${encodeURIComponent(memberId)}`,
+    () => ({
+      purchases: [],
+    }),
   );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    purchases: ensureArray(response.data.purchases),
+  };
 }
 
 export async function loadTasksViaApi(memberId: string) {
-  return requestJson<{
-    ok: true;
-    tasks: Array<Record<string, unknown>>;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
+    tasks?: Array<Record<string, unknown>>;
     source?: string;
-  }>(`/tasks?memberId=${encodeURIComponent(memberId)}`);
+  }>(
+    `/tasks?memberId=${encodeURIComponent(memberId)}`,
+    () => ({
+      tasks: [],
+      source: "fallback",
+    }),
+  );
+  return {
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
+    tasks: ensureArray(response.data.tasks),
+    source: response.data.source,
+  };
 }
 
 export async function startTaskViaApi(taskId: string, input: { memberId: string }) {
@@ -661,8 +876,8 @@ export async function recordPartnerTransactionViaApi(input: {
 }
 
 export async function loadPartnerDashboardViaApi() {
-  const response = await requestJson<{
-    ok: true;
+  const response = await requestJsonSafe<{
+    ok?: boolean;
     partners?: Array<{
       partner: {
         id: string;
@@ -692,28 +907,41 @@ export async function loadPartnerDashboardViaApi() {
         paidSettlementAmount?: number;
       };
     };
-  }>("/partners/dashboard");
-  if (response.partners) return { ok: true as const, partners: response.partners };
+  }>(
+    "/partners/dashboard",
+    () => ({
+      partners: [],
+      dashboard: {
+        partnerId: "all",
+        summary: {},
+      },
+    }),
+  );
+  if (Array.isArray(response.data.partners) && response.data.partners.length > 0) {
+    return {
+      ok: response.ok,
+      error: response.ok ? undefined : response.error,
+      partners: response.data.partners.map((row) => normalizePartnerDashboardRow(row)),
+    };
+  }
 
-  const summary = response.dashboard?.summary || {};
+  const summary = response.data.dashboard?.summary || {};
+  const fallbackPartner = createDefaultPartnerDashboardRow("All Partners");
   return {
-    ok: true as const,
+    ok: response.ok,
+    error: response.ok ? undefined : response.error,
     partners: [
       {
         partner: {
-          id: String(response.dashboard?.partnerId || "all"),
-          partnerCode: String(response.dashboard?.partnerId || "all"),
-          partnerName: "All Partners",
-          description: null,
-          logoUrl: null,
-          conversionRate: 1,
-          isActive: true,
+          ...fallbackPartner.partner,
+          id: String(response.data.dashboard?.partnerId || fallbackPartner.partner.id),
+          partnerCode: String(response.data.dashboard?.partnerId || fallbackPartner.partner.partnerCode),
         },
         totals: {
           transactions: Number(summary.transactionCount || 0),
           pendingTransactions: Number(summary.settlementCount || 0),
           settledTransactions: Number(summary.paidSettlementAmount || 0),
-          points: 0,
+          points: fallbackPartner.totals.points,
           grossAmount: Number(summary.totalTransactionAmount || 0),
           totalCommission: Number(summary.pendingSettlementAmount || 0),
         },

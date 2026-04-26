@@ -8,7 +8,7 @@
     ],
     "allowJs": false,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "moduleResolution": "Bundler",
     "module": "ESNext",
     "esModuleInterop": true,
@@ -17,6 +17,9 @@
     "noEmit": true,
     "jsx": "preserve",
     "incremental": true,
+    "baseUrl": ".",
+    "types": ["node", "react", "react-dom"],
+    "composite": true,
     "plugins": [
       {
         "name": "next"
@@ -26,12 +29,15 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "../backend",
+    "../../src/server",
+    "../../src/pages/api"
   ]
 }

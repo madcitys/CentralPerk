@@ -44,6 +44,7 @@ import {
   saveCampaignViaApi,
   triggerPartnerSettlementViaApi,
 } from "../../lib/api";
+import { ensureArray, type PartnerDashboardRow } from "../../lib/defaults";
 
 function toInputDate(value: Date) {
   const year = value.getFullYear();
@@ -70,27 +71,7 @@ export default function AdminRewardsPage() {
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance[]>([]);
   const [partners, setPartners] = useState<RewardPartner[]>([]);
   const [partnerPerformance, setPartnerPerformance] = useState<RewardPartnerPerformance[]>([]);
-  const [partnerDashboardRows, setPartnerDashboardRows] = useState<
-    Array<{
-      partner: {
-        id: string;
-        partnerCode: string;
-        partnerName: string;
-        description: string | null;
-        logoUrl: string | null;
-        conversionRate: number;
-        isActive: boolean;
-      };
-      totals: {
-        transactions: number;
-        pendingTransactions: number;
-        settledTransactions: number;
-        points: number;
-        grossAmount: number;
-        totalCommission: number;
-      };
-    }>
-  >([]);
+  const [partnerDashboardRows, setPartnerDashboardRows] = useState<PartnerDashboardRow[]>([]);
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [savingPartner, setSavingPartner] = useState(false);
   const [publishingCampaignId, setPublishingCampaignId] = useState<string | null>(null);
@@ -139,13 +120,13 @@ export default function AdminRewardsPage() {
       loadCampaignPerformance(),
       loadRewardPartners(),
       loadPartnerPerformance(),
-      loadPartnerDashboardViaApi().catch(() => ({ ok: true as const, partners: [] })),
+      loadPartnerDashboardViaApi().catch(() => ({ ok: true as const, partners: [] as PartnerDashboardRow[] })),
     ]);
     setCampaigns(campaignRows);
     setCampaignPerformance(performanceRows);
     setPartners(partnerRows);
     setPartnerPerformance(partnerPerfRows);
-    setPartnerDashboardRows(partnerDashboardResponse.partners);
+    setPartnerDashboardRows(ensureArray<PartnerDashboardRow>(partnerDashboardResponse.partners));
   };
 
   useEffect(() => {
@@ -526,58 +507,76 @@ export default function AdminRewardsPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Campaign Comparison</h2>
-              <p className="mt-1 text-sm text-gray-500">Quick read on which campaigns drive points and redemptions.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={campaignComparisonChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                    <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[8, 8, 0, 0]} fill="#0fa7b4" />
-                    <Bar dataKey="redemptions" name="Redemptions" radius={[8, 8, 0, 0]} fill="#1A2B47" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
+              <Card className={adminPanelClass}>
+                <h2 className="text-lg font-semibold text-gray-900">Campaign Comparison</h2>
+                <p className="mt-1 text-sm text-gray-500">Quick read on which campaigns drive points and redemptions.</p>
+                <div className="mt-4 h-72">
+                  {campaignComparisonChart.length === 0 ? (
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
+                      No campaign comparison data yet.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={campaignComparisonChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                        <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
+                        <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[8, 8, 0, 0]} fill="#0fa7b4" />
+                        <Bar dataKey="redemptions" name="Redemptions" radius={[8, 8, 0, 0]} fill="#1A2B47" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </Card>
 
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Flash Sale Sell-through</h2>
-              <p className="mt-1 text-sm text-gray-500">Which flash drops are converting fastest and clearing inventory.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={flashPerformanceChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                    <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[8, 8, 0, 0]} fill="#f59e0b" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
+              <Card className={adminPanelClass}>
+                <h2 className="text-lg font-semibold text-gray-900">Flash Sale Sell-through</h2>
+                <p className="mt-1 text-sm text-gray-500">Which flash drops are converting fastest and clearing inventory.</p>
+                <div className="mt-4 h-72">
+                  {flashPerformanceChart.length === 0 ? (
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
+                      No flash sale sell-through data yet.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={flashPerformanceChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                        <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
+                        <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[8, 8, 0, 0]} fill="#f59e0b" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </Card>
 
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Partner Redemption Share</h2>
-              <p className="mt-1 text-sm text-gray-500">Top partners by redeemed rewards volume.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} paddingAngle={3}>
-                      {partnerRedemptionChart.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
+              <Card className={adminPanelClass}>
+                <h2 className="text-lg font-semibold text-gray-900">Partner Redemption Share</h2>
+                <p className="mt-1 text-sm text-gray-500">Top partners by redeemed rewards volume.</p>
+                <div className="mt-4 h-72">
+                  {partnerRedemptionChart.length === 0 ? (
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
+                      No partner redemption data yet.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} paddingAngle={3}>
+                          {partnerRedemptionChart.map((entry, index) => (
+                            <Cell
+                              key={`${entry.name}-${index}`}
+                              fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </Card>
           </div>
         </TabsContent>
 

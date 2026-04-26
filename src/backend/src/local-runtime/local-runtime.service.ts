@@ -243,6 +243,8 @@ const defaultState: LocalState = {
   ],
 };
 
+const READ_CACHE_TTL_MS = 5_000;
+
 @Injectable()
 export class LocalRuntimeService {
   private cache: { loadedAt: number; value: LocalState } | null = null;
@@ -281,7 +283,7 @@ export class LocalRuntimeService {
   }
 
   async read(): Promise<LocalState> {
-    if (this.cache && Date.now() - this.cache.loadedAt < 250) {
+    if (this.cache && Date.now() - this.cache.loadedAt < READ_CACHE_TTL_MS) {
       return this.cache.value;
     }
     await this.ensureDir();

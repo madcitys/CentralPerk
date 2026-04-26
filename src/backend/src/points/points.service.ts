@@ -48,12 +48,12 @@ export class PointsService {
   private ensureProfile(state: LocalState, memberId: string, fallbackEmail?: string): MemberRecord {
     const existing = state.members[memberId];
     if (existing) return existing;
-    const email = fallbackEmail || state.pointMembers[memberId]?.email || `${memberId.toLowerCase()}@example.com`;
+    const email = fallbackEmail || state.pointMembers[memberId]?.email || "";
     const profile = {
       id: memberId,
       memberId,
       memberNumber: memberId,
-      name: memberId === "MEM-000011" ? "Sound Wave" : memberId === "MEM-000008" ? "Test Three" : "Demo Member",
+      name: state.members[memberId]?.name || memberId,
       email,
       mobile: "",
       memberSince: nowIso(),
@@ -219,7 +219,7 @@ export class PointsService {
     const resolvedId = this.resolveMemberKey(state, memberId, fallbackEmail);
     const member = state.pointMembers[resolvedId] ?? (await this.ensureMember(resolvedId, fallbackEmail));
     const profile = this.ensureProfile(state, resolvedId, fallbackEmail);
-    const fullName = String(profile.name || "Demo Member").trim();
+    const fullName = String(profile.name || resolvedId).trim();
     const [firstName, ...restName] = fullName.split(/\s+/);
     const lifetimePoints = (member.history || [])
       .filter((item) => Number(item.points || 0) > 0)
@@ -235,9 +235,9 @@ export class PointsService {
         id: resolvedId,
         member_id: resolvedId,
         member_number: profile.memberNumber || resolvedId,
-        first_name: firstName || "Demo",
-        last_name: restName.join(" ") || "Member",
-        email: fallbackEmail || profile.email || member.email || "demo@example.com",
+        first_name: firstName || resolvedId,
+        last_name: restName.join(" ") || "",
+        email: fallbackEmail || profile.email || member.email || "",
         phone: profile.mobile || null,
         birthdate: profile.birthdate || null,
         points_balance: member.pointsBalance,

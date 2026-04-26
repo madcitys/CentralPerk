@@ -51,7 +51,7 @@ export class CommunicationsController {
 
   @Get("communications/outbox")
   async outbox() {
-    return { ok: true, outbox: await this.communications.outbox(), mode: "demo" };
+    return { ok: true, outbox: await this.communications.outbox(), mode: this.communications.mode() };
   }
 
   @Post("unsubscribe")

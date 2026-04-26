@@ -18,12 +18,75 @@ type OutboxMessage = {
   read?: boolean;
 };
 
+const READ_CACHE_TTL_MS = 5_000;
+
+type OutboxEntry = {
+  id: string;
+  type: string;
+  channel: string;
+  recipient: string | null;
+  subject: string | null;
+  message: string;
+  status: string;
+  mode: string;
+  memberId: string | null;
+  createdAt: string;
+  campaignId: string | null;
+};
+
+type NotificationSummary = {
+  id: string;
+  subject: string;
+  message: string;
+  createdAt: string;
+  status: string;
+};
+
+type CommunicationsAnalytics = {
+  totalMessages: number;
+  emailMessages: number;
+  smsMessages: number;
+  sent: number;
+  queued: number;
+  failed: number;
+  openRate: number;
+  clickRate: number;
+  optOutCount: number;
+  recentMessages: Array<Record<string, unknown>>;
+  source: "local_runtime";
+};
+
 @Injectable()
 export class CommunicationsService {
+  private outboxCache = new Map<string, { loadedAt: number; value: OutboxEntry[] }>();
+  private notificationsCache = new Map<string, { loadedAt: number; value: NotificationSummary[] }>();
+  private analyticsCache: { loadedAt: number; value: CommunicationsAnalytics } | null = null;
+
   constructor(private readonly runtime: LocalRuntimeService) {}
 
   private providerMode() {
-    return process.env.EMAIL_PROVIDER || process.env.SMS_PROVIDER ? "provider" : "demo";
+    const emailProvider = cleanString(process.env.EMAIL_PROVIDER).toLowerCase();
+    const smsProvider = cleanString(process.env.SMS_PROVIDER).toLowerCase();
+    return (
+      (emailProvider && emailProvider !== "demo") ||
+      (smsProvider && smsProvider !== "demo")
+    )
+      ? "provider"
+      : "demo";
+  }
+
+  mode() {
+    return this.providerMode();
+  }
+
+  private isFresh(loadedAt: number) {
+    return Date.now() - loadedAt < READ_CACHE_TTL_MS;
+  }
+
+  private clearReadCaches() {
+    this.outboxCache.clear();
+    this.notificationsCache.clear();
+    this.analyticsCache = null;
   }
 
   private queueMessage(state: { notifications: Array<Record<string, unknown>> }, payload: OutboxMessage) {
@@ -55,6 +118,7 @@ export class CommunicationsService {
         read: false,
         createdAt: nowIso(),
       });
+      this.clearReadCaches();
       return {
         ...notification,
         ok: true,
@@ -84,6 +148,7 @@ export class CommunicationsService {
         read: false,
         createdAt: nowIso(),
       });
+      this.clearReadCaches();
       return {
         ...notification,
         ok: true,
@@ -93,29 +158,45 @@ export class CommunicationsService {
     });
   }
 
-  async outbox(limit = 100) {
+  async outbox(limit = 100): Promise<OutboxEntry[]> {
+    const cacheKey = String(limit);
+    const cached = this.outboxCache.get(cacheKey);
+    if (cached && this.isFresh(cached.loadedAt)) {
+      return cached.value;
+    }
+
     const state = await this.runtime.read();
-    return (state.notifications || []).slice(0, limit).map((entry) => ({
-      id: entry.id,
-      type: entry.type || entry.channel || "email",
-      channel: entry.channel || entry.type || "email",
-      recipient: entry.recipient || entry.email || entry.phone || null,
-      subject: entry.subject || null,
-      message: entry.message || "",
-      status: entry.status || "queued",
-      mode: entry.mode || "demo",
-      memberId: entry.memberId || null,
-      createdAt: entry.createdAt || nowIso(),
-      campaignId: entry.campaignId || null,
-    }));
+    const value = (state.notifications || []).slice(0, limit).map(
+      (entry): OutboxEntry => ({
+        id: String(entry.id || ""),
+        type: String(entry.type || entry.channel || "email"),
+        channel: String(entry.channel || entry.type || "email"),
+        recipient: entry.recipient ? String(entry.recipient) : entry.email ? String(entry.email) : entry.phone ? String(entry.phone) : null,
+        subject: entry.subject ? String(entry.subject) : null,
+        message: String(entry.message || ""),
+        status: String(entry.status || "queued"),
+        mode: String(entry.mode || "demo"),
+        memberId: entry.memberId ? String(entry.memberId) : null,
+        createdAt: String(entry.createdAt || nowIso()),
+        campaignId: entry.campaignId ? String(entry.campaignId) : null,
+      }),
+    );
+    this.outboxCache.set(cacheKey, { loadedAt: Date.now(), value });
+    return value;
   }
 
-  async notifications(input: { memberId?: string; email?: string; limit?: number }) {
+  async notifications(input: { memberId?: string; email?: string; limit?: number }): Promise<NotificationSummary[]> {
     const limit = Math.min(100, Math.max(1, Number(input.limit || 20)));
     const memberId = cleanString(input.memberId);
     const email = cleanString(input.email).toLowerCase();
+    const cacheKey = JSON.stringify({ memberId, email, limit });
+    const cached = this.notificationsCache.get(cacheKey);
+    if (cached && this.isFresh(cached.loadedAt)) {
+      return cached.value;
+    }
+
     const messages = await this.outbox(300);
-    return messages
+    const value = messages
       .filter((entry) => {
         if (!memberId && !email) return true;
         const entryMemberId = cleanString(entry.memberId);
@@ -130,6 +211,8 @@ export class CommunicationsService {
         createdAt: entry.createdAt,
         status: entry.status,
       }));
+    this.notificationsCache.set(cacheKey, { loadedAt: Date.now(), value });
+    return value;
   }
 
   async markRead(id: string) {
@@ -139,11 +222,16 @@ export class CommunicationsService {
       notification.status = "read";
       notification.read = true;
       notification.readAt = nowIso();
+      this.clearReadCaches();
       return notification;
     });
   }
 
-  async analytics() {
+  async analytics(): Promise<CommunicationsAnalytics> {
+    if (this.analyticsCache && this.isFresh(this.analyticsCache.loadedAt)) {
+      return this.analyticsCache.value;
+    }
+
     const state = await this.runtime.read();
     const notifications = state.notifications || [];
     const email = notifications.filter((row) => row.channel === "email" || row.type === "email");
@@ -152,7 +240,7 @@ export class CommunicationsService {
     const queued = notifications.filter((row) => row.status === "queued" || row.status === "pending").length;
     const failed = notifications.filter((row) => row.status === "failed").length;
 
-    return {
+    const value: CommunicationsAnalytics = {
       totalMessages: notifications.length,
       emailMessages: email.length,
       smsMessages: sms.length,
@@ -165,6 +253,8 @@ export class CommunicationsService {
       recentMessages: notifications.slice(0, 10),
       source: "local_runtime",
     };
+    this.analyticsCache = { loadedAt: Date.now(), value };
+    return value;
   }
 
   async unsubscribe(input: Record<string, unknown>) {
@@ -180,6 +270,7 @@ export class CommunicationsService {
         unsubscribedAt: nowIso(),
       };
       state.communicationPreferences[memberId] = preferences;
+      this.clearReadCaches();
       return preferences;
     });
   }

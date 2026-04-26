@@ -57,6 +57,7 @@ import {
   type WinBackOfferType,
 } from "../../lib/member-engagement";
 import { loadAllReferrals, loadFeedback, type FeedbackRecord, type ReferralRecord } from "../../lib/member-lifecycle";
+import { createDefaultCommunicationAnalytics, ensureArray } from "../../lib/defaults";
 
 const tabs = [
   { id: "notifications", label: "Push Notifications", icon: BellRing },
@@ -107,11 +108,36 @@ export default function AdminEngagementPage() {
   const [dbChallengeLeaderboard, setDbChallengeLeaderboard] = useState<ChallengeLeaderboardEntry[]>([]);
   const [dbNotificationTemplates, setDbNotificationTemplates] = useState(notificationTemplates);
   const [dbShareEvents, setDbShareEvents] = useState<ShareEvent[]>([]);
-  const [communicationAnalytics, setCommunicationAnalytics] = useState({
-    total: 0,
-    byChannel: {} as Record<string, number>,
-    byStatus: {} as Record<string, number>,
-  });
+  const [communicationAnalytics, setCommunicationAnalytics] = useState(() => createDefaultCommunicationAnalytics());
+  const [communicationAnalyticsLoading, setCommunicationAnalyticsLoading] = useState(false);
+  const [communicationAnalyticsError, setCommunicationAnalyticsError] = useState<string | null>(null);
+  const notificationCampaigns = ensureArray(state.notificationCampaigns);
+  const surveys = ensureArray(state.surveys);
+  const shareEvents = ensureArray(dbShareEvents.length > 0 ? dbShareEvents : state.shareEvents);
+  const winBackCampaigns = ensureArray(state.winBackCampaigns);
+  const safeCommunicationAnalytics = {
+    ...createDefaultCommunicationAnalytics(),
+    ...communicationAnalytics,
+    byChannel: {
+      ...createDefaultCommunicationAnalytics().byChannel,
+      ...(communicationAnalytics?.byChannel ?? {}),
+    },
+    byStatus: communicationAnalytics?.byStatus ?? {},
+  };
+
+  const refreshCommunicationAnalytics = async () => {
+    setCommunicationAnalyticsLoading(true);
+    try {
+      const response = await loadCommunicationAnalyticsViaApi();
+      setCommunicationAnalytics(response.analytics);
+      setCommunicationAnalyticsError(response.ok ? null : "Unable to load analytics");
+    } catch {
+      setCommunicationAnalytics(createDefaultCommunicationAnalytics());
+      setCommunicationAnalyticsError("Unable to load analytics");
+    } finally {
+      setCommunicationAnalyticsLoading(false);
+    }
+  };
 
   useEffect(() => {
     saveEngagementState(state);
@@ -134,24 +160,26 @@ export default function AdminEngagementPage() {
 
   useEffect(() => {
     let alive = true;
+    setCommunicationAnalyticsLoading(true);
     loadCommunicationAnalyticsViaApi()
       .then((response) => {
-        if (alive) setCommunicationAnalytics(response.analytics);
+        if (!alive) return;
+        setCommunicationAnalytics(response.analytics);
+        setCommunicationAnalyticsError(response.ok ? null : "Unable to load analytics");
       })
       .catch(() => {
-        if (alive) {
-          setCommunicationAnalytics({
-            total: 0,
-            byChannel: {},
-            byStatus: {},
-          });
-        }
+        if (!alive) return;
+        setCommunicationAnalytics(createDefaultCommunicationAnalytics());
+        setCommunicationAnalyticsError("Unable to load analytics");
+      })
+      .finally(() => {
+        if (alive) setCommunicationAnalyticsLoading(false);
       });
 
     return () => {
       alive = false;
     };
-  }, [state.notificationCampaigns.length]);
+  }, [notificationCampaigns.length]);
 
   useEffect(() => {
     let alive = true;
@@ -242,7 +270,7 @@ export default function AdminEngagementPage() {
     return () => {
       alive = false;
     };
-  }, [state.surveys.length, state.notificationCampaigns.length]);
+  }, [surveys.length, notificationCampaigns.length]);
 
   useEffect(() => {
     let alive = true;
@@ -267,12 +295,11 @@ export default function AdminEngagementPage() {
     [loginActivity, members, transactions]
   );
 
-  const shareEvents = dbShareEvents.length > 0 ? dbShareEvents : state.shareEvents;
   const totalShares = shareEvents.length;
   const totalConversions = shareEvents.reduce((sum, item) => sum + item.conversions, 0);
-  const deliveryRate = state.notificationCampaigns.reduce((sum, item) => sum + (item.sentCount ? item.deliveredCount / item.sentCount : 0), 0);
+  const deliveryRate = notificationCampaigns.reduce((sum, item) => sum + (item.sentCount ? item.deliveredCount / item.sentCount : 0), 0);
   const shareConversionRate = totalShares > 0 ? (totalConversions / totalShares) * 100 : 0;
-  const selectedChallenge: ChallengeDefinition | undefined = state.challenges[0];
+  const selectedChallenge: ChallengeDefinition | undefined = ensureArray(state.challenges)[0];
 
   useEffect(() => {
     let alive = true;
@@ -316,7 +343,7 @@ export default function AdminEngagementPage() {
   );
   const pushCampaignSummary = useMemo(
     () =>
-      state.notificationCampaigns.slice(0, 3).map((campaign) => {
+      notificationCampaigns.slice(0, 3).map((campaign) => {
         const deliveryRate = campaign.sentCount ? (campaign.deliveredCount / campaign.sentCount) * 100 : 0;
         const openRate = campaign.sentCount ? (campaign.openedCount / campaign.sentCount) * 100 : 0;
         return {
@@ -326,21 +353,21 @@ export default function AdminEngagementPage() {
           openRate: Number(openRate.toFixed(0)),
         };
       }),
-    [state.notificationCampaigns]
+    [notificationCampaigns]
   );
   const surveySummary = useMemo(
     () =>
-      state.surveys.slice(0, 3).map((survey) => ({
+      surveys.slice(0, 3).map((survey) => ({
         id: survey.id,
         title: survey.title,
         responses: survey.responses.length,
         bonusPoints: survey.bonusPoints,
       })),
-    [state.surveys]
+    [surveys]
   );
   const winBackSummary = useMemo(
     () =>
-      state.winBackCampaigns.reduce(
+      winBackCampaigns.reduce(
         (acc, campaign) => {
           acc.targeted += campaign.targetedMembers;
           acc.responded += campaign.responses;
@@ -349,7 +376,7 @@ export default function AdminEngagementPage() {
         },
         { targeted: 0, responded: 0, reengaged: 0 }
       ),
-    [state.winBackCampaigns]
+    [winBackCampaigns]
   );
 
   if (loading) return <p className="text-base text-gray-700">Loading engagement dashboard...</p>;
@@ -404,7 +431,9 @@ export default function AdminEngagementPage() {
         try {
           const analytics = await loadCommunicationAnalyticsViaApi();
           setCommunicationAnalytics(analytics.analytics);
+          setCommunicationAnalyticsError(analytics.ok ? null : "Unable to load analytics");
         } catch {
+          setCommunicationAnalyticsError("Unable to load analytics");
         }
         toast.success("Push campaign scheduled and communications queued.");
       } else {
@@ -420,7 +449,7 @@ export default function AdminEngagementPage() {
   };
 
   const launchScheduledCampaign = async (campaignId: string) => {
-    const currentCampaign = state.notificationCampaigns.find((item) => item.id === campaignId);
+    const currentCampaign = notificationCampaigns.find((item) => item.id === campaignId);
     if (!currentCampaign) return;
     const deliveredCount = Math.max(1, Math.round(currentCampaign.audienceSize * 0.94));
     const openedCount = Math.max(1, Math.round(deliveredCount * 0.47));
@@ -605,7 +634,7 @@ export default function AdminEngagementPage() {
               </div>
             </div>
             <p className="relative mt-6 text-sm font-medium text-[#31517c]">Scheduled Push Campaigns</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.notificationCampaigns.length}</p>
+            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{notificationCampaigns.length}</p>
             <p className="relative mt-3 text-xs leading-5 text-[#52739b]">Queued campaigns with scheduling, targeting, and A/B variants.</p>
           </Card>
 
@@ -620,7 +649,7 @@ export default function AdminEngagementPage() {
               </div>
             </div>
             <p className="relative mt-6 text-sm font-medium text-[#2d6a57]">Active Challenges</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.challenges.length}</p>
+            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{ensureArray(state.challenges).length}</p>
             <p className="relative mt-3 text-xs leading-5 text-[#4a7f6e]">Live challenge definitions with progress tracking and rewards.</p>
           </Card>
 
@@ -635,7 +664,7 @@ export default function AdminEngagementPage() {
               </div>
             </div>
             <p className="relative mt-6 text-sm font-medium text-[#6d4ba3]">Live Surveys</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.surveys.filter((item) => item.status === "live").length}</p>
+            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{surveys.filter((item) => item.status === "live").length}</p>
             <p className="relative mt-3 text-xs leading-5 text-[#8160b1]">Feedback forms with bonus points, targeting, and export support.</p>
           </Card>
 
@@ -924,20 +953,40 @@ export default function AdminEngagementPage() {
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
                   <p className="text-xs text-gray-500">Email queued</p>
-                  <p className="mt-1 text-xl font-bold text-gray-900">{communicationAnalytics.byChannel.email ?? 0}</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900">{safeCommunicationAnalytics.byChannel.email ?? 0}</p>
                 </div>
                 <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
                   <p className="text-xs text-gray-500">SMS queued</p>
-                  <p className="mt-1 text-xl font-bold text-gray-900">{communicationAnalytics.byChannel.sms ?? 0}</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900">{safeCommunicationAnalytics.byChannel.sms ?? 0}</p>
                 </div>
                 <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
                   <p className="text-xs text-gray-500">Read / delivered</p>
                   <p className="mt-1 text-xl font-bold text-gray-900">
-                    {(communicationAnalytics.byStatus.read ?? 0) + (communicationAnalytics.byStatus.delivered ?? 0)}
+                    {(safeCommunicationAnalytics.byStatus.read ?? 0) + (safeCommunicationAnalytics.byStatus.delivered ?? 0)}
                   </p>
                 </div>
               </div>
-              {state.notificationCampaigns.map((campaign) => {
+              {communicationAnalyticsLoading ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`engagement-analytics-skeleton-${index}`} className="h-24 animate-pulse rounded-xl border border-[#d8e8fb] bg-[#f3f9ff]" />
+                  ))}
+                </div>
+              ) : null}
+              {communicationAnalyticsError ? (
+                <div className="rounded-2xl border border-[#f3c2c2] bg-[#fff8f8] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-[#991b1b]">Unable to load analytics</p>
+                      <p className="mt-1 text-sm text-[#7f1d1d]">Showing safe fallback values until the analytics endpoint recovers.</p>
+                    </div>
+                    <Button variant="outline" className={adminOutlineButtonClass} onClick={() => void refreshCommunicationAnalytics()}>
+                      Retry
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              {notificationCampaigns.map((campaign) => {
                 const campaignDelivery = campaign.sentCount ? (campaign.deliveredCount / campaign.sentCount) * 100 : 0;
                 const campaignOpen = campaign.sentCount ? (campaign.openedCount / campaign.sentCount) * 100 : 0;
                 return (
@@ -991,7 +1040,7 @@ export default function AdminEngagementPage() {
           <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Challenge Catalog</h2>
             <div className="mt-5 space-y-4">
-              {state.challenges.map((challenge) => (
+              {ensureArray(state.challenges).map((challenge) => (
                 <div key={challenge.id} className="rounded-2xl border border-[#dceee3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-gray-900">{challenge.title}</p>
@@ -1183,7 +1232,7 @@ export default function AdminEngagementPage() {
             </div>
 
             <div className="mt-5 space-y-4">
-              {state.surveys.map((survey) => (
+              {surveys.map((survey) => (
                 <div key={survey.id} className="rounded-2xl border border-[#eadcff] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -1214,7 +1263,7 @@ export default function AdminEngagementPage() {
                   </div>
                 </div>
               ))}
-              {state.surveys.length === 0 ? (
+              {surveys.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[#eadcff] bg-[#fcfaff] p-6 text-center text-sm text-[#7b6d8d]">
                   No survey definitions are available yet. Publish a survey on the left and the response summary cards will appear here.
                 </div>
@@ -1312,7 +1361,7 @@ export default function AdminEngagementPage() {
           <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Campaign Dashboard</h2>
             <div className="mt-5 space-y-4">
-              {state.winBackCampaigns.map((campaign) => {
+              {winBackCampaigns.map((campaign) => {
                 const responseRate = campaign.targetedMembers > 0 ? (campaign.responses / campaign.targetedMembers) * 100 : 0;
                 const reengagementRate = campaign.targetedMembers > 0 ? (campaign.reengagedMembers / campaign.targetedMembers) * 100 : 0;
                 const roi = campaign.offerCost > 0 ? ((campaign.estimatedRevenue - campaign.offerCost) / campaign.offerCost) * 100 : 0;

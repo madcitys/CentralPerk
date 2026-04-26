@@ -1,6 +1,7 @@
 import { supabase } from "../../utils/supabase/client";
 import type { MemberData } from "../types/loyalty";
 import type { LoyaltyTransaction, Member, MemberLoginActivity } from "../admin-panel/types";
+import { ensureArray } from "./defaults";
 
 const STORAGE_KEY = "centralperk-member-engagement-v1";
 
@@ -844,7 +845,7 @@ export async function recordSocialShareEvent(input: {
       conversions: 0,
       createdAt: new Date().toISOString(),
     };
-    saveEngagementState({ ...state, shareEvents: [event, ...state.shareEvents] });
+    saveEngagementState({ ...state, shareEvents: [event, ...ensureArray(state.shareEvents)] });
     return event;
   }
 
@@ -904,7 +905,7 @@ export async function incrementSocialShareConversion(shareEventId: string) {
   if (useLocalEngagementFallback()) {
     const state = loadEngagementState();
     let updated: ShareEvent | null = null;
-    const shareEvents = state.shareEvents.map((event) => {
+    const shareEvents = ensureArray(state.shareEvents).map((event) => {
       if (event.id !== shareEventId) return event;
       updated = { ...event, conversions: event.conversions + 1 };
       return updated;
@@ -1239,7 +1240,7 @@ export async function createSurveyDefinitionRecord(input: {
       questions: input.questions,
       responses: [],
     };
-    saveEngagementState({ ...state, surveys: [survey, ...state.surveys] });
+    saveEngagementState({ ...state, surveys: [survey, ...ensureArray(state.surveys)] });
     return survey;
   }
 
@@ -1300,7 +1301,7 @@ export async function submitSurveyResponseRecord(input: {
   if (useLocalEngagementFallback()) {
     const state = loadEngagementState();
     let response: SurveyResponseRecord | null = null;
-    const surveys = state.surveys.map((survey) => {
+    const surveys = ensureArray(state.surveys).map((survey) => {
       if (survey.id !== input.surveyId) return survey;
       response = {
         memberId: input.memberIdentifier,
@@ -1356,7 +1357,7 @@ export async function submitSurveyResponseRecord(input: {
 export async function deleteSurveyResponseRecord(surveyId: string, memberIdentifier: string) {
   if (useLocalEngagementFallback()) {
     const state = loadEngagementState();
-    const surveys = state.surveys.map((survey) =>
+    const surveys = ensureArray(state.surveys).map((survey) =>
       survey.id === surveyId
         ? { ...survey, responses: survey.responses.filter((response) => response.memberId !== memberIdentifier) }
         : survey
@@ -1595,17 +1596,18 @@ function isDateInRange(date: Date, start: Date, end: Date) {
 export function getChallengeProgress(challenge: ChallengeDefinition, user: MemberData): ChallengeProgressSnapshot {
   const start = parseDate(challenge.startAt) ?? new Date(0);
   const end = parseDate(challenge.endAt) ?? new Date();
+  const transactions = ensureArray(user.transactions);
   let current = 0;
 
   if (challenge.type === "purchase-count") {
-    current = user.transactions.filter((tx) => {
+    current = transactions.filter((tx) => {
       const txDate = parseDate(tx.date);
       return Boolean(txDate) && tx.type === "earned" && Boolean(tx.receiptId) && isDateInRange(txDate!, start, end);
     }).length;
   }
 
   if (challenge.type === "points-earned") {
-    current = user.transactions
+    current = transactions
       .filter((tx) => {
         const txDate = parseDate(tx.date);
         return Boolean(txDate) && tx.type === "earned" && isDateInRange(txDate!, start, end);

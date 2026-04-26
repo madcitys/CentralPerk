@@ -9,6 +9,7 @@ import type { AppOutletContext } from "../types/app-context";
 import { loadMemberSnapshot } from "../lib/loyalty-supabase";
 import type { AppNotification } from "../lib/notifications";
 import { clearApiReadCache, loadMemberSnapshotViaApi, loadNotificationsViaApi, markNotificationReadViaApi } from "../lib/api";
+import { createDefaultMemberData, ensureArray } from "../lib/defaults";
 
 import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth, getStoredCustomerSession, touchStoredCustomerSession } from "../auth/auth";
@@ -18,6 +19,7 @@ import { customerPageShellClass } from "./lib/page-theme";
 const USER_STORAGE_KEY = "points-dashboard-user-v1";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const LOCAL_REFRESH_INTERVAL_MS = 30_000;
+const NOTIFICATION_REFRESH_INTERVAL_MS = 30_000;
 const CUSTOMER_REFRESH_MIN_INTERVAL_MS = 12_000;
 const NOTIFICATION_REFRESH_MIN_INTERVAL_MS = 20_000;
 
@@ -30,33 +32,11 @@ function useLocalDemoRealtimeFallback() {
 }
 
 
-const DEFAULT_MEMBER: MemberData = {
-  memberId: "",
-  fullName: "Member",
-  email: "",
-  phone: "",
-  birthdate: "",
-  profileImage:
-    "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80",
-  tier: "Bronze",
-  memberSince: "",
-  status: "Active",
-  points: 0,
-  pendingPoints: 0,
-  lifetimePoints: 0,
-  expiringPoints: 0,
-  daysUntilExpiry: 0,
-  earnedThisMonth: 0,
-  redeemedThisMonth: 0,
-  profileComplete: false,
-  hasDownloadedApp: false,
-  surveysCompleted: 0,
-  transactions: [],
-};
+const DEFAULT_MEMBER: MemberData = createDefaultMemberData();
 
 function deriveCompletedTaskIds(user: MemberData): string[] {
   const pattern = /Task completed \(([^)]+)\)/i;
-  return user.transactions
+  return ensureArray(user.transactions)
     .map((tx) => {
       const match = String(tx.description || "").match(pattern);
       return match?.[1] ?? null;
@@ -110,6 +90,7 @@ export default function Root() {
   const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const navigate = useNavigate();
+  const safeUser = createDefaultMemberData(user);
 
   useEffect(() => {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
@@ -151,7 +132,8 @@ export default function Root() {
         email: userRef.current.email || undefined,
         limit: 20,
       });
-      setNotifications(response.notifications.filter((item) => item.status !== "read"));
+      const nextNotifications = ensureArray(response.notifications).filter((item) => item.status !== "read");
+      setNotifications(nextNotifications);
       lastNotificationsAtRef.current = Date.now();
     } catch {
     } finally {
@@ -182,6 +164,26 @@ export default function Root() {
       document.removeEventListener("visibilitychange", refreshVisibleUser);
     };
   }, [refreshUser]);
+
+  useEffect(() => {
+    const refreshNotifications = () => {
+      if (document.visibilityState === "visible") {
+        loadNotifications().catch(() => {});
+      }
+    };
+
+    const interval = window.setInterval(refreshNotifications, NOTIFICATION_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refreshNotifications);
+    window.addEventListener("pageshow", refreshNotifications);
+    document.addEventListener("visibilitychange", refreshNotifications);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshNotifications);
+      window.removeEventListener("pageshow", refreshNotifications);
+      document.removeEventListener("visibilitychange", refreshNotifications);
+    };
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (useLocalDemoRealtimeFallback()) return;
@@ -275,14 +277,14 @@ export default function Root() {
   const notificationPanel = (
     <div className="absolute right-0 top-full z-50 mt-3 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
       <p className="mb-2 text-sm font-semibold text-[#1A2B47]">Notifications</p>
-      {user.expiringPoints > 0 || notifications.length > 0 ? (
+      {safeUser.expiringPoints > 0 || notifications.length > 0 ? (
         <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-          {user.expiringPoints > 0 ? <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
+          {safeUser.expiringPoints > 0 ? <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
           <div className="flex items-start gap-2">
             <Clock3 className="h-4 w-4 mt-0.5 text-[#1A2B47]" />
             <div>
-              <p className="text-sm font-semibold text-[#1A2B47]">{user.expiringPoints} points expiring soon</p>
-              <p className="text-xs text-[#1A2B47]/80">Expires in {user.daysUntilExpiry} days.</p>
+              <p className="text-sm font-semibold text-[#1A2B47]">{safeUser.expiringPoints} points expiring soon</p>
+              <p className="text-xs text-[#1A2B47]/80">Expires in {safeUser.daysUntilExpiry} days.</p>
             </div>
           </div>
           <NavLink
@@ -325,7 +327,7 @@ export default function Root() {
             </div>
             <div>
               <h1 className="font-bold text-gray-900">GREENOVATE</h1>
-              <p className="text-xs text-gray-500">{user.tier} Member</p>
+              <p className="text-xs text-gray-500">{safeUser.tier} Member</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -377,17 +379,17 @@ export default function Root() {
           <div className="p-6 border-b border-white/15">
             <div className="flex items-center gap-3">
               <img
-                src={user.profileImage}
-                alt={user.fullName}
+                src={safeUser.profileImage}
+                alt={safeUser.fullName}
                 className="w-12 h-12 rounded-full object-cover border border-white/20 bg-white/10"
               />
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-white truncate">{user.fullName}</p>
+                <p className="font-semibold text-white truncate">{safeUser.fullName}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="inline-flex items-center rounded bg-[#0b7f88] px-2 py-0.5 text-xs font-medium text-white">
-                    {user.tier}
+                    {safeUser.tier}
                   </span>
-                  <span className="text-xs text-slate-300">{user.points.toLocaleString()} pts</span>
+                  <span className="text-xs text-slate-300">{safeUser.points.toLocaleString()} pts</span>
                 </div>
               </div>
             </div>
