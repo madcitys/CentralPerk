@@ -7,7 +7,7 @@ const hostname = process.env.HOSTNAME || "0.0.0.0";
 startServer({
   dir: process.cwd(),
   port,
-  allowRetry: true,
+  allowRetry: false,
   isDev: true,
   hostname,
 }).catch((error) => {

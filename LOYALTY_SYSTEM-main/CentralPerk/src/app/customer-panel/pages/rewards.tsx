@@ -79,11 +79,58 @@ function formatCountdown(targetDate?: string | null, nowTs = Date.now()) {
   return `${minutes}m ${paddedSeconds}s`;
 }
 
+function safeNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function positiveNumberOrNull(value: unknown) {
+  const parsed = safeNumber(value, 0);
+  return parsed > 0 ? parsed : null;
+}
+
+function fixed(value: unknown, digits = 2) {
+  return safeNumber(value, 0).toFixed(digits);
+}
+
+function normalizeReward(reward: Reward): Reward {
+  return {
+    ...reward,
+    id: String(reward.id ?? ""),
+    name: String(reward.name ?? "Reward"),
+    description: String(reward.description ?? ""),
+    pointsCost: safeNumber(reward.pointsCost, 0),
+    available: Boolean(reward.available ?? true),
+    cashValue: positiveNumberOrNull(reward.cashValue),
+    partnerConversionRate: positiveNumberOrNull(reward.partnerConversionRate),
+    flashSaleQuantityLimit:
+      reward.flashSaleQuantityLimit === null || reward.flashSaleQuantityLimit === undefined
+        ? null
+        : safeNumber(reward.flashSaleQuantityLimit, 0),
+    flashSaleClaimedCount: safeNumber(reward.flashSaleClaimedCount, 0),
+  };
+}
+
+function normalizeCampaign(campaign: PromotionCampaign): PromotionCampaign {
+  return {
+    ...campaign,
+    multiplier: safeNumber(campaign.multiplier, 0),
+    minimumPurchaseAmount: safeNumber(campaign.minimumPurchaseAmount, 0),
+    bonusPoints: safeNumber(campaign.bonusPoints, 0),
+    eligibleTiers: Array.isArray(campaign.eligibleTiers) ? campaign.eligibleTiers : [],
+    productScope: Array.isArray(campaign.productScope) ? campaign.productScope : [],
+    flashSaleClaimedCount: safeNumber(campaign.flashSaleClaimedCount, 0),
+    budgetSpent: safeNumber(campaign.budgetSpent, 0),
+  };
+}
+
 export default function Rewards() {
   const { user, refreshUser } = useOutletContext<AppOutletContext>();
   const [activeTab, setActiveTab] = useState<RewardCategoryTab>("all");
   const [catalog, setCatalog] = useState<Reward[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<PromotionCampaign[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
   const [redeemDialogOpen, setRedeemDialogOpen] = useState(false);
   const [giftDialogOpen, setGiftDialogOpen] = useState(false);
@@ -99,6 +146,30 @@ export default function Rewards() {
   const [reservedRewards, setReservedRewards] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+
+  const loadRewardsData = async (memberTier: string) => {
+    setLoadingData(true);
+    setLoadError(null);
+
+    try {
+      const [rewards, campaignsResponse] = await Promise.all([
+        loadRewardsCatalog(),
+        loadActiveCampaignsViaApi(memberTier).catch(async () => ({
+          ok: true as const,
+          campaigns: await loadActivePromotionCampaigns(memberTier),
+        })),
+      ]);
+
+      setCatalog(rewards.map(normalizeReward));
+      setActiveCampaigns(campaignsResponse.campaigns.map(normalizeCampaign));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load rewards right now.");
+      setCatalog([]);
+      setActiveCampaigns([]);
+    } finally {
+      setLoadingData(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -121,23 +192,37 @@ export default function Rewards() {
     let active = true;
 
     const loadData = async () => {
-      const [rewards, campaignsResponse] = await Promise.all([
-        loadRewardsCatalog().catch(() => []),
-        loadActiveCampaignsViaApi(user.tier).catch(async () => ({
-          ok: true as const,
-          campaigns: await loadActivePromotionCampaigns(user.tier).catch(() => []),
-        })),
-      ]);
+      setLoadingData(true);
+      setLoadError(null);
 
-      if (!active) return;
-      setCatalog(rewards);
-      setActiveCampaigns(campaignsResponse.campaigns);
+      try {
+        const [rewards, campaignsResponse] = await Promise.all([
+          loadRewardsCatalog(),
+          loadActiveCampaignsViaApi(user.tier).catch(async () => ({
+            ok: true as const,
+            campaigns: await loadActivePromotionCampaigns(user.tier),
+          })),
+        ]);
+
+        if (!active) return;
+        setCatalog(rewards.map(normalizeReward));
+        setActiveCampaigns(campaignsResponse.campaigns.map(normalizeCampaign));
+      } catch (error) {
+        if (!active) return;
+        setLoadError(error instanceof Error ? error.message : "Unable to load rewards right now.");
+        setCatalog([]);
+        setActiveCampaigns([]);
+      } finally {
+        if (active) {
+          setLoadingData(false);
+        }
+      }
     };
 
     void loadData();
     const interval = window.setInterval(() => {
       void loadActiveCampaignsViaApi(user.tier)
-        .then((response) => setActiveCampaigns(response.campaigns))
+        .then((response) => setActiveCampaigns(response.campaigns.map(normalizeCampaign)))
         .catch(() => undefined);
     }, 30_000);
 
@@ -257,7 +342,7 @@ export default function Rewards() {
       }).catch(() => undefined);
     }
 
-    await refreshUser();
+    await refreshUser({ force: true });
   };
 
   const handleReserve = (reward: Reward) => {
@@ -302,7 +387,7 @@ export default function Rewards() {
     }
     try {
       setSaving(true);
-      await spendPoints(selectedReward.pointsCost, `${selectedReward.name} Redemption`, "Reward", "redeemed", selectedReward);
+      await spendPoints(safeNumber(selectedReward.pointsCost, 0), `${selectedReward.name} Redemption`, "Reward", "redeemed", selectedReward);
       setReservedRewards((prev) => prev.filter((id) => id !== selectedReward.id));
       if (selectedReward.activeFlashSaleId) {
         setCatalog((prev) =>
@@ -338,8 +423,9 @@ export default function Rewards() {
     if (!selectedReward || !giftEmail) return;
     try {
       setSaving(true);
-      await spendPoints(selectedReward.pointsCost, `Gifted: ${selectedReward.name} to ${giftEmail}`, "Transfer", "gifted", selectedReward);
-      toast.success("Points gifted!", { description: `${selectedReward.pointsCost} points sent to ${giftEmail}` });
+      const giftPoints = safeNumber(selectedReward.pointsCost, 0);
+      await spendPoints(giftPoints, `Gifted: ${selectedReward.name} to ${giftEmail}`, "Transfer", "gifted", selectedReward);
+      toast.success("Points gifted!", { description: `${giftPoints} points sent to ${giftEmail}` });
       setGiftDialogOpen(false);
       setGiftEmail("");
       setGiftMessage("");
@@ -401,11 +487,17 @@ export default function Rewards() {
 
   const renderRewardCard = (reward: Reward, imageIndex: number) => {
     const isReserved = reservedRewards.includes(reward.id);
-    const canAfford = user.points >= reward.pointsCost;
+    const pointsCost = safeNumber(reward.pointsCost, 0);
+    const userPoints = safeNumber(user.points, 0);
+    const cashValue = positiveNumberOrNull(reward.cashValue);
+    const partnerConversionRate = positiveNumberOrNull(reward.partnerConversionRate);
+    reward = { ...reward, cashValue, partnerConversionRate };
+    const canAfford = userPoints >= pointsCost;
     const soldOut = isFlashSaleSoldOut(reward);
     const expired = isFlashSaleExpired(reward);
     const unavailable = soldOut || expired;
-    const imageSrc = reward.imageUrl || rewardImages[imageIndex % rewardImages.length];
+    const safeImageIndex = imageIndex >= 0 ? imageIndex : 0;
+    const imageSrc = reward.imageUrl || rewardImages[safeImageIndex % rewardImages.length];
 
     return (
       <Card
@@ -445,14 +537,14 @@ export default function Rewards() {
           <p className="text-sm text-gray-600 mb-4">{reward.description}</p>
 
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-baseline gap-1"><span className="text-2xl font-bold text-sky-600">{reward.pointsCost}</span><span className="text-sm text-gray-500">points</span></div>
+            <div className="flex items-baseline gap-1"><span className="text-2xl font-bold text-sky-600">{pointsCost}</span><span className="text-sm text-gray-500">points</span></div>
             <Badge variant="outline" className="capitalize">{reward.category}</Badge>
           </div>
 
-          {reward.cashValue ? (
+          {cashValue ? (
             <p className="mb-4 text-xs text-gray-500">
-              Partner value PHP {reward.cashValue.toFixed(2)}
-              {reward.partnerConversionRate ? ` • ${reward.partnerConversionRate.toFixed(2)} pts per PHP` : ""}
+              Partner value PHP {fixed(cashValue)}
+              {partnerConversionRate ? ` - ${fixed(partnerConversionRate)} pts per PHP` : ""}
             </p>
           ) : null}
 
@@ -483,7 +575,7 @@ export default function Rewards() {
           ) : soldOut ? (
             <p className="mt-2 text-xs font-medium text-[#991b1b]">This flash sale reward is sold out.</p>
           ) : !canAfford ? (
-            <p className="text-xs text-orange-600 mt-2">Need {reward.pointsCost - user.points} more points</p>
+            <p className="text-xs text-orange-600 mt-2">Need {Math.max(0, pointsCost - userPoints)} more points</p>
           ) : null}
         </div>
       </Card>
@@ -507,6 +599,42 @@ export default function Rewards() {
         </div>
       </Card>
 
+      {loadError ? (
+        <Card className="border border-[#f3c2c2] bg-[#fff8f8] p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#991b1b]">Rewards data failed to load</p>
+              <p className="mt-1 text-sm text-[#7f1d1d]">{loadError}</p>
+            </div>
+            <Button
+              variant="outline"
+              className="border-[#d7b0b0] text-[#7f1d1d] hover:bg-[#fff1f1]"
+              onClick={() => {
+                void loadRewardsData(user.tier);
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {loadingData && catalog.length === 0 ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card key={`reward-skeleton-${index}`} className="overflow-hidden border border-[#dce8f5]">
+              <div className="h-48 animate-pulse bg-[#e9eff7]" />
+              <div className="space-y-3 p-6">
+                <div className="h-5 w-2/3 animate-pulse rounded bg-[#e9eff7]" />
+                <div className="h-4 w-full animate-pulse rounded bg-[#eef3f9]" />
+                <div className="h-4 w-5/6 animate-pulse rounded bg-[#eef3f9]" />
+                <div className="h-10 w-full animate-pulse rounded-xl bg-[#e1e8f2]" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
       {bonusCampaigns.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {bonusCampaigns.map((campaign) => (
@@ -517,15 +645,15 @@ export default function Rewards() {
               <div className="p-6">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={brandNavyBadgeClass}>{campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}</Badge>
-                  {campaign.eligibleTiers.length > 0 ? (
-                    <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge>
+                  {(campaign.eligibleTiers ?? []).length > 0 ? (
+                    <Badge variant="outline">{(campaign.eligibleTiers ?? []).join(", ")}</Badge>
                   ) : null}
                 </div>
                 <h3 className="mt-3 text-xl font-semibold text-gray-900">{campaign.bannerTitle || campaign.campaignName}</h3>
                 <p className="mt-2 text-sm text-gray-600">{campaign.bannerMessage || campaign.description}</p>
                 <div className="mt-4 flex flex-wrap gap-4 text-sm text-[#1A2B47]">
-                  <span>{campaign.multiplier > 1 ? `${campaign.multiplier.toFixed(0)}x points` : `${campaign.bonusPoints} bonus points`}</span>
-                  <span>Min purchase ${campaign.minimumPurchaseAmount.toFixed(2)}</span>
+                  <span>{safeNumber(campaign.multiplier, 0) > 1 ? `${fixed(campaign.multiplier, 0)}x points` : `${safeNumber(campaign.bonusPoints, 0)} bonus points`}</span>
+                  <span>Min purchase ${fixed(campaign.minimumPurchaseAmount)}</span>
                   <span>Ends {new Date(campaign.endsAt).toLocaleString()}</span>
                 </div>
               </div>

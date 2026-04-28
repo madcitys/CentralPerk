@@ -1,12 +1,101 @@
 import Fastify from "fastify";
+import path from "path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
 import { awardPoints, redeemPoints, runExpiry } from "./core/engine.js";
 import { supabaseRepo } from "./supabase-repo.js";
 import { checkIdempotency, storeIdempotency } from "./idempotency.js";
 import { config } from "./config.js";
+import { memoryRepo } from "./memory-repo.js";
 
+function canUseLocalFallback(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error || "").toLowerCase();
+  return (
+    process.env.USE_LOCAL_LOYALTY_API === "true" ||
+    process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+    !config.supabaseUrl ||
+    !config.supabaseServiceKey ||
+    message.includes("invalid api key") ||
+    message.includes("fetch failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("network")
+  );
+}
+
+function useMemoryPrimary() {
+  return config.useLocalFallback || !config.supabaseUrl || !config.supabaseServiceKey;
+}
+
+export function createServer() {
 const fastify = Fastify({
   logger: true,
+});
+
+fastify.addContentTypeParser("text/plain", { parseAs: "string" }, (_request, body, done) => {
+  const text = String(body || "").trim();
+  if (!text) {
+    done(null, {});
+    return;
+  }
+  try {
+    done(null, JSON.parse(text));
+  } catch {
+    done(null, text);
+  }
+});
+
+fastify.addContentTypeParser("application/octet-stream", { parseAs: "string" }, (_request, body, done) => {
+  const text = String(body || "").trim();
+  if (!text) {
+    done(null, {});
+    return;
+  }
+  try {
+    done(null, JSON.parse(text));
+  } catch {
+    done(null, text);
+  }
+});
+
+fastify.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
+  const text = String(body || "").trim();
+  if (!text) {
+    done(null, {});
+    return;
+  }
+  try {
+    done(null, JSON.parse(text));
+  } catch {
+    done(null, text);
+  }
+});
+
+fastify.setErrorHandler((error, _request, reply) => {
+  const message = String(error.message || "Unexpected points service error.");
+  const lowerMessage = message.toLowerCase();
+  const statusCode = Number((error as Error & { statusCode?: number }).statusCode || 500);
+
+  if (error instanceof z.ZodError) {
+    reply.code(400).send({ ok: false, error: "Validation failed.", details: error.flatten() });
+    return;
+  }
+
+  if (lowerMessage.includes("not enough points") || lowerMessage.includes("insufficient")) {
+    reply.code(409).send({ ok: false, code: "INSUFFICIENT_POINTS", error: "Insufficient points balance." });
+    return;
+  }
+
+  if (lowerMessage.includes("member not found")) {
+    reply.code(404).send({ ok: false, code: "MEMBER_NOT_FOUND", error: "Member not found." });
+    return;
+  }
+
+  if (statusCode === 409) {
+    reply.code(409).send({ ok: false, code: (error as Error & { code?: string }).code || "CONFLICT", error: message });
+    return;
+  }
+
+  reply.code(statusCode >= 400 && statusCode < 600 ? statusCode : 500).send({ ok: false, error: message });
 });
 
 const awardSchema = z.object({
@@ -34,16 +123,21 @@ const redeemSchema = z.object({
   promotionCampaignId: z.string().trim().max(80).nullable().optional(),
 });
 
-fastify.post("/points/award", async (request, reply) => {
+fastify.post("/points/award", async (request) => {
   const parsed = awardSchema.parse(request.body);
   const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
+  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
 
   if (idempotencyKey) {
     const existing = await checkIdempotency("/points/award", idempotencyKey, parsed);
     if (existing) return existing.response;
   }
 
-  const result = await awardPoints(supabaseRepo, parsed);
+  const result = await awardPoints(repo, parsed).catch((error) => {
+    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
+    request.log.warn({ err: error }, "Using local points fallback for award.");
+    return awardPoints(memoryRepo, parsed);
+  });
   const response = { ok: true, result };
 
   if (idempotencyKey) {
@@ -53,9 +147,10 @@ fastify.post("/points/award", async (request, reply) => {
   return response;
 });
 
-fastify.post("/points/redeem", async (request, reply) => {
+fastify.post("/points/redeem", async (request) => {
   const parsed = redeemSchema.parse(request.body);
   const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
+  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
 
   if (idempotencyKey) {
     const existing = await checkIdempotency("/points/redeem", idempotencyKey, parsed);
@@ -63,7 +158,11 @@ fastify.post("/points/redeem", async (request, reply) => {
   }
 
   const normalized = { ...parsed, rewardCatalogId: parsed.rewardCatalogId ?? undefined };
-  const result = await redeemPoints(supabaseRepo, normalized);
+  const result = await redeemPoints(repo, normalized).catch((error) => {
+    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
+    request.log.warn({ err: error }, "Using local points fallback for redemption.");
+    return redeemPoints(memoryRepo, normalized);
+  });
   const response = { ok: true, result };
 
   if (idempotencyKey) {
@@ -74,18 +173,36 @@ fastify.post("/points/redeem", async (request, reply) => {
 });
 
 fastify.post("/points/expiry/run", async () => {
-  const result = await runExpiry(supabaseRepo);
+  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
+  const result = await runExpiry(repo).catch((error) => {
+    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
+    return runExpiry(memoryRepo);
+  });
   return { ok: true, result };
 });
 
 fastify.get("/points/tiers", async () => {
-  const rules = await supabaseRepo.fetchTierRules();
+  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
+  const rules = await repo.fetchTierRules().catch((error) => {
+    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
+    return memoryRepo.fetchTierRules();
+  });
   return { ok: true, tiers: rules };
 });
 
 fastify.get("/health", async () => ({ ok: true }));
 
+return fastify;
+}
+
+function isEntrypoint() {
+  return process.argv[1] ? path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]) : false;
+}
+
+if (isEntrypoint()) {
+const fastify = createServer();
 fastify.listen({ host: "0.0.0.0", port: config.port }).catch((err) => {
   fastify.log.error(err);
   process.exit(1);
 });
+}

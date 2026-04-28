@@ -6,7 +6,6 @@ export function DarkModeToggle() {
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    // Check if dark mode is enabled
     const darkMode = document.documentElement.classList.contains('dark');
     setIsDark(darkMode);
   }, []);

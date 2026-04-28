@@ -11,6 +11,7 @@
     "verify": "npm run build && node dist/scripts/verify.js"
   },
   "dependencies": {
+    "dotenv": "^16.6.1",
     "fastify": "^4.27.2",
     "zod": "^4.3.6"
   },

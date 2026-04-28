@@ -4,13 +4,10 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegistrationPage } from "./pages/RegistrationPage";
 
 export const router = createBrowserRouter([
-  // Smart landing
   {
     path: "/",
     loader: roleRedirect,
   },
-
-  // Public routes
   {
     path: "/login",
     Component: LoginPage,
@@ -19,8 +16,6 @@ export const router = createBrowserRouter([
     path: "/register",
     Component: RegistrationPage,
   },
-
-  // Customer protected (Member Panel)
   {
     path: "/customer",
     loader: requireRole(["customer"]),
@@ -56,8 +51,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
-
-  // Admin protected
   {
     path: "/admin",
     loader: requireRole(["admin"]),
@@ -93,10 +86,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
-
-  // Backwards-compat for your old route:
   { path: "/home", loader: () => redirect("/customer") },
-
-  // catch-all
   { path: "*", loader: () => redirect("/") },
 ]);

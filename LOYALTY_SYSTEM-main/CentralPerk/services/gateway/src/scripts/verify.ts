@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 
 async function startMockPoints() {
   const app = Fastify();
@@ -11,12 +11,12 @@ async function startMockPoints() {
 async function startMockCampaign() {
   const app = Fastify();
   app.get("/campaigns", async () => ({ ok: true, campaigns: [{ id: "cmp", name: "Mock" }] }));
-  app.post("/campaigns", async (req, reply) => reply.send({ ok: true, saved: true }));
+  app.post("/campaigns", async (_req: FastifyRequest, reply: FastifyReply) => reply.send({ ok: true, saved: true }));
   await app.listen({ host: "127.0.0.1", port: 5102 });
   return app;
 }
 
-async function hit(base: string, path: string, init?: any) {
+async function hit(base: string, path: string, init?: RequestInit) {
   const res = await fetch(base + path, init);
   const json = await res.json().catch(() => ({}));
   return { status: res.status, json };

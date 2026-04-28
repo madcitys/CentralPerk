@@ -78,15 +78,9 @@ const engagementTabs: { value: EngagementTab; label: string; hash: string }[] = 
   { value: "surveys", label: "Surveys", hash: "#engagement-surveys" },
 ];
 
-function resolveInitialEngagementTab(): EngagementTab {
-  if (typeof window === "undefined") return "overview";
-  const hash = window.location.hash;
-  return engagementTabs.find((tab) => tab.hash === hash)?.value ?? "overview";
-}
-
 export default function CustomerEngagementPage() {
   const { user, refreshUser, setUser } = useOutletContext<AppOutletContext>();
-  const [activeTab, setActiveTab] = useState<EngagementTab>(resolveInitialEngagementTab);
+  const [activeTab, setActiveTab] = useState<EngagementTab>("overview");
   const [state, setState] = useState<EngagementState>(() => loadEngagementState());
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [selectedAchievement, setSelectedAchievement] = useState("Tier upgrade unlocked");
@@ -129,7 +123,6 @@ export default function CustomerEngagementPage() {
         setState((prev) => ({ ...prev, challenges: rows }));
       })
       .catch(() => {
-        // Keep local fallback data when the challenges backend is unavailable.
       });
 
     return () => {
@@ -145,7 +138,6 @@ export default function CustomerEngagementPage() {
         setState((prev) => ({ ...prev, surveys: rows }));
       })
       .catch(() => {
-        // Keep local fallback state when survey tables are unavailable.
       });
 
     return () => {
@@ -156,6 +148,15 @@ export default function CustomerEngagementPage() {
   useEffect(() => {
     const intervalId = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    const matchedTab = engagementTabs.find((tab) => tab.hash === hash);
+    if (matchedTab) {
+      setActiveTab(matchedTab.value);
+    }
   }, []);
 
   useEffect(() => {
@@ -475,7 +476,7 @@ export default function CustomerEngagementPage() {
         },
       }));
 
-      await refreshUser();
+      await refreshUser({ force: true });
       toast.success(`Challenge reward claimed. +${rewardPoints} points`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to claim challenge reward.");
@@ -508,7 +509,7 @@ export default function CustomerEngagementPage() {
 
   const handleBirthdayClaim = async () => {
     if (birthdaySettings.fulfillmentMode === "auto_credit") {
-      await refreshUser();
+      await refreshUser({ force: true });
       const status = await loadBirthdayRewardStatus(user.memberId, user.email);
       setBirthdayStatus(status);
       toast.success(
@@ -529,7 +530,7 @@ export default function CustomerEngagementPage() {
     }
     try {
       const result = await claimBirthdayReward(user.memberId, user.email);
-      await refreshUser();
+      await refreshUser({ force: true });
       const status = await loadBirthdayRewardStatus(user.memberId, user.email);
       setBirthdayStatus(status);
       toast.success(
@@ -569,7 +570,6 @@ export default function CustomerEngagementPage() {
       try {
         await queueManagerFeedbackNotification(saved);
       } catch {
-        // Feedback is already saved; notification failure should not block submission.
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to submit feedback.");
@@ -660,7 +660,7 @@ export default function CustomerEngagementPage() {
       });
 
       setUser((prev) => ({ ...prev, surveysCompleted: prev.surveysCompleted + 1 }));
-      await refreshUser();
+      await refreshUser({ force: true });
       toast.success(`Survey submitted. +${survey.bonusPoints} points added.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to submit survey.");

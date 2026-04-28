@@ -1,21 +1,57 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import Fastify from "fastify";
+import path from "path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
 import { config } from "./config.js";
 import {
   assignMemberVariant,
+  declareCampaignWinner,
+  getBudgetStatus,
   getActive,
+  getCampaign,
   getCampaigns,
   lookupActiveMultiplier,
+  pauseCampaign,
   queueCampaignNotifications,
   loadPerformance,
+  publishCampaign,
   saveCampaign,
 } from "./engine.js";
 
 export function createServer() {
   const fastify = Fastify({ logger: true });
 
+fastify.setErrorHandler((error, _request, reply) => {
+  if (error instanceof z.ZodError) {
+    reply.code(400).send({ ok: false, error: "Validation failed.", details: error.flatten() });
+    return;
+  }
+
+  const message = error.message || "Unexpected campaign service error.";
+  if (message.toLowerCase().includes("not found")) {
+    reply.code(404).send({ ok: false, error: message });
+    return;
+  }
+
+  reply.code(500).send({ ok: false, error: message });
+});
+
+function hasUnresolvedVariable(value: unknown) {
+  return typeof value === "string" && (value.includes("{{") || value.includes("}}"));
+}
+
+const campaignIdSchema = z
+  .string()
+  .trim()
+  .max(80)
+  .optional()
+  .transform((value) => (value && !hasUnresolvedVariable(value) ? value : undefined));
+
 const campaignSchema = z.object({
-  id: z.string().uuid().optional(),
+  id: campaignIdSchema,
   campaignCode: z.string().trim().min(1).max(80),
   campaignName: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).nullable().optional(),
@@ -41,6 +77,13 @@ const multiplierSchema = z.object({
   amountSpent: z.number().min(0).max(10_000_000),
 });
 
+const winnerSchema = z.object({
+  scores: z.object({
+    A: z.number().min(0),
+    B: z.number().min(0),
+  }),
+});
+
   fastify.get("/health", async () => ({ ok: true }));
 
 fastify.get("/campaigns", async () => {
@@ -56,6 +99,24 @@ fastify.get("/campaigns/active", async () => {
 fastify.post("/campaigns", async (request) => {
   const parsed = campaignSchema.parse(request.body);
   const campaign = await saveCampaign(parsed);
+  return { ok: true, campaign };
+});
+
+fastify.patch("/campaigns/:id/publish", async (request) => {
+  const campaignId = String((request.params as any).id || "");
+  const body = z
+    .object({
+      queueNotifications: z.boolean().optional(),
+    })
+    .parse(request.body ?? {});
+  const campaign = await publishCampaign(campaignId);
+  const notificationsQueued = body.queueNotifications ? await queueCampaignNotifications(campaignId) : 0;
+  return { ok: true, campaign, notificationsQueued };
+});
+
+fastify.patch("/campaigns/:id/pause", async (request) => {
+  const campaignId = String((request.params as any).id || "");
+  const campaign = await pauseCampaign(campaignId);
   return { ok: true, campaign };
 });
 
@@ -82,6 +143,26 @@ fastify.get("/campaigns/performance", async () => {
   return { ok: true, performance: rows };
 });
 
+fastify.get("/campaigns/:id", async (request) => {
+  const campaignId = String((request.params as any).id || "");
+  const campaign = await getCampaign(campaignId);
+  if (!campaign) throw new Error("Campaign not found.");
+  return { ok: true, campaign };
+});
+
+fastify.get("/campaigns/:id/budget-status", async (request) => {
+  const campaignId = String((request.params as any).id || "");
+  const budgetStatus = await getBudgetStatus(campaignId);
+  return { ok: true, budgetStatus };
+});
+
+fastify.post("/campaigns/:id/winner", async (request) => {
+  const campaignId = String((request.params as any).id || "");
+  const parsed = winnerSchema.parse(request.body);
+  const result = await declareCampaignWinner(campaignId, parsed.scores);
+  return { ok: true, result };
+});
+
 fastify.post("/campaigns/:id/notify", async (request) => {
   const campaignId = String((request.params as any).id || "");
   const queued = await queueCampaignNotifications(campaignId);
@@ -91,7 +172,11 @@ fastify.post("/campaigns/:id/notify", async (request) => {
   return fastify;
 }
 
-if (import.meta.url === process.argv[1] || import.meta.url === `file://${process.argv[1]}`) {
+function isEntrypoint() {
+  return process.argv[1] ? path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]) : false;
+}
+
+if (isEntrypoint()) {
   const server = createServer();
   server
     .listen({ host: "0.0.0.0", port: config.port })

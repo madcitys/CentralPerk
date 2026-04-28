@@ -46,7 +46,7 @@ function classifyTransactionType(transactionType: string, points: number) {
 }
 
 export default function AdminActivityPage() {
-  const { transactions, loading, error, metrics } = useAdminData();
+  const { transactions, loading, error, metrics } = useAdminData({ scope: "activity" });
   const [activityFilter, setActivityFilter] = useState<"all" | "active" | "warm" | "inactive">("all");
   const [transactionFilter, setTransactionFilter] = useState<TransactionQuickFilter>("all");
   const [transactionRangePreset, setTransactionRangePreset] = useState<TransactionRangePreset>("custom");

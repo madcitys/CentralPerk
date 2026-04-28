@@ -6,8 +6,16 @@ import { supabase } from "../../utils/supabase/client";
 import type { AppNotification } from "../lib/notifications";
 import { brandTealSolidClass } from "../lib/ui-color-tokens";
 import { loadNotificationsViaApi, markNotificationReadViaApi } from "../lib/api";
+import { clearStoredAuth, touchStoredAdminSession } from "../auth/auth";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+function useLocalDemoRealtimeFallback() {
+  return (
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true")
+  );
+}
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: Home, end: true },
@@ -38,6 +46,8 @@ export default function AdminRoot() {
   useEffect(() => {
     loadNotifications().catch(() => {});
 
+    if (useLocalDemoRealtimeFallback()) return;
+
     const channel = supabase
       .channel("admin-notifications")
       .on(
@@ -67,6 +77,7 @@ export default function AdminRoot() {
 
     const resetTimer = () => {
       clearTimeout(timeoutRef);
+      touchStoredAdminSession();
       timeoutRef = setTimeout(() => {
         handleLogout().catch(() => {});
       }, IDLE_TIMEOUT_MS);
@@ -84,9 +95,7 @@ export default function AdminRoot() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem("role");
-    localStorage.removeItem("token");
-    localStorage.removeItem("user_id");
+    clearStoredAuth();
     navigate("/login", { replace: true });
   };
 

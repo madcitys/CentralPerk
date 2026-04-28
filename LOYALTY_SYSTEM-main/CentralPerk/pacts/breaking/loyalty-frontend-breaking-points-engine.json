@@ -1,0 +1,78 @@
+{
+  "consumer": {
+    "name": "loyalty-frontend-breaking"
+  },
+  "interactions": [
+    {
+      "description": "a breaking award request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "a member can receive awarded points"
+        }
+      ],
+      "request": {
+        "body": {
+          "fallbackEmail": "award@example.com",
+          "memberIdentifier": "PACT-AWARD",
+          "points": 100,
+          "reason": "Breaking Pact award",
+          "transactionType": "MANUAL_AWARD"
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "pact-award-breaking-1"
+        },
+        "method": "POST",
+        "path": "/points/award"
+      },
+      "response": {
+        "body": {
+          "ok": true,
+          "result": {
+            "currentBalance": 100,
+            "currentTier": "Bronze"
+          }
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.result.currentBalance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.currentTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "16.3.0"
+    },
+    "pactRust": {
+      "ffi": "0.5.3",
+      "models": "1.3.9"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "points-engine"
+  }
+}

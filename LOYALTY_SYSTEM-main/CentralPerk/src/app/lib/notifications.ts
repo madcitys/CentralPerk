@@ -33,8 +33,71 @@ function dedupeNotifications(rows: Record<string, any>[]) {
   );
 }
 
+function isMissingColumnError(error: unknown, column: string) {
+  const message = String(
+    (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
+      (error as { details?: unknown })?.details ??
+      (error as { hint?: unknown })?.hint ??
+      ""
+  ).toLowerCase();
+  return message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
+function useLocalNotificationApiFallback() {
+  return (
+    typeof window !== "undefined" &&
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true")
+  );
+}
+
+async function queueLocalNotification(input: {
+  memberId?: string | null;
+  userId?: string | null;
+  subject: string;
+  message: string;
+  trigger?: string;
+}) {
+  await fetch("/api/notifications/sms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      memberId: input.memberId || undefined,
+      subject: input.subject,
+      message: input.message,
+      trigger: input.trigger || "local_ui",
+    }),
+  }).catch(() => undefined);
+}
+
+async function insertNotificationOutbox(payload: Record<string, unknown>) {
+  const { error } = await supabase.from("notification_outbox").insert(payload);
+  if (!error) return;
+
+  if ("scheduled_at" in payload && isMissingColumnError(error, "scheduled_at")) {
+    const { scheduled_at, ...fallbackPayload } = payload;
+    const fallback = await supabase.from("notification_outbox").insert(fallbackPayload);
+    if (!fallback.error) return;
+    throw fallback.error;
+  }
+
+  throw error;
+}
+
 export async function loadUserNotifications(limit = 20): Promise<AppNotification[]> {
   const localSession = getCurrentCustomerSession();
+  if (useLocalNotificationApiFallback()) {
+    const params = new URLSearchParams();
+    if (localSession?.memberId) params.set("memberId", localSession.memberId);
+    if (localSession?.email) params.set("email", localSession.email);
+    params.set("limit", String(limit));
+    const response = await fetch(`/api/notifications?${params.toString()}`, { cache: "no-store" });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { notifications?: AppNotification[] };
+    return payload.notifications || [];
+  }
+
   const authRes = await supabase.auth.getUser();
   if (authRes.error && !localSession) throw authRes.error;
 
@@ -124,6 +187,11 @@ export async function queueSmsNotification(input: {
   subject: string;
   message: string;
 }) {
+  if (useLocalNotificationApiFallback()) {
+    await queueLocalNotification(input);
+    return;
+  }
+
   const { error } = await supabase.from("notification_outbox").insert({
     user_id: input.userId ?? null,
     channel: "sms",
@@ -141,7 +209,19 @@ export async function queueMemberNotification(input: {
   subject: string;
   message: string;
   isTransactional?: boolean;
+  scheduledFor?: string | null;
 }) {
+  if (useLocalNotificationApiFallback()) {
+    await queueLocalNotification({
+      memberId: input.memberId,
+      userId: input.userId,
+      subject: input.subject,
+      message: input.message,
+      trigger: input.channel,
+    });
+    return { queued: true as const };
+  }
+
   const pref = await loadCommunicationPreference(input.memberId);
   const isTransactional = Boolean(input.isTransactional);
   const allowed = canSendNotificationByPreference(pref, input.channel, isTransactional);
@@ -184,16 +264,20 @@ export async function queueMemberNotification(input: {
     if ((recentRes.count || 0) > 0) return { queued: false, reason: "frequency_blocked" as const };
   }
 
-  const { error } = await supabase.from("notification_outbox").insert({
+  const payload: Record<string, unknown> = {
     user_id: input.userId ?? null,
     member_id: memberPk,
     channel: input.channel,
     subject: input.subject,
     message: input.message,
     is_promotional: !isTransactional,
-  });
+  };
 
-  if (error) throw error;
+  if (input.scheduledFor) {
+    payload.scheduled_at = input.scheduledFor;
+  }
+
+  await insertNotificationOutbox(payload);
   return { queued: true as const };
 }
 
@@ -205,6 +289,17 @@ export async function ensureMemberNotification(input: {
   userId?: string | null;
   isTransactional?: boolean;
 }) {
+  if (useLocalNotificationApiFallback()) {
+    await queueLocalNotification({
+      memberId: input.memberId,
+      userId: input.userId,
+      subject: input.subject,
+      message: input.message,
+      trigger: input.channel,
+    });
+    return { queued: true as const };
+  }
+
   let memberPk: number | null = null;
   const byMemberNumber = await supabase
     .from("loyalty_members")

@@ -48,7 +48,7 @@ function formatDayLabel(value: Date) {
 }
 
 export default function AdminDashboard() {
-  const { members, transactions, loading, error, metrics, tierRules } = useAdminData();
+  const { members, transactions, loading, error, metrics, tierRules } = useAdminData({ scope: "dashboard" });
   const [growthRange, setGrowthRange] = useState<GrowthRange>("12m");
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
@@ -396,4 +396,3 @@ export default function AdminDashboard() {
     </div>
   );
 }
-

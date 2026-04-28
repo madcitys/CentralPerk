@@ -61,7 +61,6 @@ export default function AdminSettingsPage() {
         rule.tier_label.toLowerCase() === tierLabel.toLowerCase()
           ? {
               ...rule,
-              // Bronze is fixed as the base tier at 0 points.
               min_points: tierLabel.toLowerCase() === "bronze" ? 0 : Math.max(0, Math.floor(nextValue || 0)),
             }
           : rule

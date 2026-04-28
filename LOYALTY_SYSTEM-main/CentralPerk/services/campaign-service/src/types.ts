@@ -1,5 +1,6 @@
 export type CampaignType = "bonus_points" | "flash_sale" | "multiplier_event";
 export type CampaignStatus = "draft" | "scheduled" | "active" | "paused" | "completed" | "archived";
+export type CampaignVariant = "A" | "B";
 
 export type Campaign = {
   id: string;
@@ -21,6 +22,8 @@ export type Campaign = {
   budgetLimit: number | null;
   budgetSpent: number;
   autoPause: boolean;
+  winningVariant?: CampaignVariant | null;
+  winnerDeclaredAt?: string | null;
 };
 
 export type CampaignInput = {
@@ -54,12 +57,19 @@ export type MultiplierLookupResult = {
   active: boolean;
   campaignId: string | null;
   multiplier: number;
-  variant: "A" | "B";
+  variant: CampaignVariant;
   bonusPoints: number;
 };
 
 export type VariantAssignment = {
   campaignId: string;
   memberId: number;
-  variant: "A" | "B";
+  variant: CampaignVariant;
+};
+
+export type CampaignWinnerResult = {
+  campaignId: string;
+  winner: CampaignVariant;
+  declaredAt: string;
+  scores: Record<CampaignVariant, number>;
 };

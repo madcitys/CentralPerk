@@ -117,8 +117,6 @@ async function insertRedemption(member: Member, input: RedeemInput, newBalance: 
     reward_catalog_id: ledgerEntry.reward_catalog_id,
     points_ledger_id: ledger.id,
   });
-
-  // Consume FIFO lots if the helper exists
   try {
     const { error: fifoError } = await supabase.rpc("loyalty_consume_points_fifo", {
       p_member_id: member.id,
@@ -126,7 +124,6 @@ async function insertRedemption(member: Member, input: RedeemInput, newBalance: 
     });
     if (fifoError) throw fifoError;
   } catch (err) {
-    // Ignore missing function or other non-fatal FIFO issues to keep redemption flowing.
   }
 
   await updateMemberBalance(member.id, newBalance, newTier);

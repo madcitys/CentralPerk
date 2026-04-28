@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.runtime/
 dist/
 .vite/
 .npm-cache/
@@ -9,9 +10,11 @@ dist/
 !.env.example
 *.md
 !README.md
+!docs/*.md
+!docs/**/*.md
 !AGENTS.md
 !JIAN_REYES_SPRINT4_RECREATE_PROMPT.md
-supabase/
+/supabase/
 *.sql
 !SQL_CODES/*.sql
 !SQL_CODES/**/*.sql

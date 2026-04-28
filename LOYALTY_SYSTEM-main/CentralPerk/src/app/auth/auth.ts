@@ -5,6 +5,7 @@ export type Role = "customer" | "admin";
 const ADMIN_SUFFIX = "@admin.loyaltyhub.com";
 const ROLE_VALUES: Role[] = ["customer", "admin"];
 const CUSTOMER_SESSION_KEY = "loyaltyhub-customer-session";
+const ADMIN_SESSION_KEY = "loyaltyhub-admin-session";
 const CUSTOMER_DASHBOARD_USER_KEY = "points-dashboard-user-v1";
 
 export type CustomerSession = {
@@ -16,21 +17,21 @@ export type CustomerSession = {
   expiresAt: string;
 };
 
-function getBrowserStorage(): Storage | null {
-  if (typeof window === "undefined") return null;
-  if (typeof window.localStorage === "undefined") return null;
-  return window.localStorage;
-}
+export type AdminSession = {
+  role: "admin";
+  adminId: string;
+  email: string;
+  fullName: string;
+  expiresAt: string;
+};
 
 export function clearStoredAuth() {
-  const storage = getBrowserStorage();
-  if (!storage) return;
-
-  storage.removeItem("role");
-  storage.removeItem("token");
-  storage.removeItem("user_id");
-  storage.removeItem(CUSTOMER_SESSION_KEY);
-  storage.removeItem(CUSTOMER_DASHBOARD_USER_KEY);
+  localStorage.removeItem("role");
+  localStorage.removeItem("token");
+  localStorage.removeItem("user_id");
+  localStorage.removeItem(CUSTOMER_SESSION_KEY);
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+  localStorage.removeItem(CUSTOMER_DASHBOARD_USER_KEY);
 }
 
 function inferRoleFromEmail(email?: string | null): Role | null {
@@ -45,21 +46,35 @@ function normalizeRole(raw: unknown): Role | null {
 }
 
 function loadCustomerSession(): CustomerSession | null {
-  const storage = getBrowserStorage();
-  if (!storage) return null;
-
   try {
-    const raw = storage.getItem(CUSTOMER_SESSION_KEY);
+    const raw = localStorage.getItem(CUSTOMER_SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CustomerSession;
     if (!parsed?.memberId || !parsed?.phone || !parsed?.expiresAt) return null;
     if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-      storage.removeItem(CUSTOMER_SESSION_KEY);
+      localStorage.removeItem(CUSTOMER_SESSION_KEY);
       return null;
     }
     return parsed;
   } catch {
-    storage.removeItem(CUSTOMER_SESSION_KEY);
+    localStorage.removeItem(CUSTOMER_SESSION_KEY);
+    return null;
+  }
+}
+
+function loadAdminSession(): AdminSession | null {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AdminSession;
+    if (!parsed?.adminId || !parsed?.email || !parsed?.expiresAt) return null;
+    if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
+      localStorage.removeItem(ADMIN_SESSION_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    localStorage.removeItem(ADMIN_SESSION_KEY);
     return null;
   }
 }
@@ -73,25 +88,40 @@ export function getCurrentCustomerSession() {
 }
 
 export function setStoredCustomerSession(session: Omit<CustomerSession, "role">) {
-  const storage = getBrowserStorage();
-  if (!storage) return;
-
   const payload: CustomerSession = { role: "customer", ...session };
-  storage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(payload));
+  localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(payload));
+}
+
+export function getCurrentAdminSession() {
+  return loadAdminSession();
+}
+
+export function setStoredAdminSession(session: Omit<AdminSession, "role">) {
+  const payload: AdminSession = { role: "admin", ...session };
+  localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(payload));
 }
 
 export function touchStoredCustomerSession() {
-  const storage = getBrowserStorage();
-  if (!storage) return;
-
   const session = loadCustomerSession();
   if (!session) return;
-  storage.setItem(
+  localStorage.setItem(
     CUSTOMER_SESSION_KEY,
     JSON.stringify({
       ...session,
       expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     } satisfies CustomerSession)
+  );
+}
+
+export function touchStoredAdminSession() {
+  const session = loadAdminSession();
+  if (!session) return;
+  localStorage.setItem(
+    ADMIN_SESSION_KEY,
+    JSON.stringify({
+      ...session,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    } satisfies AdminSession)
   );
 }
 
@@ -108,6 +138,23 @@ export async function getSession() {
           role: "customer",
           member_id: localCustomerSession.memberId,
           full_name: localCustomerSession.fullName,
+        },
+      },
+    } as any;
+  }
+
+  const localAdminSession = loadAdminSession();
+  if (localAdminSession) {
+    return {
+      access_token: "demo-admin-session",
+      user: {
+        email: localAdminSession.email,
+        phone: null,
+        app_metadata: { role: "admin" },
+        user_metadata: {
+          role: "admin",
+          admin_id: localAdminSession.adminId,
+          full_name: localAdminSession.fullName,
         },
       },
     } as any;
@@ -133,6 +180,9 @@ export async function getRoleFromSession(): Promise<Role | null> {
   const localCustomerSession = loadCustomerSession();
   if (localCustomerSession) return "customer";
 
+  const localAdminSession = loadAdminSession();
+  if (localAdminSession) return "admin";
+
   const session = await getSession();
   if (!session) return null;
 
@@ -144,8 +194,5 @@ export async function getRoleFromSession(): Promise<Role | null> {
 
   const dbRole = await getRoleFromDb(session.user?.email);
   if (dbRole) return dbRole;
-
-  // Legacy fallback to keep existing admin accounts working without
-  // accidentally treating profile-less customer accounts as valid.
   return inferRoleFromEmail(session.user?.email);
 }

@@ -1,0 +1,29 @@
+services:
+  pact-broker-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pact_broker
+      POSTGRES_USER: pact
+      POSTGRES_PASSWORD: pact
+    ports:
+      - "54329:5432"
+    volumes:
+      - pact-broker-db:/var/lib/postgresql/data
+
+  pact-broker:
+    image: pactfoundation/pact-broker:latest
+    depends_on:
+      - pact-broker-db
+    environment:
+      PACT_BROKER_DATABASE_ADAPTER: postgres
+      PACT_BROKER_DATABASE_HOST: pact-broker-db
+      PACT_BROKER_DATABASE_NAME: pact_broker
+      PACT_BROKER_DATABASE_USERNAME: pact
+      PACT_BROKER_DATABASE_PASSWORD: pact
+      PACT_BROKER_BASIC_AUTH_USERNAME: pact
+      PACT_BROKER_BASIC_AUTH_PASSWORD: pact
+    ports:
+      - "9292:9292"
+
+volumes:
+  pact-broker-db:

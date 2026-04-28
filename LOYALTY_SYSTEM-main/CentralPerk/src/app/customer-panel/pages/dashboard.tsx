@@ -44,6 +44,14 @@ type TierRuleRow = {
 
 const WELCOME_NOTICE_STORAGE_KEY = "centralperk-welcome-notice";
 
+function useLocalDemoDataMode() {
+  return (
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true")
+  );
+}
+
 function formatCampaignCountdown(endsAt: string, nowMs: number) {
   const diff = new Date(endsAt).getTime() - nowMs;
   if (Number.isNaN(diff)) return "Schedule unavailable";
@@ -57,6 +65,15 @@ function formatCampaignCountdown(endsAt: string, nowMs: number) {
   if (days > 0) return `${days}d ${hours}h left`;
   if (hours > 0) return `${hours}h ${minutes}m left`;
   return `${Math.max(minutes, 1)}m left`;
+}
+
+function safeNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function fixed(value: unknown, digits = 0) {
+  return safeNumber(value, 0).toFixed(digits);
 }
 
 export default function Dashboard() {
@@ -136,6 +153,8 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    if (useLocalDemoDataMode()) return;
+
     (async () => {
       try {
         const { data, error } = await supabase
@@ -418,7 +437,7 @@ export default function Dashboard() {
                             <Badge className={brandNavyBadgeClass}>
                               {campaign.campaignType === "flash_sale" ? "Flash Sale" : campaign.campaignType === "multiplier_event" ? "Multiplier Event" : "Bonus Campaign"}
                             </Badge>
-                            {campaign.eligibleTiers.length > 0 ? <Badge variant="outline">{campaign.eligibleTiers.join(", ")}</Badge> : null}
+                            {(campaign.eligibleTiers ?? []).length > 0 ? <Badge variant="outline">{(campaign.eligibleTiers ?? []).join(", ")}</Badge> : null}
                             <Badge className={campaign.endsAt ? "bg-[#ecfdf3] text-[#166534]" : "bg-[#eff6ff] text-[#1d4ed8]"}>
                               {formatCampaignCountdown(campaign.endsAt, countdownNow)}
                             </Badge>
@@ -426,7 +445,7 @@ export default function Dashboard() {
                           <h3 className="mt-4 text-2xl font-semibold text-gray-900">{campaign.bannerTitle || campaign.campaignName}</h3>
                           <p className="mt-2 max-w-xl text-sm leading-6 text-gray-600">{campaign.bannerMessage || campaign.description}</p>
                           <p className="mt-4 text-xs text-[#1A2B47]">
-                            {campaign.multiplier > 1 ? `${campaign.multiplier.toFixed(0)}x points` : `${campaign.bonusPoints} bonus points`} | Ends{" "}
+                            {safeNumber(campaign.multiplier, 0) > 1 ? `${fixed(campaign.multiplier)}x points` : `${safeNumber(campaign.bonusPoints, 0)} bonus points`} | Ends{" "}
                             {new Date(campaign.endsAt).toLocaleString()}
                           </p>
                         </div>
@@ -441,7 +460,7 @@ export default function Dashboard() {
                           <div className="rounded-2xl border border-[#dbe9f6] bg-[#f8fbff] p-4">
                             <p className="text-xs uppercase tracking-[0.16em] text-[#67809d]">Perk</p>
                             <p className="mt-2 text-base font-semibold text-[#10213d]">
-                              {campaign.multiplier > 1 ? `${campaign.multiplier.toFixed(0)}x on qualifying purchases` : `${campaign.bonusPoints} bonus points unlocked`}
+                              {safeNumber(campaign.multiplier, 0) > 1 ? `${fixed(campaign.multiplier)}x on qualifying purchases` : `${safeNumber(campaign.bonusPoints, 0)} bonus points unlocked`}
                             </p>
                           </div>
                         </div>

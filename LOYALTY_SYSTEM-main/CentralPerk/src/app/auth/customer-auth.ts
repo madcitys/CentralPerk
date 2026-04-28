@@ -1,7 +1,9 @@
 import { supabase } from "../../utils/supabase/client";
-import { setStoredCustomerSession } from "./auth";
+import { clearStoredAuth, setStoredAdminSession, setStoredCustomerSession } from "./auth";
 
 const DEMO_ACCOUNTS_KEY = "loyaltyhub-demo-accounts-v1";
+const DEMO_ADMIN_ACCOUNTS_KEY = "loyaltyhub-demo-admin-accounts-v1";
+const DEMO_MEMBER_PROFILES_KEY = "loyaltyhub-demo-member-profiles-v1";
 const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.NODE_ENV !== "production";
 const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH === "true";
 const DEMO_PROFILE_BOOTSTRAP_ENABLED = process.env.NODE_ENV !== "production";
@@ -20,6 +22,8 @@ const DEMO_LOCAL_PART_HINTS = [
   "dummy",
   "mock",
 ];
+
+const DEMO_ADMIN_ID_HINTS = ["admin", "demo", "dev", "test", "qa"];
 
 const DEMO_DOMAINS = new Set([
   "example.com",
@@ -61,6 +65,28 @@ type DemoAccount = {
   createdAt: string;
 };
 
+type DemoAdminAccount = {
+  adminId: string;
+  passwordHash: string;
+  fullName: string;
+  createdAt: string;
+};
+
+type DemoMemberProfile = {
+  id: string;
+  member_id: string;
+  member_number: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  birthdate: string;
+  points_balance: number;
+  tier: "Bronze";
+  enrollment_date: string;
+  demo_local_only: true;
+};
+
 type PendingEmailAlias = {
   pendingEmail: string;
   authEmail: string;
@@ -69,6 +95,7 @@ type PendingEmailAlias = {
 
 export type RegisterCustomerResult = {
   authMode: "demo" | "supabase";
+  profileMode: "supabase" | "local_demo";
   emailConfirmationRequired: boolean;
   immediateLoginAvailable: boolean;
   memberRecord: Record<string, any>;
@@ -239,6 +266,15 @@ function mapProviderErrorMessage(rawError: unknown, fallbackMessage: string): st
     return "Password must meet the minimum length required by Supabase Auth.";
   }
 
+  if (
+    message.includes("loyalty_members") ||
+    message.includes("row-level security") ||
+    message.includes("permission denied") ||
+    message.includes("schema cache")
+  ) {
+    return "Customer profile access failed. Your Supabase public key can reach Auth, but the `loyalty_members` table is missing or not accessible from the client.";
+  }
+
   return fallbackMessage;
 }
 
@@ -300,13 +336,28 @@ export function isCustomerDemoAuthForced(): boolean {
   return FORCE_CUSTOMER_DEMO_AUTH;
 }
 
+export function isAdminDemoAuthEnabled(): boolean {
+  return DEMO_AUTH_ENABLED;
+}
+
 function shouldUseCustomerDemoAuth(normalizedEmail: string): boolean {
   if (!DEMO_AUTH_ENABLED) return false;
   if (FORCE_CUSTOMER_DEMO_AUTH) return true;
   return isDemoEmail(normalizedEmail);
 }
 
+function normalizeAdminId(rawAdminId: string): string {
+  return rawAdminId.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function isDemoAdminId(rawAdminId: string): boolean {
+  const normalizedAdminId = normalizeAdminId(rawAdminId);
+  if (!normalizedAdminId) return false;
+  return DEMO_ADMIN_ID_HINTS.some((hint) => normalizedAdminId.includes(hint));
+}
+
 function loadDemoAccounts(): DemoAccount[] {
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(DEMO_ACCOUNTS_KEY);
     if (!raw) return [];
@@ -319,7 +370,48 @@ function loadDemoAccounts(): DemoAccount[] {
 }
 
 function saveDemoAccounts(accounts: DemoAccount[]): void {
+  if (typeof window === "undefined") return;
   localStorage.setItem(DEMO_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function findDemoAccountByEmail(normalizedEmail: string): DemoAccount | null {
+  return loadDemoAccounts().find((entry) => entry.email === normalizedEmail) ?? null;
+}
+
+function loadDemoAdminAccounts(): DemoAdminAccount[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DEMO_ADMIN_ACCOUNTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as DemoAdminAccount[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry) => Boolean(entry?.adminId && entry?.passwordHash));
+  } catch {
+    return [];
+  }
+}
+
+function saveDemoAdminAccounts(accounts: DemoAdminAccount[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DEMO_ADMIN_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function loadDemoMemberProfiles(): DemoMemberProfile[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DEMO_MEMBER_PROFILES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as DemoMemberProfile[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry) => Boolean(entry?.member_number && entry?.email));
+  } catch {
+    return [];
+  }
+}
+
+function saveDemoMemberProfiles(profiles: DemoMemberProfile[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DEMO_MEMBER_PROFILES_KEY, JSON.stringify(profiles));
 }
 
 async function hashSecret(secret: string): Promise<string> {
@@ -333,6 +425,7 @@ async function hashSecret(secret: string): Promise<string> {
 }
 
 export function persistDemoSession(input: { memberId: string; email: string; phone: string; fullName: string }) {
+  clearStoredAuth();
   setStoredCustomerSession({
     memberId: input.memberId,
     email: normalizeEmail(input.email),
@@ -342,13 +435,74 @@ export function persistDemoSession(input: { memberId: string; email: string; pho
   });
 }
 
+function persistDemoAdminSession(input: { adminId: string; fullName: string }) {
+  clearStoredAuth();
+  setStoredAdminSession({
+    adminId: input.adminId,
+    email: `${input.adminId}@admin.loyaltyhub.com`,
+    fullName: input.fullName,
+    expiresAt: new Date(Date.now() + DEMO_SESSION_TTL_MS).toISOString(),
+  });
+}
+
+function nextDemoMemberNumber(profiles: DemoMemberProfile[]): string {
+  return `DMO${String(profiles.length + 1).padStart(6, "0")}`;
+}
+
+function createLocalDemoMemberProfile(input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  birthdate: string;
+}): DemoMemberProfile {
+  const profiles = loadDemoMemberProfiles();
+  const normalizedEmail = normalizeEmail(input.email);
+  const normalizedPhone = normalizePhoneNumber(input.phone);
+  const emailExists = profiles.some((profile) => normalizeEmail(profile.email) === normalizedEmail);
+  const phoneExists = profiles.some((profile) => normalizePhoneNumber(profile.phone) === normalizedPhone);
+
+  if (emailExists && phoneExists) {
+    throw new AuthFlowError("DUPLICATE_EMAIL_AND_PHONE", "A user with that email and phone number already exists.");
+  }
+  if (emailExists) {
+    throw new AuthFlowError("DUPLICATE_EMAIL", "Email already registered.");
+  }
+  if (phoneExists) {
+    throw new AuthFlowError("DUPLICATE_PHONE", "This phone number is already registered.");
+  }
+
+  const memberNumber = nextDemoMemberNumber(profiles);
+  const profile: DemoMemberProfile = {
+    id: memberNumber,
+    member_id: memberNumber,
+    member_number: memberNumber,
+    first_name: input.firstName,
+    last_name: input.lastName,
+    email: normalizedEmail,
+    phone: normalizedPhone,
+    birthdate: input.birthdate,
+    points_balance: 0,
+    tier: "Bronze",
+    enrollment_date: new Date().toISOString(),
+    demo_local_only: true,
+  };
+
+  saveDemoMemberProfiles([profile, ...profiles]);
+  return profile;
+}
+
 async function createOrRepairMemberProfile(input: {
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
   birthdate: string;
-}): Promise<{ memberRecord: Record<string, any>; recoveredFromExistingAuthSignup: boolean }> {
+}, options?: { allowLocalDemoProfileFallback?: boolean }): Promise<{
+  memberRecord: Record<string, any>;
+  recoveredFromExistingAuthSignup: boolean;
+  profileMode: "supabase" | "local_demo";
+}> {
   const { data: insertedMember, error: insertError } = await supabase
     .from("loyalty_members")
     .insert([
@@ -366,11 +520,18 @@ async function createOrRepairMemberProfile(input: {
     .single();
 
   if (!insertError && insertedMember) {
-    return { memberRecord: insertedMember, recoveredFromExistingAuthSignup: false };
+    return { memberRecord: insertedMember, recoveredFromExistingAuthSignup: false, profileMode: "supabase" };
   }
 
   const insertErrorText = extractErrorText(insertError).toLowerCase();
   if (!hasAnyHint(insertErrorText, PROFILE_CONSTRAINT_HINTS)) {
+    if (options?.allowLocalDemoProfileFallback) {
+      return {
+        memberRecord: createLocalDemoMemberProfile(input),
+        recoveredFromExistingAuthSignup: false,
+        profileMode: "local_demo",
+      };
+    }
     throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", insertError);
   }
 
@@ -382,6 +543,13 @@ async function createOrRepairMemberProfile(input: {
     .maybeSingle();
 
   if (existingMemberError || !existingMember) {
+    if (options?.allowLocalDemoProfileFallback) {
+      return {
+        memberRecord: createLocalDemoMemberProfile(input),
+        recoveredFromExistingAuthSignup: false,
+        profileMode: "local_demo",
+      };
+    }
     throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", existingMemberError);
   }
 
@@ -392,7 +560,7 @@ async function createOrRepairMemberProfile(input: {
     !existingMember.birthdate;
 
   if (!needsRepair) {
-    return { memberRecord: existingMember, recoveredFromExistingAuthSignup: false };
+    return { memberRecord: existingMember, recoveredFromExistingAuthSignup: false, profileMode: "supabase" };
   }
 
   const { data: repairedMember, error: repairError } = await supabase
@@ -408,10 +576,17 @@ async function createOrRepairMemberProfile(input: {
     .single();
 
   if (repairError || !repairedMember) {
+    if (options?.allowLocalDemoProfileFallback) {
+      return {
+        memberRecord: createLocalDemoMemberProfile(input),
+        recoveredFromExistingAuthSignup: false,
+        profileMode: "local_demo",
+      };
+    }
     throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", repairError);
   }
 
-  return { memberRecord: repairedMember, recoveredFromExistingAuthSignup: true };
+  return { memberRecord: repairedMember, recoveredFromExistingAuthSignup: true, profileMode: "supabase" };
 }
 
 async function findMemberProfileByEmail(normalizedEmail: string): Promise<Record<string, any> | null> {
@@ -423,10 +598,13 @@ async function findMemberProfileByEmail(normalizedEmail: string): Promise<Record
     .maybeSingle();
 
   if (error) {
+    const localProfile = loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail);
+    if (localProfile) return localProfile as Record<string, any>;
     throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to load customer profile.", error);
   }
 
-  return data as Record<string, any> | null;
+  if (data) return data as Record<string, any>;
+  return loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail) ?? null;
 }
 
 async function bootstrapDemoAccountFromMemberProfile(input: {
@@ -476,6 +654,7 @@ async function bootstrapDemoAccountFromMemberProfile(input: {
 export async function registerCustomer(input: RegisterCustomerInput): Promise<RegisterCustomerResult> {
   const normalizedEmail = normalizeEmail(input.email);
   const normalizedPhone = normalizePhilippinePhoneNumber(input.phone);
+  let canUseDemoAuth = shouldUseCustomerDemoAuth(normalizedEmail);
 
   if (!isValidEmail(normalizedEmail)) {
     throw new AuthFlowError("INVALID_EMAIL", "Please enter a valid email address.");
@@ -490,28 +669,40 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
     throw new AuthFlowError("INVALID_PASSWORD", "Password must be at least 8 characters long.");
   }
 
-  const { data: existingMembers, error: existingMembersError } = await supabase
-    .from("loyalty_members")
-    .select("email, phone")
-    .or(`email.ilike.${normalizedEmail},phone.eq.${normalizedPhone}`);
+  if (!canUseDemoAuth) {
+    const { data: existingMembers, error: existingMembersError } = await supabase
+      .from("loyalty_members")
+      .select("email, phone")
+      .or(`email.ilike.${normalizedEmail},phone.eq.${normalizedPhone}`);
 
-  if (existingMembersError) {
-    throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to validate existing customer records.", existingMembersError);
+    if (existingMembersError) {
+      if (DEMO_AUTH_ENABLED) {
+        console.warn("Falling back to local demo registration because loyalty_members validation is unavailable.", existingMembersError);
+        canUseDemoAuth = true;
+      } else {
+        throw new AuthFlowError(
+          "AUTH_PROVIDER_ERROR",
+          "Unable to validate existing customer records. Check the `loyalty_members` table access or enable forced demo auth for local development.",
+          existingMembersError
+        );
+      }
+    }
+
+    if (!canUseDemoAuth) {
+      const emailExists = (existingMembers ?? []).some((member) => String(member.email || "").trim().toLowerCase() === normalizedEmail);
+      const phoneExists = (existingMembers ?? []).some((member) => normalizePhoneNumber(String(member.phone || "")) === normalizedPhone);
+      if (emailExists && phoneExists) {
+        throw new AuthFlowError("DUPLICATE_EMAIL_AND_PHONE", "A user with that email and phone number already exists.");
+      }
+      if (emailExists) {
+        throw new AuthFlowError("DUPLICATE_EMAIL", "Email already registered.");
+      }
+      if (phoneExists) {
+        throw new AuthFlowError("DUPLICATE_PHONE", "This phone number is already registered.");
+      }
+    }
   }
 
-  const emailExists = (existingMembers ?? []).some((member) => String(member.email || "").trim().toLowerCase() === normalizedEmail);
-  const phoneExists = (existingMembers ?? []).some((member) => normalizePhoneNumber(String(member.phone || "")) === normalizedPhone);
-  if (emailExists && phoneExists) {
-    throw new AuthFlowError("DUPLICATE_EMAIL_AND_PHONE", "A user with that email and phone number already exists.");
-  }
-  if (emailExists) {
-    throw new AuthFlowError("DUPLICATE_EMAIL", "Email already registered.");
-  }
-  if (phoneExists) {
-    throw new AuthFlowError("DUPLICATE_PHONE", "This phone number is already registered.");
-  }
-
-  const canUseDemoAuth = shouldUseCustomerDemoAuth(normalizedEmail);
   if (canUseDemoAuth) {
     console.info("DEMO REGISTER PATH USED");
     const demoAccounts = loadDemoAccounts();
@@ -520,19 +711,19 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
       throw new AuthFlowError("DUPLICATE_EMAIL", "Email already registered.");
     }
 
-    const { memberRecord, recoveredFromExistingAuthSignup } = await createOrRepairMemberProfile({
+    const { memberRecord, recoveredFromExistingAuthSignup, profileMode } = await createOrRepairMemberProfile({
       firstName: input.firstName,
       lastName: input.lastName,
       email: normalizedEmail,
       phone: normalizedPhone,
       birthdate: input.birthdate,
-    });
+    }, { allowLocalDemoProfileFallback: true });
 
     const passwordHash = await hashSecret(input.password);
     demoAccounts.push({
       email: normalizedEmail,
       passwordHash,
-      memberId: String(memberRecord.member_number),
+      memberId: String(memberRecord.member_number || memberRecord.member_id || memberRecord.id),
       fullName: `${input.firstName} ${input.lastName}`.trim(),
       phone: normalizedPhone,
       createdAt: new Date().toISOString(),
@@ -540,7 +731,7 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
     saveDemoAccounts(demoAccounts);
 
     persistDemoSession({
-      memberId: String(memberRecord.member_number),
+      memberId: String(memberRecord.member_number || memberRecord.member_id || memberRecord.id),
       email: normalizedEmail,
       phone: normalizedPhone,
       fullName: `${input.firstName} ${input.lastName}`.trim() || "Member",
@@ -548,6 +739,7 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
 
     return {
       authMode: "demo",
+      profileMode,
       emailConfirmationRequired: false,
       immediateLoginAvailable: true,
       memberRecord,
@@ -584,7 +776,7 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
     }
   }
 
-  const { memberRecord, recoveredFromExistingAuthSignup } = await createOrRepairMemberProfile({
+  const { memberRecord, recoveredFromExistingAuthSignup, profileMode } = await createOrRepairMemberProfile({
     firstName: input.firstName,
     lastName: input.lastName,
     email: normalizedEmail,
@@ -594,6 +786,7 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
 
   return {
     authMode: "supabase",
+    profileMode,
     emailConfirmationRequired: !authUserAlreadyExisted && !signUpData?.session,
     immediateLoginAvailable: !authUserAlreadyExisted && Boolean(signUpData?.session),
     memberRecord,
@@ -604,9 +797,50 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
 
 export async function loginCustomer(input: { email: string; password: string; role: "customer" | "admin" }): Promise<LoginCustomerResult> {
   const normalizedEmail = normalizeEmail(input.email);
-  if (input.role === "customer" && shouldUseCustomerDemoAuth(normalizedEmail)) {
+  if (input.role === "admin" && DEMO_AUTH_ENABLED && isDemoAdminId(input.email)) {
+    const normalizedAdminId = normalizeAdminId(input.email);
+    const passwordHash = await hashSecret(input.password);
+    const demoAdminAccounts = loadDemoAdminAccounts();
+    const existingDemoAdmin = demoAdminAccounts.find((entry) => entry.adminId === normalizedAdminId);
+
+    if (existingDemoAdmin) {
+      if (existingDemoAdmin.passwordHash !== passwordHash) {
+        throw new AuthFlowError("INVALID_CREDENTIALS", "Invalid admin ID or password.");
+      }
+
+      persistDemoAdminSession({
+        adminId: normalizedAdminId,
+        fullName: existingDemoAdmin.fullName,
+      });
+      return { authMode: "demo", accessToken: "demo-admin-session", userId: normalizedAdminId };
+    }
+
+    const fullName = `Admin ${normalizedAdminId.toUpperCase()}`;
+    saveDemoAdminAccounts([
+      {
+        adminId: normalizedAdminId,
+        passwordHash,
+        fullName,
+        createdAt: new Date().toISOString(),
+      },
+      ...demoAdminAccounts,
+    ]);
+    persistDemoAdminSession({ adminId: normalizedAdminId, fullName });
+    return { authMode: "demo", accessToken: "demo-admin-session", userId: normalizedAdminId };
+  }
+
+  const existingDemoAccount =
+    input.role === "customer" && DEMO_AUTH_ENABLED
+      ? findDemoAccountByEmail(normalizedEmail)
+      : null;
+  const localDemoProfile =
+    input.role === "customer" && DEMO_AUTH_ENABLED
+      ? loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail) ?? null
+      : null;
+
+  if (input.role === "customer" && (shouldUseCustomerDemoAuth(normalizedEmail) || Boolean(existingDemoAccount) || Boolean(localDemoProfile))) {
     console.info("DEMO LOGIN PATH USED");
-    const demoAccount = loadDemoAccounts().find((entry) => entry.email === normalizedEmail);
+    const demoAccount = existingDemoAccount;
     if (demoAccount) {
       const incomingHash = await hashSecret(input.password);
       if (incomingHash !== demoAccount.passwordHash) {
@@ -623,7 +857,7 @@ export async function loginCustomer(input: { email: string; password: string; ro
     }
 
     if (DEMO_PROFILE_BOOTSTRAP_ENABLED) {
-      const memberProfile = await findMemberProfileByEmail(normalizedEmail);
+      const memberProfile = localDemoProfile ?? await findMemberProfileByEmail(normalizedEmail);
       if (memberProfile) {
         console.info("BOOTSTRAPPED DEMO LOGIN FROM MEMBER PROFILE");
         return bootstrapDemoAccountFromMemberProfile({

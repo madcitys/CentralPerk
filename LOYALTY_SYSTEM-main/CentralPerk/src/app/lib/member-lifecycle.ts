@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
   referrals: "centralperk-referrals-v1",
   birthdayClaims: "centralperk-birthday-claims-v1",
   birthdaySettings: "centralperk-birthday-settings-v1",
+  feedback: "centralperk-feedback-v1",
 } as const;
 
 export type MemberSegment = "High Value" | "Active" | "At Risk" | "Inactive";
@@ -132,6 +133,33 @@ function validateSegmentName(name: string) {
   return trimmed;
 }
 
+function useLocalSegmentApiFallback() {
+  return (
+    typeof window !== "undefined" &&
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true")
+  );
+}
+
+async function fetchLocalSegments(): Promise<ManualSegment[]> {
+  try {
+    const response = await fetch("/api/segments", { cache: "no-store" });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { segments?: ManualSegment[] };
+    return (payload.segments || []).map((segment) => ({
+      id: String(segment.id),
+      name: String(segment.name),
+      description: segment.description ?? null,
+      is_system: Boolean(segment.is_system),
+      created_at: segment.created_at || new Date().toISOString(),
+      updated_at: segment.updated_at || new Date().toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function createCustomSegment(input: { name: string; description?: string }) {
   const name = validateSegmentName(input.name);
   const description = input.description?.trim() || null;
@@ -163,6 +191,10 @@ export async function updateCustomSegment(segmentId: string, input: { name: stri
 }
 
 export async function deleteCustomSegment(segmentId: string) {
+  if (useLocalSegmentApiFallback()) {
+    throw new Error("Local demo segments are kept for QA replay. Restart or clear .runtime/api-store.json to reset them.");
+  }
+
   const lookup = await supabase
     .from("member_segments")
     .select("id,is_system")
@@ -178,6 +210,8 @@ export async function deleteCustomSegment(segmentId: string) {
 
 export async function assignMembersToSegment(memberIds: Array<string | number>, segmentId: string) {
   if (!memberIds.length) return;
+  if (useLocalSegmentApiFallback()) return;
+
   const rows = memberIds.map((memberId) => ({ member_id: Number(memberId), segment_id: segmentId }));
   const result = await supabase.from("member_segment_assignments").upsert(rows, { onConflict: "member_id,segment_id" });
   if (result.error) throw result.error;
@@ -185,6 +219,8 @@ export async function assignMembersToSegment(memberIds: Array<string | number>, 
 
 export async function removeMembersFromSegment(memberIds: Array<string | number>, segmentId: string) {
   if (!memberIds.length) return;
+  if (useLocalSegmentApiFallback()) return;
+
   const normalizedMemberIds = memberIds.map((id) => Number(id));
   const result = await supabase
     .from("member_segment_assignments")
@@ -195,6 +231,8 @@ export async function removeMembersFromSegment(memberIds: Array<string | number>
 }
 
 export async function fetchAllSegments() {
+  if (useLocalSegmentApiFallback()) return fetchLocalSegments();
+
   const result = await supabase
     .from("member_segments")
     .select("id,name,description,is_system,created_at,updated_at")
@@ -215,6 +253,29 @@ export async function fetchMembersInSegment(segmentId: string) {
 }
 
 export async function fetchSegmentAssignments() {
+  if (useLocalSegmentApiFallback()) {
+    try {
+      const response = await fetch("/api/segments", { cache: "no-store" });
+      if (!response.ok) return [];
+      const payload = (await response.json()) as {
+        segments?: Array<{ id: string; name: string; is_system?: boolean; memberIds?: string[] }>;
+      };
+      return (payload.segments || []).flatMap((segment) =>
+        (segment.memberIds || []).map((memberId) => ({
+          member_id: memberId,
+          segment_id: segment.id,
+          member_segments: {
+            id: segment.id,
+            name: segment.name,
+            is_system: Boolean(segment.is_system),
+          },
+        })),
+      );
+    } catch {
+      return [];
+    }
+  }
+
   const result = await supabase
     .from("member_segment_assignments")
     .select("member_id,segment_id,member_segments!inner(id,name,is_system)");
@@ -225,6 +286,7 @@ export async function fetchSegmentAssignments() {
 export async function saveManualSegment(memberNumber: string, segmentName: string) {
   const normalized = normalizeManualSegment(segmentName);
   if (!normalized) throw new Error("Manual segment must be one of: High Value, Active, At Risk, Inactive.");
+  if (useLocalSegmentApiFallback()) return normalized;
 
   const memberLookup = await supabase
     .from("loyalty_members")
@@ -665,6 +727,23 @@ export async function loadBirthdayRewardStatus(memberId: string, fallbackEmail?:
 
 const feedbackCategories = new Set<FeedbackRecord["category"]>(["points", "rewards", "service", "app"]);
 
+function loadLocalFeedbackRecords(): FeedbackRecord[] {
+  const win = safeWindow();
+  if (!win) return [];
+  try {
+    const parsed = JSON.parse(win.localStorage.getItem(STORAGE_KEYS.feedback) || "[]") as FeedbackRecord[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalFeedbackRecords(records: FeedbackRecord[]) {
+  const win = safeWindow();
+  if (!win) return;
+  win.localStorage.setItem(STORAGE_KEYS.feedback, JSON.stringify(records.slice(0, 300)));
+}
+
 function normalizeFeedbackRow(row: Record<string, unknown>): FeedbackRecord {
   const category = String(row.category || "service").toLowerCase() as FeedbackRecord["category"];
   const rating = Math.max(1, Math.min(5, Number(row.rating) || 5)) as FeedbackRecord["rating"];
@@ -696,6 +775,22 @@ export async function submitFeedback(entry: Omit<FeedbackRecord, "id" | "created
     throw new Error("Feedback comment must be 500 characters or less.");
   }
 
+  if (useLocalSegmentApiFallback()) {
+    const record: FeedbackRecord = {
+      id: crypto.randomUUID(),
+      memberId: entry.memberId,
+      memberName: entry.memberName.trim(),
+      category: entry.category,
+      rating: entry.rating,
+      comment,
+      contactOptIn: Boolean(entry.contactOptIn),
+      contactInfo: entry.contactInfo?.trim() ? entry.contactInfo.trim() : null,
+      createdAt: new Date().toISOString(),
+    };
+    saveLocalFeedbackRecords([record, ...loadLocalFeedbackRecords()]);
+    return record;
+  }
+
   const { data, error } = await supabase
     .from("member_feedback")
     .insert({
@@ -714,6 +809,8 @@ export async function submitFeedback(entry: Omit<FeedbackRecord, "id" | "created
 }
 
 export async function loadFeedback(): Promise<FeedbackRecord[]> {
+  if (useLocalSegmentApiFallback()) return loadLocalFeedbackRecords();
+
   const { data, error } = await supabase
     .from("member_feedback")
     .select("id,member_number,member_name,category,rating,comment,contact_opt_in,contact_info,created_at")

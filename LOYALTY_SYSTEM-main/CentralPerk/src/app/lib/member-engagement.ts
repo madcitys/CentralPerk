@@ -415,6 +415,15 @@ function isMissingRelationError(error: unknown, table: string) {
   );
 }
 
+function useLocalEngagementFallback() {
+  return (
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true" ||
+      process.env.USE_LOCAL_LOYALTY_API === "true")
+  );
+}
+
 function normalizeChallengeType(value?: string | null): ChallengeType {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "purchase_count" || raw === "purchase-count") return "purchase-count";
@@ -665,8 +674,6 @@ export function loadEngagementState(): EngagementState {
       ...defaults,
       ...parsed,
       notificationCampaigns: preferNonEmptyArray(parsed.notificationCampaigns, defaults.notificationCampaigns),
-      // Always rebuild challenges from current defaults/DB to avoid stale ended dates
-      // lingering in localStorage across months.
       challenges: defaults.challenges,
       surveys: preferNonEmptyArray(parsed.surveys, defaults.surveys),
       shareEvents: defaults.shareEvents,
@@ -686,6 +693,8 @@ export function saveEngagementState(state: EngagementState) {
 }
 
 export async function loadChallengeDefinitions() {
+  if (useLocalEngagementFallback()) return loadEngagementState().challenges;
+
   const { data, error } = await supabase
     .from("challenges")
     .select("id,challenge_code,challenge_name,challenge_type,description,target_value,reward_points,badge_name,target_segment,start_date,end_date,is_active")
@@ -701,6 +710,8 @@ export async function loadChallengeDefinitions() {
 }
 
 export async function loadChallengeProgressByMember(memberIdentifier: string) {
+  if (useLocalEngagementFallback()) return new Map<string, ChallengeProgressSnapshot>();
+
   const memberId = await resolveMemberDatabaseId(memberIdentifier);
   if (!memberId) return new Map<string, ChallengeProgressSnapshot>();
 
@@ -728,6 +739,8 @@ export async function loadChallengeProgressByMember(memberIdentifier: string) {
 }
 
 export async function loadChallengeLeaderboard(challengeId: string) {
+  if (useLocalEngagementFallback()) return [] as ChallengeLeaderboardEntry[];
+
   const { data, error } = await supabase
     .from("challenge_leaderboard_view")
     .select("challenge_id,member_id,member_name,member_number,tier,current_value,leaderboard_rank")
@@ -749,6 +762,12 @@ export async function loadChallengeLeaderboard(challengeId: string) {
 }
 
 export async function loadSocialShareEvents(options?: { memberIdentifier?: string }) {
+  if (useLocalEngagementFallback()) {
+    const rows = loadEngagementState().shareEvents;
+    if (!options?.memberIdentifier) return rows;
+    return rows.filter((row) => row.memberId === options.memberIdentifier);
+  }
+
   let memberId: string | null = null;
   if (options?.memberIdentifier) {
     memberId = await resolveMemberDatabaseId(options.memberIdentifier);
@@ -812,6 +831,23 @@ export async function recordSocialShareEvent(input: {
   shareText?: string;
   destinationUrl?: string;
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    const event: ShareEvent = {
+      id: crypto.randomUUID(),
+      memberId: input.memberIdentifier,
+      memberName: input.memberName,
+      tier: input.tier,
+      channel: input.channel,
+      achievement: input.achievement,
+      referralCode: input.referralCode || "",
+      conversions: 0,
+      createdAt: new Date().toISOString(),
+    };
+    saveEngagementState({ ...state, shareEvents: [event, ...state.shareEvents] });
+    return event;
+  }
+
   const memberId = await resolveMemberDatabaseId(input.memberIdentifier);
   if (!memberId) throw new Error("Unable to resolve the sharing member.");
 
@@ -865,6 +901,18 @@ export async function recordSocialShareEvent(input: {
 }
 
 export async function incrementSocialShareConversion(shareEventId: string) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    let updated: ShareEvent | null = null;
+    const shareEvents = state.shareEvents.map((event) => {
+      if (event.id !== shareEventId) return event;
+      updated = { ...event, conversions: event.conversions + 1 };
+      return updated;
+    });
+    if (updated) saveEngagementState({ ...state, shareEvents });
+    return updated;
+  }
+
   const numericId = Number(shareEventId);
   if (!Number.isFinite(numericId)) return null;
 
@@ -909,6 +957,8 @@ export async function incrementSocialShareConversion(shareEventId: string) {
 }
 
 export async function loadNotificationTemplates() {
+  if (useLocalEngagementFallback()) return notificationTemplates;
+
   const { data, error } = await supabase
     .from("notification_templates")
     .select("id,template_name,trigger_event,subject,message")
@@ -930,6 +980,8 @@ export async function loadNotificationTemplates() {
 }
 
 export async function loadNotificationCampaigns() {
+  if (useLocalEngagementFallback()) return loadEngagementState().notificationCampaigns;
+
   const { data, error } = await supabase
     .from("notification_campaigns")
     .select("id,campaign_name,trigger_event,segment,scheduled_for,status,audience_size,sent_count,delivered_count,opened_count,variant_a,variant_b,winning_variant")
@@ -966,6 +1018,27 @@ export async function createNotificationCampaignRecord(input: {
   variantA: string;
   variantB: string;
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    const record: NotificationCampaign = {
+      id: `notification-${Date.now()}`,
+      name: input.name,
+      trigger: input.trigger,
+      segment: input.segment,
+      scheduledFor: input.scheduledFor,
+      status: "scheduled",
+      audienceSize: input.audienceSize,
+      sentCount: 0,
+      deliveredCount: 0,
+      openedCount: 0,
+      variantA: input.variantA,
+      variantB: input.variantB,
+      winner: "Pending",
+    };
+    saveEngagementState({ ...state, notificationCampaigns: [record, ...state.notificationCampaigns] });
+    return record;
+  }
+
   const campaignCode = `NC-${Date.now()}`;
   const { data, error } = await supabase
     .from("notification_campaigns")
@@ -1012,6 +1085,18 @@ export async function launchNotificationCampaignRecord(campaignId: string, patch
   openedCount: number;
   winner: "A" | "B";
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    let updated: NotificationCampaign | null = null;
+    const notificationCampaigns = state.notificationCampaigns.map((campaign) => {
+      if (campaign.id !== campaignId) return campaign;
+      updated = { ...campaign, ...patch };
+      return updated;
+    });
+    if (updated) saveEngagementState({ ...state, notificationCampaigns });
+    return updated;
+  }
+
   const { data, error } = await supabase
     .from("notification_campaigns")
     .update({
@@ -1049,6 +1134,8 @@ export async function launchNotificationCampaignRecord(campaignId: string, patch
 }
 
 export async function loadSurveyDefinitions() {
+  if (useLocalEngagementFallback()) return loadEngagementState().surveys;
+
   const { data: surveyData, error: surveyError } = await supabase
     .from("surveys")
     .select("id,title,description,segment,bonus_points,status,created_at")
@@ -1139,6 +1226,23 @@ export async function createSurveyDefinitionRecord(input: {
   status: "draft" | "live" | "closed";
   questions: SurveyQuestion[];
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    const survey: SurveyDefinition = {
+      id: `survey-${Date.now()}`,
+      title: input.title,
+      description: input.description,
+      segment: input.segment,
+      bonusPoints: input.bonusPoints,
+      status: input.status,
+      createdAt: new Date().toISOString(),
+      questions: input.questions,
+      responses: [],
+    };
+    saveEngagementState({ ...state, surveys: [survey, ...state.surveys] });
+    return survey;
+  }
+
   const surveyCode = `SV-${Date.now()}`;
   const { data: surveyData, error: surveyError } = await supabase
     .from("surveys")
@@ -1193,6 +1297,23 @@ export async function submitSurveyResponseRecord(input: {
   answers: Record<string, string | number>;
   bonusPoints: number;
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    let response: SurveyResponseRecord | null = null;
+    const surveys = state.surveys.map((survey) => {
+      if (survey.id !== input.surveyId) return survey;
+      response = {
+        memberId: input.memberIdentifier,
+        memberName: input.memberIdentifier,
+        answers: input.answers,
+        submittedAt: new Date().toISOString(),
+      };
+      return { ...survey, responses: [response, ...survey.responses] };
+    });
+    if (response) saveEngagementState({ ...state, surveys });
+    return response;
+  }
+
   if (!isUuidLike(input.surveyId)) return null;
 
   const memberId = await resolveMemberDatabaseId(input.memberIdentifier);
@@ -1233,6 +1354,17 @@ export async function submitSurveyResponseRecord(input: {
 }
 
 export async function deleteSurveyResponseRecord(surveyId: string, memberIdentifier: string) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    const surveys = state.surveys.map((survey) =>
+      survey.id === surveyId
+        ? { ...survey, responses: survey.responses.filter((response) => response.memberId !== memberIdentifier) }
+        : survey
+    );
+    saveEngagementState({ ...state, surveys });
+    return;
+  }
+
   if (!isUuidLike(surveyId)) return;
 
   const memberId = await resolveMemberDatabaseId(memberIdentifier);
@@ -1251,6 +1383,8 @@ export async function deleteSurveyResponseRecord(surveyId: string, memberIdentif
 }
 
 export async function loadWinBackCampaigns() {
+  if (useLocalEngagementFallback()) return loadEngagementState().winBackCampaigns;
+
   const { data, error } = await supabase
     .from("winback_campaigns")
     .select("id,campaign_name,segment,offer_type,offer_value,status,targeted_members,responses,reengaged_members,estimated_revenue,offer_cost,launch_date")
@@ -1289,6 +1423,26 @@ export async function createWinBackCampaignRecord(input: {
   offerCost: number;
   status: "scheduled" | "running" | "completed";
 }) {
+  if (useLocalEngagementFallback()) {
+    const state = loadEngagementState();
+    const campaign: WinBackCampaign = {
+      id: `winback-${Date.now()}`,
+      name: input.name,
+      segment: input.segment,
+      offerType: input.offerType,
+      offerValue: input.offerValue,
+      status: input.status,
+      targetedMembers: input.targetedMembers,
+      responses: input.responses,
+      reengagedMembers: input.reengagedMembers,
+      estimatedRevenue: input.estimatedRevenue,
+      offerCost: input.offerCost,
+      launchDate: new Date().toISOString(),
+    };
+    saveEngagementState({ ...state, winBackCampaigns: [campaign, ...state.winBackCampaigns] });
+    return campaign;
+  }
+
   const campaignCode = `WB-${Date.now()}`;
   const { data, error } = await supabase
     .from("winback_campaigns")

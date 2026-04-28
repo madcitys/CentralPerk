@@ -4,17 +4,34 @@ import { queueMemberNotification } from "../app/lib/notifications";
 import { createApiHandler } from "./route-utils";
 import { resolveAudienceMembers } from "./segment-preview";
 import { createServerSupabaseClient } from "./supabase-admin";
+import {
+  listLocalNotifications,
+  localCommunicationAnalytics,
+  queueLocalMemberNotification,
+  saveLocalCommunicationPreference,
+} from "./local-notifications";
 
 const emailSchema = z
   .object({
-    subject: z.string().trim().min(1).max(160),
-    message: z.string().trim().min(1).max(4_000),
+    campaignId: z.string().trim().max(80).optional(),
+    subject: z.string().trim().min(1).max(160).optional(),
+    message: z.string().trim().min(1).max(4_000).optional(),
     segment: z.string().trim().max(80).optional(),
     memberId: z.string().trim().max(80).optional(),
     email: z.string().trim().email().max(254).optional(),
     scheduledFor: z.string().datetime().optional(),
   })
+  .refine((body) => Boolean(body.campaignId || body.subject || body.message), {
+    message: "campaignId, subject, or message is required.",
+  })
   .strict();
+
+function useLocalRuntimeFirst() {
+  return (
+    process.env.USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.USE_LOCAL_LOYALTY_API === "true")
+  );
+}
 
 async function unsubscribeMember(input: { memberId?: string; email?: string }) {
   const members = await resolveAudienceMembers(input);
@@ -23,6 +40,17 @@ async function unsubscribeMember(input: { memberId?: string; email?: string }) {
   }
 
   for (const member of members) {
+    if (useLocalRuntimeFirst()) {
+      await saveLocalCommunicationPreference(member.memberNumber, {
+        sms: true,
+        email: false,
+        push: true,
+        promotionalOptIn: false,
+        frequency: "never",
+      });
+      continue;
+    }
+
     const currentPreference = await loadCommunicationPreference(member.memberNumber, member.email || undefined);
     await saveCommunicationPreference(
       member.memberNumber,
@@ -42,29 +70,52 @@ export const communicationsEmailHandler = createApiHandler({
   route: "/api/communications/email",
   methods: ["POST"] as const,
   schema: emailSchema,
+  parseBodyFromQuery: true,
   rateLimit: { limit: 20, windowMs: 60_000 },
   resolveActor: (body) => body.memberId || body.email || body.segment || "audience",
   summarize: (body) => ({
+    campaignId: body.campaignId || null,
     segment: body.segment || null,
     memberId: body.memberId || null,
     scheduledFor: body.scheduledFor || null,
   }),
   handler: async ({ body }) => {
+    const subject = body.subject || (body.campaignId ? `Campaign ${body.campaignId}` : "Loyalty update");
+    const message = body.message || `Campaign ${body.campaignId} is ready for members.`;
     const members = await resolveAudienceMembers({
-      segment: body.segment,
+      segment: body.segment || (body.campaignId ? "All Members" : undefined),
       memberId: body.memberId,
       email: body.email,
     });
 
     const results = await Promise.all(
       members.map((member) =>
-        queueMemberNotification({
-          memberId: member.memberNumber,
-          channel: "email",
-          subject: body.subject,
-          message: body.message,
-          isTransactional: false,
-        }),
+        useLocalRuntimeFirst()
+          ? queueLocalMemberNotification({
+              memberId: member.memberNumber,
+              channel: "email",
+              subject,
+              message,
+              isTransactional: false,
+              scheduledFor: body.scheduledFor ?? null,
+            })
+          : queueMemberNotification({
+              memberId: member.memberNumber,
+              channel: "email",
+              subject,
+              message,
+              isTransactional: false,
+              scheduledFor: body.scheduledFor ?? null,
+            }).catch(() =>
+              queueLocalMemberNotification({
+                memberId: member.memberNumber,
+                channel: "email",
+                subject,
+                message,
+                isTransactional: false,
+                scheduledFor: body.scheduledFor ?? null,
+              }),
+            ),
       ),
     );
 
@@ -81,12 +132,28 @@ export const communicationsAnalyticsHandler = createApiHandler({
   methods: ["GET"] as const,
   rateLimit: { limit: 60, windowMs: 60_000 },
   handler: async () => {
+    if (useLocalRuntimeFirst()) {
+      return {
+        ok: true as const,
+        analytics: await localCommunicationAnalytics(),
+        notifications: await listLocalNotifications({ limit: 100 }),
+        source: "local_runtime",
+      };
+    }
+
     const supabase = createServerSupabaseClient();
     const { data, error } = await supabase
       .from("notification_outbox")
       .select("channel,status")
       .limit(5_000);
-    if (error) throw error;
+    if (error) {
+      return {
+        ok: true as const,
+        analytics: await localCommunicationAnalytics(),
+        notifications: await listLocalNotifications({ limit: 100 }),
+        source: "local_runtime",
+      };
+    }
 
     const byChannel: Record<string, number> = {};
     const byStatus: Record<string, number> = {};

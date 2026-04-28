@@ -71,7 +71,7 @@ const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Rewar
 const offerTypes: WinBackOfferType[] = ["2x Points", "Special Discount", "Bonus Reward"];
 
 export default function AdminEngagementPage() {
-  const { members, transactions, loginActivity, loading, error } = useAdminData();
+  const { members, transactions, loginActivity, loading, error } = useAdminData({ scope: "engagement" });
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("notifications");
   const [state, setState] = useState<EngagementState>(() => loadEngagementState());
   const [campaignName, setCampaignName] = useState("Birthday Loyalty Push");
@@ -125,7 +125,6 @@ export default function AdminEngagementPage() {
         setState((prev) => ({ ...prev, challenges: rows }));
       })
       .catch(() => {
-        // Keep local fallback state when challenge tables are not available.
       });
 
     return () => {
@@ -178,7 +177,6 @@ export default function AdminEngagementPage() {
         setState((prev) => ({ ...prev, notificationCampaigns: rows }));
       })
       .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
       });
 
     return () => {
@@ -194,7 +192,6 @@ export default function AdminEngagementPage() {
         setState((prev) => ({ ...prev, surveys: rows }));
       })
       .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
       });
 
     return () => {
@@ -210,7 +207,6 @@ export default function AdminEngagementPage() {
         setState((prev) => ({ ...prev, winBackCampaigns: rows }));
       })
       .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
       });
 
     return () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../utils/supabase/client";
+import { requestJson } from "../../lib/api";
 import type {
   AdminMetrics,
   LoyaltyTransaction,
@@ -21,8 +22,30 @@ import {
   processAllMemberExpiredPoints,
   type EarningRule,
 } from "../../lib/loyalty-supabase";
-import { resolveTier, type TierRule } from "../../lib/loyalty-engine";
+import { DEFAULT_TIER_RULES, resolveTier, type TierRule } from "../../lib/loyalty-engine";
 import { buildAdvancedAnalyticsDatasets } from "../lib/advanced-insights";
+
+const EMPTY_ADMIN_INSIGHTS = buildAdvancedAnalyticsDatasets({
+  members: [],
+  transactions: [],
+  pointsLots: [],
+  rewardsCatalog: [],
+  loginActivity: [],
+  reengagementActions: [],
+  tierRules: [],
+  redemptionValuePerPoint: 0.01,
+});
+const ADMIN_CACHE_TTL_MS = 30_000;
+const EXPIRY_PROCESS_INTERVAL_MS = 5 * 60_000;
+const MEMBER_LIMIT = 2000;
+const TRANSACTION_LIMIT = 5000;
+const SUPPORTING_ROW_LIMIT = 1000;
+const ACTIVITY_ROW_LIMIT = 2000;
+const DEFAULT_EARNING_RULES: EarningRule[] = [
+  { tier_label: "Bronze", peso_per_point: 10, multiplier: 1, is_active: true },
+  { tier_label: "Silver", peso_per_point: 10, multiplier: 1.25, is_active: true },
+  { tier_label: "Gold", peso_per_point: 10, multiplier: 1.5, is_active: true },
+];
 
 type TierHistoryRow = {
   old_tier?: string | null;
@@ -38,6 +61,54 @@ type MemberSegmentRow = {
   effective_segment: string | null;
   last_activity_at: string | null;
 };
+
+type AdminDataSnapshot = {
+  members: Member[];
+  redemptions: LoyaltyTransaction[];
+  transactions: LoyaltyTransaction[];
+  tierHistory: TierHistoryRow[];
+  pointsLots: PointsLot[];
+  rewardsCatalog: RewardCatalogRow[];
+  loginActivity: MemberLoginActivity[];
+  reengagementActions: ReengagementAction[];
+  tierRules: TierRule[];
+  earningRules: EarningRule[];
+  redemptionValuePerPoint: number;
+};
+
+type LocalRuntimePointTransaction = {
+  id: string;
+  type: string;
+  points: number;
+  reason: string;
+  date: string;
+  expiry_date: string | null;
+  reference: string | null;
+};
+
+type LocalRuntimePointMember = {
+  memberId: string;
+  email: string | null;
+  pointsBalance: number;
+  tier: string;
+  history: LocalRuntimePointTransaction[];
+};
+
+type AdminDataScope = "all" | "dashboard" | "members" | "activity" | "rewards" | "engagement" | "analytics";
+
+type AdminDataRequirements = {
+  memberSegments: boolean;
+  tierHistory: boolean;
+  pointsLots: boolean;
+  rewardsCatalog: boolean;
+  loginActivity: boolean;
+  reengagementActions: boolean;
+  earningRules: boolean;
+  redemptionSettings: boolean;
+};
+
+const adminDataCache = new Map<string, { snapshot: AdminDataSnapshot; loadedAt: number }>();
+let expiryProcessedAt = 0;
 
 function transactionLabel(tx: LoyaltyTransaction) {
   return String(tx.reason ?? tx.description ?? "").trim();
@@ -73,6 +144,214 @@ function txType(value: string) {
   return "earned";
 }
 
+function useLocalDemoDataMode() {
+  return (
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
+    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
+      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true")
+  );
+}
+
+async function loadLocalRuntimePointMembers() {
+  try {
+    const payload = await requestJson<{
+      ok?: boolean;
+      snapshot?: { members?: LocalRuntimePointMember[] };
+    }>("/api/local-runtime/points");
+    return payload.snapshot?.members || [];
+  } catch {
+    return [];
+  }
+}
+
+function adminCacheKey(scope: AdminDataScope, includeInsights: boolean, localDemoMode: boolean) {
+  return `${scope}:${includeInsights ? "insights" : "base"}:${localDemoMode ? "local" : "remote"}`;
+}
+
+function resolveRequirements(scope: AdminDataScope, includeInsights: boolean): AdminDataRequirements {
+  if (includeInsights || scope === "analytics") {
+    return {
+      memberSegments: true,
+      tierHistory: true,
+      pointsLots: true,
+      rewardsCatalog: true,
+      loginActivity: true,
+      reengagementActions: true,
+      earningRules: true,
+      redemptionSettings: true,
+    };
+  }
+
+  switch (scope) {
+    case "dashboard":
+      return {
+        memberSegments: true,
+        tierHistory: false,
+        pointsLots: false,
+        rewardsCatalog: false,
+        loginActivity: false,
+        reengagementActions: false,
+        earningRules: false,
+        redemptionSettings: false,
+      };
+    case "members":
+      return {
+        memberSegments: true,
+        tierHistory: false,
+        pointsLots: false,
+        rewardsCatalog: false,
+        loginActivity: false,
+        reengagementActions: false,
+        earningRules: false,
+        redemptionSettings: false,
+      };
+    case "activity":
+      return {
+        memberSegments: false,
+        tierHistory: false,
+        pointsLots: false,
+        rewardsCatalog: false,
+        loginActivity: false,
+        reengagementActions: false,
+        earningRules: false,
+        redemptionSettings: false,
+      };
+    case "rewards":
+      return {
+        memberSegments: false,
+        tierHistory: false,
+        pointsLots: false,
+        rewardsCatalog: true,
+        loginActivity: false,
+        reengagementActions: false,
+        earningRules: false,
+        redemptionSettings: false,
+      };
+    case "engagement":
+      return {
+        memberSegments: false,
+        tierHistory: false,
+        pointsLots: false,
+        rewardsCatalog: false,
+        loginActivity: true,
+        reengagementActions: true,
+        earningRules: false,
+        redemptionSettings: false,
+      };
+    default:
+      return {
+        memberSegments: true,
+        tierHistory: true,
+        pointsLots: true,
+        rewardsCatalog: true,
+        loginActivity: true,
+        reengagementActions: true,
+        earningRules: true,
+        redemptionSettings: true,
+      };
+  }
+}
+
+function fallbackNameFromEmail(email?: string | null) {
+  const name = String(email || "").split("@")[0]?.trim();
+  return name ? name.replace(/[._-]+/g, " ") : "Local Member";
+}
+
+function localMemberDisplayName(memberId: string, email?: string | null) {
+  if (memberId === "MEM-000011" || String(email || "").toLowerCase() === "soundwave@example.com") {
+    return "Sound Wave";
+  }
+  const fromEmail = fallbackNameFromEmail(email);
+  if (fromEmail !== "Local Member") return fromEmail;
+  return memberId.replace(/[._-]+/g, " ");
+}
+
+function overlayLocalRuntimePoints(
+  members: Member[],
+  transactions: LoyaltyTransaction[],
+  localMembers: LocalRuntimePointMember[],
+) {
+  if (localMembers.length === 0) return { members, transactions };
+
+  const nextMembers = [...members];
+  const indexByMemberNumber = new Map<string, number>();
+  const indexByEmail = new Map<string, number>();
+  nextMembers.forEach((member, index) => {
+    if (member.member_number) indexByMemberNumber.set(String(member.member_number), index);
+    if (member.email) indexByEmail.set(String(member.email).toLowerCase(), index);
+  });
+
+  const existingTransactionIds = new Set(transactions.map((tx) => String(tx.transaction_id || "")));
+  const localTransactions: LoyaltyTransaction[] = [];
+
+  for (const localMember of localMembers) {
+    const byNumber = indexByMemberNumber.get(localMember.memberId);
+    const byEmail = localMember.email ? indexByEmail.get(localMember.email.toLowerCase()) : undefined;
+    const existingIndex = byNumber ?? byEmail;
+    const existing = existingIndex !== undefined ? nextMembers[existingIndex] : undefined;
+    const displayName = localMemberDisplayName(localMember.memberId, localMember.email);
+    const [firstNameFallback, ...lastNameFallback] = displayName.split(" ");
+    const mergedMember: Member = {
+      member_id: existing?.member_id ?? localMember.memberId,
+      id: existing?.id ?? localMember.memberId,
+      member_number: existing?.member_number || localMember.memberId,
+      first_name: existing?.first_name || firstNameFallback || "Local",
+      last_name: existing?.last_name || lastNameFallback.join(" ") || "Member",
+      email: existing?.email || localMember.email || "",
+      phone: existing?.phone ?? null,
+      enrollment_date: existing?.enrollment_date || new Date().toISOString(),
+      points_balance: localMember.pointsBalance,
+      tier: localMember.tier,
+      manual_segment: existing?.manual_segment ?? null,
+      auto_segment: existing?.auto_segment ?? (localMember.pointsBalance >= 500 ? "High Value" : "Active"),
+      effective_segment:
+        existing?.effective_segment ?? existing?.manual_segment ?? existing?.auto_segment ?? (localMember.pointsBalance >= 500 ? "High Value" : "Active"),
+      custom_segments: existing?.custom_segments,
+      last_activity_at: existing?.last_activity_at ?? localMember.history[0]?.date ?? null,
+      sms_enabled: existing?.sms_enabled,
+      email_enabled: existing?.email_enabled,
+      push_enabled: existing?.push_enabled,
+      promotional_opt_in: existing?.promotional_opt_in,
+      communication_frequency: existing?.communication_frequency,
+    };
+
+    if (existingIndex !== undefined) nextMembers[existingIndex] = mergedMember;
+    else {
+      indexByMemberNumber.set(mergedMember.member_number, nextMembers.length);
+      if (mergedMember.email) indexByEmail.set(mergedMember.email.toLowerCase(), nextMembers.length);
+      nextMembers.push(mergedMember);
+    }
+
+    for (const localTx of localMember.history) {
+      if (existingTransactionIds.has(localTx.id)) continue;
+      existingTransactionIds.add(localTx.id);
+      localTransactions.push({
+        transaction_id: localTx.id,
+        member_id: String(mergedMember.member_id),
+        points: Number(localTx.points || 0),
+        transaction_type: localTx.type,
+        transaction_date: localTx.date,
+        expiry_date: localTx.expiry_date,
+        reward_catalog_id: localTx.reference,
+        reason: localTx.reason,
+        description: localTx.reason,
+        loyalty_members: {
+          first_name: mergedMember.first_name,
+          last_name: mergedMember.last_name,
+          member_number: mergedMember.member_number,
+        },
+      });
+    }
+  }
+
+  return {
+    members: nextMembers,
+    transactions: [...localTransactions, ...transactions].sort(
+      (left, right) => new Date(right.transaction_date).getTime() - new Date(left.transaction_date).getTime(),
+    ),
+  };
+}
+
 function isMissingRelationError(error: unknown, table: string) {
   const message = String(
     (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
@@ -92,7 +371,25 @@ function isMissingRelationError(error: unknown, table: string) {
   );
 }
 
-export function useAdminData() {
+function isMissingColumnError(error: unknown, table: string, column: string) {
+  const message = String(
+    (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
+      (error as { details?: unknown })?.details ??
+      (error as { hint?: unknown })?.hint ??
+      ""
+  ).toLowerCase();
+
+  return (
+    message.includes(`column ${table.toLowerCase()}.${column.toLowerCase()} does not exist`) ||
+    message.includes(`column "${column.toLowerCase()}" does not exist`) ||
+    message.includes(`could not find the '${column.toLowerCase()}' column`) ||
+    (message.includes(column.toLowerCase()) && message.includes("does not exist"))
+  );
+}
+
+export function useAdminData(options?: { includeInsights?: boolean; scope?: AdminDataScope }) {
+  const includeInsights = options?.includeInsights ?? false;
+  const scope = options?.scope ?? "all";
   const [members, setMembers] = useState<Member[]>([]);
   const [redemptions, setRedemptions] = useState<LoyaltyTransaction[]>([]);
   const [transactions, setTransactions] = useState<LoyaltyTransaction[]>([]);
@@ -107,21 +404,69 @@ export function useAdminData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const applySnapshot = useCallback((snapshot: AdminDataSnapshot) => {
+    setMembers(snapshot.members);
+    setRedemptions(snapshot.redemptions);
+    setTransactions(snapshot.transactions);
+    setTierHistory(snapshot.tierHistory);
+    setPointsLots(snapshot.pointsLots);
+    setRewardsCatalog(snapshot.rewardsCatalog);
+    setLoginActivity(snapshot.loginActivity);
+    setReengagementActions(snapshot.reengagementActions);
+    setTierRules(snapshot.tierRules);
+    setEarningRules(snapshot.earningRules);
+    setRedemptionValuePerPoint(snapshot.redemptionValuePerPoint);
+  }, []);
+
+  const fetchData = useCallback(async (options?: { force?: boolean }) => {
     try {
+      const now = Date.now();
+      const localDemoMode = useLocalDemoDataMode();
+      const cacheKey = adminCacheKey(scope, includeInsights, localDemoMode);
+      const requirements = resolveRequirements(scope, includeInsights);
+      const cached = adminDataCache.get(cacheKey);
+      if (!options?.force && cached && now - cached.loadedAt < ADMIN_CACHE_TTL_MS) {
+        applySnapshot(cached.snapshot);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
-      try {
-        await processAllMemberExpiredPoints();
-      } catch (expiryErr) {
-        console.warn("Expiry processing failed in admin fetch:", expiryErr);
+      if (localDemoMode) {
+        const localRuntimePointMembers = await loadLocalRuntimePointMembers();
+        const localOverlay = overlayLocalRuntimePoints([], [], localRuntimePointMembers);
+        const nextTransactions = localOverlay.transactions;
+        const snapshot: AdminDataSnapshot = {
+          members: localOverlay.members,
+          redemptions: nextTransactions.filter((tx) => txType(tx.transaction_type) === "redeemed"),
+          transactions: nextTransactions,
+          tierHistory: [],
+          pointsLots: [],
+          rewardsCatalog: [],
+          loginActivity: [],
+          reengagementActions: [],
+          tierRules: DEFAULT_TIER_RULES,
+          earningRules: DEFAULT_EARNING_RULES,
+          redemptionValuePerPoint: 0.01,
+        };
+        adminDataCache.set(cacheKey, { snapshot, loadedAt: Date.now() });
+        applySnapshot(snapshot);
+        return;
+      }
+
+      if (now - expiryProcessedAt > EXPIRY_PROCESS_INTERVAL_MS) {
+        expiryProcessedAt = now;
+        void processAllMemberExpiredPoints().catch((expiryErr) => {
+          console.warn("Expiry processing failed in admin fetch:", expiryErr);
+        });
       }
 
       const [
         membersRes,
         memberSegmentsRes,
-        redemptionsRes,
         transactionsRes,
         tierHistoryRes,
         pointsLotsRes,
@@ -131,32 +476,72 @@ export function useAdminData() {
         rules,
         earningRulesRes,
         redemptionSettingsRes,
+        localRuntimePointMembers,
       ] = await Promise.all([
-        supabase.from("loyalty_members").select("*").order("enrollment_date", { ascending: false }),
-        supabase.rpc("loyalty_member_segments"),
-        supabase.from("loyalty_transactions").select("*").eq("transaction_type", "REDEEM"),
+        supabase
+          .from("loyalty_members")
+          .select("*")
+          .order("enrollment_date", { ascending: false })
+          .limit(MEMBER_LIMIT),
+        requirements.memberSegments
+          ? supabase.rpc("loyalty_member_segments")
+          : Promise.resolve({ data: [], error: null }),
         supabase
           .from("loyalty_transactions")
-          .select("*, loyalty_members(first_name, last_name, member_number)")
-          .order("transaction_date", { ascending: false }),
-        supabase.from("tier_history").select("old_tier,new_tier,changed_at").order("changed_at", { ascending: false }).limit(500),
-        supabase.from("points_lots").select("*").order("expiry_date", { ascending: true }),
-        supabase.from("rewards_catalog").select("*").order("points_cost", { ascending: true }),
-        supabase.from("member_login_activity").select("*").order("login_at", { ascending: false }).limit(5000),
-        supabase.from("member_reengagement_actions").select("*").order("created_at", { ascending: false }).limit(5000),
+          .select("*, loyalty_members(first_name,last_name,member_number)")
+          .order("transaction_date", { ascending: false })
+          .limit(TRANSACTION_LIMIT),
+        requirements.tierHistory
+          ? supabase.from("tier_history").select("*").order("changed_at", { ascending: false }).limit(SUPPORTING_ROW_LIMIT)
+          : Promise.resolve({ data: [], error: null }),
+        requirements.pointsLots
+          ? supabase
+              .from("points_lots")
+              .select("*")
+              .order("expiry_date", { ascending: true })
+              .limit(SUPPORTING_ROW_LIMIT)
+          : Promise.resolve({ data: [], error: null }),
+        requirements.rewardsCatalog
+          ? supabase
+              .from("rewards_catalog")
+              .select("*")
+              .order("points_cost", { ascending: true })
+              .limit(SUPPORTING_ROW_LIMIT)
+          : Promise.resolve({ data: [], error: null }),
+        requirements.loginActivity
+          ? supabase.from("member_login_activity").select("*").order("login_at", { ascending: false }).limit(ACTIVITY_ROW_LIMIT)
+          : Promise.resolve({ data: [], error: null }),
+        requirements.reengagementActions
+          ? supabase
+              .from("member_reengagement_actions")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(ACTIVITY_ROW_LIMIT)
+          : Promise.resolve({ data: [], error: null }),
         fetchTierRules(),
-        fetchActiveEarningRules(),
-        supabase
-          .from("redemption_settings")
-          .select("redemption_value_per_point")
-          .eq("is_active", true)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+        requirements.earningRules ? fetchActiveEarningRules() : Promise.resolve(DEFAULT_EARNING_RULES),
+        requirements.redemptionSettings
+          ? supabase
+              .from("redemption_settings")
+              .select("redemption_value_per_point")
+              .eq("is_active", true)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        loadLocalRuntimePointMembers(),
       ]);
 
       if (membersRes.error) throw membersRes.error;
-      if (memberSegmentsRes.error) throw memberSegmentsRes.error;
+      if (
+        memberSegmentsRes.error &&
+        !isMissingColumnError(memberSegmentsRes.error, "loyalty_members", "auto_segment") &&
+        !isMissingColumnError(memberSegmentsRes.error, "loyalty_members", "effective_segment") &&
+        !isMissingColumnError(memberSegmentsRes.error, "loyalty_members", "manual_segment") &&
+        !isMissingRelationError(memberSegmentsRes.error, "loyalty_member_segments")
+      ) {
+        throw memberSegmentsRes.error;
+      }
       if (transactionsRes.error) throw transactionsRes.error;
       if (pointsLotsRes.error && !isMissingRelationError(pointsLotsRes.error, "points_lots")) throw pointsLotsRes.error;
       if (rewardsCatalogRes.error && !isMissingRelationError(rewardsCatalogRes.error, "rewards_catalog")) throw rewardsCatalogRes.error;
@@ -165,7 +550,7 @@ export function useAdminData() {
         throw reengagementActionsRes.error;
       }
 
-      const segmentRows = (memberSegmentsRes.data || []) as MemberSegmentRow[];
+      const segmentRows = (memberSegmentsRes.error ? [] : memberSegmentsRes.data || []) as MemberSegmentRow[];
       const segmentByMemberId = new Map<string, MemberSegmentRow>();
       const segmentByMemberNumber = new Map<string, MemberSegmentRow>();
       for (const row of segmentRows) {
@@ -179,7 +564,16 @@ export function useAdminData() {
         const byId = segmentByMemberId.get(String(member.id ?? member.member_id ?? ""));
         const byNumber = segmentByMemberNumber.get(String(member.member_number ?? ""));
         const segment = byId || byNumber;
-        if (!segment) return member;
+        if (!segment) {
+          const balance = Number(member.points_balance || 0);
+          const fallbackSegment = balance >= 500 ? "High Value" : "Active";
+          return {
+            ...member,
+            auto_segment: member.auto_segment ?? fallbackSegment,
+            effective_segment: member.effective_segment ?? member.manual_segment ?? member.auto_segment ?? fallbackSegment,
+            last_activity_at: member.last_activity_at ?? null,
+          };
+        }
         return {
           ...member,
           auto_segment: (segment.auto_segment as Member["auto_segment"]) ?? null,
@@ -189,36 +583,36 @@ export function useAdminData() {
         };
       });
 
-      setMembers(membersWithSegments);
-      setRedemptions(redemptionsRes.error ? [] : ((redemptionsRes.data || []) as LoyaltyTransaction[]));
-      setTransactions((transactionsRes.data || []) as LoyaltyTransaction[]);
-      setTierHistory((tierHistoryRes.error ? [] : tierHistoryRes.data || []) as TierHistoryRow[]);
-      setPointsLots(
-        pointsLotsRes.error
-          ? []
-          : ((pointsLotsRes.data || []) as PointsLot[])
-      );
-      setRewardsCatalog(
-        rewardsCatalogRes.error
-          ? []
-          : ((rewardsCatalogRes.data || []) as RewardCatalogRow[])
-      );
-      setLoginActivity(
-        loginActivityRes.error
-          ? []
-          : ((loginActivityRes.data || []) as MemberLoginActivity[])
-      );
-      setReengagementActions(
-        reengagementActionsRes.error
-          ? []
-          : ((reengagementActionsRes.data || []) as ReengagementAction[])
-      );
-      setTierRules(rules);
-      setEarningRules(earningRulesRes);
-
+      const supabaseTransactions = ((transactionsRes.data || []) as unknown as Array<
+        Omit<LoyaltyTransaction, "loyalty_members"> & {
+          loyalty_members?: LoyaltyTransaction["loyalty_members"] | LoyaltyTransaction["loyalty_members"][];
+        }
+      >).map((transaction) => ({
+        ...transaction,
+        loyalty_members: Array.isArray(transaction.loyalty_members)
+          ? transaction.loyalty_members[0]
+          : transaction.loyalty_members,
+      })) as LoyaltyTransaction[];
+      const localOverlay = overlayLocalRuntimePoints(membersWithSegments, supabaseTransactions, localRuntimePointMembers);
+      const nextMembers = localOverlay.members;
+      const nextTransactions = localOverlay.transactions;
       const rawRate = redemptionSettingsRes.data?.redemption_value_per_point;
       const parsedRate = Number(rawRate ?? 0.01);
-      setRedemptionValuePerPoint(Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0.01);
+      const snapshot: AdminDataSnapshot = {
+        members: nextMembers,
+        redemptions: nextTransactions.filter((tx) => txType(tx.transaction_type) === "redeemed"),
+        transactions: nextTransactions,
+        tierHistory: (tierHistoryRes.error ? [] : tierHistoryRes.data || []) as TierHistoryRow[],
+        pointsLots: pointsLotsRes.error ? [] : ((pointsLotsRes.data || []) as PointsLot[]),
+        rewardsCatalog: rewardsCatalogRes.error ? [] : ((rewardsCatalogRes.data || []) as RewardCatalogRow[]),
+        loginActivity: loginActivityRes.error ? [] : ((loginActivityRes.data || []) as MemberLoginActivity[]),
+        reengagementActions: reengagementActionsRes.error ? [] : ((reengagementActionsRes.data || []) as ReengagementAction[]),
+        tierRules: rules,
+        earningRules: earningRulesRes,
+        redemptionValuePerPoint: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0.01,
+      };
+      adminDataCache.set(cacheKey, { snapshot, loadedAt: Date.now() });
+      applySnapshot(snapshot);
     } catch (e) {
       const message =
         e instanceof Error
@@ -230,10 +624,23 @@ export function useAdminData() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applySnapshot, includeInsights, scope]);
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") fetchData({ force: true });
+    };
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
   }, [fetchData]);
 
   const metrics = useMemo(() => {
@@ -259,12 +666,19 @@ export function useAdminData() {
     }
 
     const latestTxByMember = new Map<string, Date>();
+    const earnedPointsByMember = new Map<string, number>();
     for (const tx of transactions) {
       const parsed = parseDate(tx.transaction_date);
-      if (!parsed) continue;
-      const existing = latestTxByMember.get(String(tx.member_id));
-      if (!existing || parsed > existing) latestTxByMember.set(String(tx.member_id), parsed);
+      const memberKey = String(tx.member_id);
+      if (parsed) {
+        const existing = latestTxByMember.get(memberKey);
+        if (!existing || parsed > existing) latestTxByMember.set(memberKey, parsed);
+      }
 
+      if (txType(tx.transaction_type) === "earned" && Number(tx.points || 0) > 0) {
+        earnedPointsByMember.set(memberKey, (earnedPointsByMember.get(memberKey) || 0) + Number(tx.points || 0));
+      }
+      if (!parsed) continue;
       const monthlyPoint = growthSeries.find((point) => point.key === monthKey(parsed));
       if (!monthlyPoint) continue;
 
@@ -379,9 +793,7 @@ export function useAdminData() {
     const memberActivityRows: MemberActivityRow[] = members.map((member) => {
       const memberKey = String(member.id ?? member.member_id ?? "");
       const lastTx = latestTxByMember.get(memberKey);
-      const earnedPoints = transactions
-        .filter((tx) => String(tx.member_id) === memberKey && txType(tx.transaction_type) === "earned" && Number(tx.points || 0) > 0)
-        .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+      const earnedPoints = earnedPointsByMember.get(memberKey) || 0;
 
       let activityLevel: MemberActivityRow["activityLevel"] = "inactive";
       if (lastTx) {
@@ -418,11 +830,10 @@ export function useAdminData() {
 
     const monetaryLiability = Number((pointsLiability * redemptionValuePerPoint).toFixed(2));
     const liabilityTrend = growthSeries.map((point) => {
-      const monthMembers = members.filter((member) => {
+      const monthPoints = members.reduce((sum, member) => {
         const joined = parseDate(member.enrollment_date);
-        return joined ? monthKey(joined) <= point.key : false;
-      });
-      const monthPoints = monthMembers.reduce((sum, member) => sum + Number(member.points_balance || 0), 0);
+        return joined && monthKey(joined) <= point.key ? sum + Number(member.points_balance || 0) : sum;
+      }, 0);
       return {
         month: point.label,
         points: monthPoints,
@@ -457,17 +868,19 @@ export function useAdminData() {
 
   const insights = useMemo(
     () =>
-      buildAdvancedAnalyticsDatasets({
-        members,
-        transactions,
-        pointsLots,
-        rewardsCatalog,
-        loginActivity,
-        reengagementActions,
-        tierRules,
-        redemptionValuePerPoint,
-      }),
-    [members, transactions, pointsLots, rewardsCatalog, loginActivity, reengagementActions, tierRules, redemptionValuePerPoint]
+      includeInsights
+        ? buildAdvancedAnalyticsDatasets({
+            members,
+            transactions,
+            pointsLots,
+            rewardsCatalog,
+            loginActivity,
+            reengagementActions,
+            tierRules,
+            redemptionValuePerPoint,
+          })
+        : EMPTY_ADMIN_INSIGHTS,
+    [includeInsights, members, transactions, pointsLots, rewardsCatalog, loginActivity, reengagementActions, tierRules, redemptionValuePerPoint]
   );
 
   return {
@@ -484,6 +897,6 @@ export function useAdminData() {
     tierRules,
     earningRules,
     redemptionValuePerPoint,
-    refetch: fetchData,
+    refetch: () => fetchData({ force: true }),
   };
 }

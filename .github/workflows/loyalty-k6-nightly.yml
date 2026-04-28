@@ -1,0 +1,73 @@
+name: Loyalty k6 Nightly
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  k6-nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install service dependencies
+        run: |
+          npm --prefix services/points-engine install
+          npm --prefix services/campaign-service install
+          npm --prefix services/gateway install
+
+      - name: Build loyalty services
+        run: |
+          npm --prefix services/points-engine run build
+          npm --prefix services/campaign-service run build
+          npm --prefix services/gateway run build
+
+      - name: Start loyalty services
+        run: |
+          node services/points-engine/dist/server.js > points-engine.log 2>&1 &
+          node services/campaign-service/dist/server.js > campaign-service.log 2>&1 &
+          node services/gateway/dist/server.js > gateway.log 2>&1 &
+
+      - name: Wait for gateway health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Gateway did not become healthy in time."
+          exit 1
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run nightly k6 baseline
+        run: |
+          mkdir -p services/gateway/load-test/artifacts
+          k6 run \
+            --tag testid=github-nightly \
+            --summary-export services/gateway/load-test/artifacts/nightly-summary.json \
+            services/gateway/load-test/k6-gateway.js
+
+      - name: Upload k6 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loyalty-k6-nightly
+          path: |
+            services/gateway/load-test/artifacts/nightly-summary.json
+            points-engine.log
+            campaign-service.log
+            gateway.log
