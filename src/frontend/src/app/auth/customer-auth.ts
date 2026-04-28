@@ -1,5 +1,6 @@
 import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth, setStoredAdminSession, setStoredCustomerSession } from "./auth";
+import { API_BASE_URL } from "../lib/api-config";
 
 const DEMO_ACCOUNTS_KEY = "loyaltyhub-demo-accounts-v1";
 const DEMO_ADMIN_ACCOUNTS_KEY = "loyaltyhub-demo-admin-accounts-v1";
@@ -46,7 +47,6 @@ const MEMBER_SELECT_COLUMNS = "id,member_id,member_number,first_name,last_name,e
 const AUTH_RATE_LIMIT_HINTS = ["over_email_send_rate_limit", "rate limit", "too many requests"];
 const AUTH_ALREADY_EXISTS_HINTS = ["user already registered", "already registered", "already exists", "user exists"];
 const PROFILE_CONSTRAINT_HINTS = ["duplicate key", "already exists", "violates unique constraint"];
-
 export type RegisterCustomerInput = {
   firstName: string;
   lastName: string;
@@ -600,11 +600,37 @@ async function findMemberProfileByEmail(normalizedEmail: string): Promise<Record
   if (error) {
     const localProfile = loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail);
     if (localProfile) return localProfile as Record<string, any>;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/members?email=${encodeURIComponent(normalizedEmail)}&limit=1`, {
+        cache: "no-store",
+      });
+      if (response.ok) {
+        const payload = (await response.json()) as { members?: Record<string, any>[] };
+        if (Array.isArray(payload.members) && payload.members[0]) {
+          return payload.members[0];
+        }
+      }
+    } catch {
+    }
+
     throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to load customer profile.", error);
   }
 
   if (data) return data as Record<string, any>;
-  return loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail) ?? null;
+  const localProfile = loadDemoMemberProfiles().find((profile) => normalizeEmail(profile.email) === normalizedEmail);
+  if (localProfile) return localProfile;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/members?email=${encodeURIComponent(normalizedEmail)}&limit=1`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { members?: Record<string, any>[] };
+    return payload.members?.[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function bootstrapDemoAccountFromMemberProfile(input: {

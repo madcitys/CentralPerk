@@ -30,7 +30,11 @@ export class CommunicationsController {
   async notifications(@Query("memberId") memberId?: string, @Query("email") email?: string, @Query("limit") limit?: string) {
     return {
       ok: true,
-      notifications: await this.communications.notifications({ memberId, email, limit: Number(limit || 20) }),
+      notifications: await this.communications.notifications({
+        memberId,
+        email,
+        limit: Number(limit || 20),
+      }),
     };
   }
 
@@ -42,16 +46,6 @@ export class CommunicationsController {
   @Get("communications/analytics")
   async analytics() {
     return { ok: true, analytics: await this.communications.analytics() };
-  }
-
-  @Get("analytics/communications")
-  async legacyAnalytics() {
-    return { ok: true, analytics: await this.communications.analytics() };
-  }
-
-  @Get("communications/outbox")
-  async outbox() {
-    return { ok: true, outbox: await this.communications.outbox(), mode: this.communications.mode() };
   }
 
   @Post("unsubscribe")

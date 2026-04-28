@@ -1,0 +1,395 @@
+{
+  "info": {
+    "_postman_id": "b84fb6e3-2b14-4e7f-9d1c-system3-loyalty-api",
+    "name": "System 3 Loyalty API (Backend @ localhost:4000)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const contentType = (pm.response.headers.get('Content-Type') || '').toLowerCase();",
+          "if (contentType.includes('application/pdf')) {",
+          "  pm.test('PDF response', function () { pm.expect(true).to.eql(true); });",
+          "  return;",
+          "}",
+          "const text = pm.response.text();",
+          "const markers = ['<!DOCTYPE html', '<html', '__NEXT_DATA__', '/_next/static', '__next/static'];",
+          "const hit = markers.find((m) => text.includes(m));",
+          "pm.test('Response is backend JSON (not Next HTML)', function () {",
+          "  if (hit) {",
+          "    pm.expect.fail('Wrong target: request hit Next.js frontend instead of backend. Marker: ' + hit);",
+          "  }",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Points",
+      "item": [
+        {
+          "name": "Award Points",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 625,\n  \"transactionType\": \"PURCHASE\",\n  \"transactionRef\": \"POS-{{$timestamp}}\",\n  \"reason\": \"POS purchase test\",\n  \"amountSpent\": 500,\n  \"productCode\": \"SKU-001\",\n  \"productCategory\": \"Beverage\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/points/award"
+          }
+        },
+        {
+          "name": "Redeem Points",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 100,\n  \"reason\": \"Reward redemption test\",\n  \"transactionType\": \"REDEEM\",\n  \"rewardCatalogId\": \"{{rewardId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/points/redeem"
+          }
+        },
+        {
+          "name": "Transaction Completed Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"EVT-{{$timestamp}}\",\n  \"eventType\": \"transaction.completed\",\n  \"transactionReference\": \"POS-{{$timestamp}}-EVENT\",\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"amountSpent\": 500,\n  \"reason\": \"POS transaction completed test\",\n  \"productCode\": \"SKU-001\",\n  \"productCategory\": \"Beverage\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/events/transaction-completed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Members",
+      "item": [
+        {
+          "name": "Get Member Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/members/{{memberId}}?email={{memberEmail}}"
+          }
+        },
+        {
+          "name": "Get Member Tier",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/members/{{memberId}}/tier?email={{memberEmail}}"
+          }
+        },
+        {
+          "name": "Get Member Points",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/members/{{memberId}}/points?email={{memberEmail}}"
+          }
+        },
+        {
+          "name": "Get Member Points History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/members/{{memberId}}/points-history?email={{memberEmail}}"
+          }
+        },
+        {
+          "name": "Get Member Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/members/{{memberId}}/notifications?email={{memberEmail}}&limit=20"
+          }
+        },
+        {
+          "name": "Patch Member Preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sms\": true,\n  \"email\": true,\n  \"push\": true,\n  \"promotionalOptIn\": true,\n  \"frequency\": \"weekly\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/members/{{memberId}}/preferences?email={{memberEmail}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Campaigns",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{campaignId}}\",\n  \"campaignCode\": \"{{campaignId}}\",\n  \"campaignName\": \"Bonus Points Campaign\",\n  \"description\": \"Campaign created for local API testing.\",\n  \"campaignType\": \"bonus_points\",\n  \"status\": \"draft\",\n  \"multiplier\": 1,\n  \"minimumPurchaseAmount\": 300,\n  \"bonusPoints\": 100,\n  \"productScope\": [\"Beverage\"],\n  \"eligibleTiers\": [\"Bronze\", \"Silver\", \"Gold\"],\n  \"startsAt\": \"2026-04-20T00:00:00.000Z\",\n  \"endsAt\": \"2026-12-31T23:59:59.000Z\",\n  \"budgetLimit\": 10000,\n  \"pushNotificationEnabled\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/campaigns"
+          }
+        },
+        {
+          "name": "Publish Campaign",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"queueNotifications\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/campaigns/{{campaignId}}/publish"
+          }
+        },
+        {
+          "name": "Get Campaign",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/campaigns/{{campaignId}}"
+          }
+        },
+        {
+          "name": "Get Campaign Budget Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/campaigns/{{campaignId}}/budget-status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Segments",
+      "item": [
+        {
+          "name": "Create Segment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"High Value\",\n  \"description\": \"Gold tier member segment.\",\n  \"logicMode\": \"AND\",\n  \"conditions\": [\n    {\n      \"id\": \"cond-tier\",\n      \"field\": \"Tier\",\n      \"operator\": \"is\",\n      \"value\": \"Gold\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/segments"
+          }
+        },
+        {
+          "name": "Preview Segment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logicMode\": \"AND\",\n  \"conditions\": [\n    {\n      \"id\": \"cond-points\",\n      \"field\": \"Points Balance\",\n      \"operator\": \"is above\",\n      \"value\": \"100\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/segments/preview"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Communications",
+      "item": [
+        {
+          "name": "Send Email Communication",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"email\": \"{{memberEmail}}\",\n  \"subject\": \"Scheduled Email Test\",\n  \"message\": \"This is a scheduled email communication test.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/communications/email"
+          }
+        },
+        {
+          "name": "Send SMS Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"email\": \"{{memberEmail}}\",\n  \"subject\": \"Points Update\",\n  \"message\": \"Your points update is ready.\",\n  \"trigger\": \"points_awarded\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/notifications/sms"
+          }
+        },
+        {
+          "name": "Get Communications Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/communications/analytics"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Partners",
+      "item": [
+        {
+          "name": "Get Partners Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/partners/dashboard"
+          }
+        },
+        {
+          "name": "Get Partner Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/partners/{{partnerId}}/dashboard"
+          }
+        },
+        {
+          "name": "Create Partner Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partnerId\": \"{{partnerId}}\",\n  \"partnerCode\": \"P001\",\n  \"partnerName\": \"Local Rewards Partner\",\n  \"memberId\": \"{{memberId}}\",\n  \"memberEmail\": \"{{memberEmail}}\",\n  \"orderId\": \"ORDER-{{$timestamp}}\",\n  \"points\": 250,\n  \"grossAmount\": 1500,\n  \"note\": \"Partner earn/burn transaction test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/partners/transactions"
+          }
+        },
+        {
+          "name": "Create Partner Settlement",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"month\": \"{{month}}\",\n  \"commissionRate\": 0.12\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement"
+          }
+        },
+        {
+          "name": "Download Partner Settlement PDF",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/pdf" }
+            ],
+            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement/{{month}}/pdf"
+          }
+        },
+        {
+          "name": "Mark Partner Settlement Paid",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement/{{month}}/paid"
+          }
+        }
+      ]
+    }
+  ]
+}

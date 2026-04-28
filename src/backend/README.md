@@ -1,11 +1,12 @@
 # System 3 NestJS Backend
 
-NestJS backend for local API testing on port `4000`.
+NestJS backend for local API testing on `http://localhost:4000`.
 
 ## Windows PowerShell
 
 ```powershell
-cd C:\Users\cedru\Downloads\LOYALTYSYSTEM-main\LOYALTYSYSTEM-main
+cd C:\Users\cedru\Downloads\CentralPerk-main\CentralPerk-main
+npm run setup:backend
 npm run build:backend
 npm run start:backend
 ```
@@ -24,13 +25,14 @@ Invoke-RestMethod http://localhost:4000/segments
 Invoke-RestMethod http://localhost:4000/rewards
 Invoke-RestMethod http://localhost:4000/partners/dashboard
 Invoke-RestMethod http://localhost:4000/communications/analytics
+Invoke-RestMethod http://localhost:4000/notifications?limit=20
 ```
 
-Local/demo mode reads and writes `../../.runtime/api-store.json` from this folder. If Supabase env is missing or invalid, the backend stays usable with local fallback data.
+Local/demo mode reads and writes `../.runtime/api-store.json`. If Supabase env is missing or invalid, the backend stays usable with local fallback data.
 
 ## Supabase
 
-For real persistence, create `src/backend/.env` with backend-safe variables:
+For real persistence, create `backend/.env` with backend-safe variables:
 
 ```powershell
 PORT=4000
@@ -39,4 +41,4 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-Run the SQL files in `supabase/migrations` from the repository root in Supabase SQL Editor. The migrations are idempotent and seed the default tiers and rewards.
+Run the SQL files in `backend/migrations` in Supabase SQL Editor. The migrations are idempotent and seed the default tiers and rewards.

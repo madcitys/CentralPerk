@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, Line, LineChart } from "recharts";
 import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
 import { useAdminData } from "../hooks/use-admin-data";
 import { toast } from "sonner";
-import { DEFAULT_ADMIN_METRICS, ensureArray, ensureNumber } from "../../lib/defaults";
 import {
   adminDarkButtonClass,
   adminEyebrowClass,
@@ -47,8 +47,6 @@ function classifyTransactionType(transactionType: string, points: number) {
 
 export default function AdminActivityPage() {
   const { transactions, loading, error, metrics } = useAdminData({ scope: "activity" });
-  const safeTransactions = ensureArray(transactions);
-  const safeMetrics = metrics ?? DEFAULT_ADMIN_METRICS;
   const [activityFilter, setActivityFilter] = useState<"all" | "active" | "warm" | "inactive">("all");
   const [transactionFilter, setTransactionFilter] = useState<TransactionQuickFilter>("all");
   const [transactionRangePreset, setTransactionRangePreset] = useState<TransactionRangePreset>("custom");
@@ -88,18 +86,18 @@ export default function AdminActivityPage() {
   const filteredTransactions = useMemo(() => {
     const start = startDate ? new Date(`${startDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
     const end = endDate ? new Date(`${endDate}T23:59:59`).getTime() : Number.POSITIVE_INFINITY;
-    return safeTransactions.filter((tx) => {
+    return transactions.filter((tx) => {
       const timestamp = new Date(tx.transaction_date).getTime();
       return timestamp >= start && timestamp <= end;
     });
-  }, [safeTransactions, startDate, endDate]);
+  }, [transactions, startDate, endDate]);
 
   const filteredActivityRows = useMemo(
     () =>
-      ensureArray(safeMetrics.memberActivityRows).filter((row) =>
+      metrics.memberActivityRows.filter((row) =>
         activityFilter === "all" ? true : row.activityLevel === activityFilter
       ),
-    [safeMetrics.memberActivityRows, activityFilter]
+    [metrics.memberActivityRows, activityFilter]
   );
 
   const visibleTransactions = useMemo(() => {
@@ -283,10 +281,16 @@ export default function AdminActivityPage() {
             <p className={adminPageDescriptionClass}>Analyze member activity, earned points, and engagement levels with the same reporting language used across analytics.</p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-            <button onClick={downloadStatement} className={adminPrimaryButtonClass}>
+            <button
+              onClick={downloadStatement}
+              className={adminPrimaryButtonClass}
+            >
               Download CSV
             </button>
-            <button onClick={downloadPdf} className={adminDarkButtonClass}>
+            <button
+              onClick={downloadPdf}
+              className={adminDarkButtonClass}
+            >
               Download PDF
             </button>
           </div>
@@ -331,12 +335,12 @@ export default function AdminActivityPage() {
           <div className="space-y-5">
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label className="mb-2 inline-block text-sm font-medium">Segment name</label>
+                <Label className="mb-2 inline-block">Segment name</Label>
                 <Input value={builderSegmentName} onChange={(e) => setBuilderSegmentName(e.target.value)} />
                 <p className="mt-2 text-sm font-medium text-[#c2410c]">A segment with this name already exists.</p>
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium">Logic mode</label>
+                <Label className="block">Logic mode</Label>
                 <div className="inline-flex rounded-full border border-[#d6e0f7] bg-[#f4f8ff] p-1">
                   {(["AND", "OR"] as const).map((mode) => (
                     <button
@@ -363,15 +367,15 @@ export default function AdminActivityPage() {
                 <div key={condition.id} className="rounded-[24px] border border-[#dbe8f6] bg-[#fbfdff] p-5">
                   <div className="grid gap-4 lg:grid-cols-3 lg:items-end">
                     <div>
-                      <label className="mb-2 inline-block text-sm font-medium">Field</label>
+                      <Label className="mb-2 inline-block">Field</Label>
                       <Input value={condition.field} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, field: e.target.value } : item))} />
                     </div>
                     <div>
-                      <label className="mb-2 inline-block text-sm font-medium">Operator</label>
+                      <Label className="mb-2 inline-block">Operator</Label>
                       <Input value={condition.operator} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, operator: e.target.value } : item))} />
                     </div>
                     <div>
-                      <label className="mb-2 inline-block text-sm font-medium">Value</label>
+                      <Label className="mb-2 inline-block">Value</Label>
                       <Input value={condition.value} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, value: e.target.value } : item))} />
                     </div>
                   </div>
@@ -417,8 +421,19 @@ export default function AdminActivityPage() {
                 <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} pts`, "Earned"]} />
-                <Line type="monotone" dataKey="value" name="Earned" stroke="#00A3AD" strokeWidth={3} dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }} activeDot={{ r: 5 }} />
+                <Tooltip
+                  contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }}
+                  formatter={(value: number) => [`${value} pts`, "Earned"]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  name="Earned"
+                  stroke="#00A3AD"
+                  strokeWidth={3}
+                  dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
+                  activeDot={{ r: 5 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -427,7 +442,7 @@ export default function AdminActivityPage() {
         <div className={adminPanelClass}>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Activity Segmentation</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-            {ensureArray(safeMetrics.memberSegments).map((segment) => (
+            {metrics.memberSegments.map((segment) => (
               <div key={segment.label} className="rounded-lg border border-gray-200 p-4">
                 <p className="text-sm text-gray-500">{segment.label}</p>
                 <p className="mt-2 text-2xl font-bold text-gray-900">{segment.count}</p>
@@ -437,7 +452,7 @@ export default function AdminActivityPage() {
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={ensureArray(safeMetrics.memberSegments).map((segment) => ({ name: segment.label, value: segment.count }))} dataKey="value" outerRadius={90}>
+                <Pie data={metrics.memberSegments.map((segment) => ({ name: segment.label, value: segment.count }))} dataKey="value" outerRadius={90}>
                   <Cell fill="#1A2B47" />
                   <Cell fill="#00A3AD" />
                   <Cell fill="#f59e0b" />
@@ -455,19 +470,19 @@ export default function AdminActivityPage() {
           <div className={adminPanelSoftClass}>
             <p className="text-sm text-gray-500">Active</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
-              {ensureArray(safeMetrics.memberActivityRows).filter((row) => row.activityLevel === "active").length}
+              {metrics.memberActivityRows.filter((row) => row.activityLevel === "active").length}
             </p>
           </div>
           <div className={adminPanelSoftClass}>
             <p className="text-sm text-gray-500">Warm</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
-              {ensureArray(safeMetrics.memberActivityRows).filter((row) => row.activityLevel === "warm").length}
+              {metrics.memberActivityRows.filter((row) => row.activityLevel === "warm").length}
             </p>
           </div>
           <div className={adminPanelSoftClass}>
             <p className="text-sm text-gray-500">Inactive</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
-              {ensureArray(safeMetrics.memberActivityRows).filter((row) => row.activityLevel === "inactive").length}
+              {metrics.memberActivityRows.filter((row) => row.activityLevel === "inactive").length}
             </p>
           </div>
         </div>
@@ -526,7 +541,11 @@ export default function AdminActivityPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px]">
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#6a7a92]">Transaction Type</span>
-              <select value={transactionFilter} onChange={(e) => setTransactionFilter(e.target.value as TransactionQuickFilter)} className={adminSelectClass}>
+              <select
+                value={transactionFilter}
+                onChange={(e) => setTransactionFilter(e.target.value as TransactionQuickFilter)}
+                className={adminSelectClass}
+              >
                 {transactionFilterOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label} ({option.count})
@@ -536,7 +555,11 @@ export default function AdminActivityPage() {
             </label>
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#6a7a92]">Quick Range</span>
-              <select value={transactionRangePreset} onChange={(e) => applyRangePreset(e.target.value as TransactionRangePreset)} className={adminSelectClass}>
+              <select
+                value={transactionRangePreset}
+                onChange={(e) => applyRangePreset(e.target.value as TransactionRangePreset)}
+                className={adminSelectClass}
+              >
                 <option value="custom">Custom Range</option>
                 <option value="today">Today</option>
                 <option value="last7">Last 7 Days</option>
@@ -546,8 +569,7 @@ export default function AdminActivityPage() {
             </label>
           </div>
         </div>
-
-        {transactionFilter !== "all" || transactionRangePreset !== "custom" ? (
+        {(transactionFilter !== "all" || transactionRangePreset !== "custom") ? (
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#48607d]">
               {transactionFilterOptions.find((option) => option.value === transactionFilter)?.label || "All"}
@@ -575,7 +597,6 @@ export default function AdminActivityPage() {
             </button>
           </div>
         ) : null}
-
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -598,7 +619,7 @@ export default function AdminActivityPage() {
                       : "Unknown"}
                   </td>
                   <td className="py-4 px-4 text-sm text-gray-700">{tx.transaction_type}</td>
-                  <td className="py-4 px-4 text-sm font-semibold text-gray-800">{ensureNumber(tx.points, 0).toLocaleString()}</td>
+                  <td className="py-4 px-4 text-sm font-semibold text-gray-800">{tx.points.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

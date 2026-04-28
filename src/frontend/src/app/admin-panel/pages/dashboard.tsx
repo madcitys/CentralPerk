@@ -39,6 +39,39 @@ const growthRangeOptions: Array<{ value: GrowthRange; label: string }> = [
   { value: "7d", label: "Last 7 days" },
 ];
 
+function DashboardSkeleton() {
+  return (
+    <div className={adminPageShellClass}>
+      <div className={adminPageHeroClass}>
+        <div className={adminPageHeroInnerClass}>
+          <div className={adminEyebrowClass}>Admin Overview</div>
+          <h1 className={adminPageTitleClass}>Dashboard</h1>
+          <p className={adminPageDescriptionClass}>Loading loyalty metrics, growth trends, and member activity.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className={`${adminMetricPanelClass} ${adminMetricVariantClass(index)} animate-pulse`}>
+            <div className="h-4 w-24 rounded bg-white/70" />
+            <div className="mt-4 h-9 w-20 rounded bg-white/80" />
+            <div className="mt-3 h-3 w-32 rounded bg-white/60" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className={`${adminPanelClass} animate-pulse`}>
+          <div className="h-5 w-48 rounded bg-[#e3ecf8]" />
+          <div className="mt-6 h-64 rounded-[24px] bg-[#eef5ff]" />
+        </div>
+        <div className={`${adminPanelClass} animate-pulse`}>
+          <div className="h-5 w-40 rounded bg-[#e3ecf8]" />
+          <div className="mt-6 h-64 rounded-[24px] bg-[#eef5ff]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatMonthLabel(value: Date) {
   return value.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
@@ -126,8 +159,19 @@ export default function AdminDashboard() {
     metrics.tierDistribution.silver +
     metrics.tierDistribution.bronze;
 
-  if (loading) return <p className="text-base text-gray-700">Loading dashboard...</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
+  if (loading) return <DashboardSkeleton />;
+  if (error) {
+    return (
+      <div className={adminPageShellClass}>
+        <div className={`${adminPanelClass} border-[#f1c7c7] bg-[linear-gradient(180deg,#fff8f8_0%,#ffffff_100%)]`}>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#a23b3b]">Dashboard Error</p>
+          <h1 className="mt-3 text-2xl font-bold text-[#10213d]">Failed to load dashboard data</h1>
+          <p className="mt-2 text-sm text-[#5e6e83]">{error}</p>
+          <p className="mt-2 text-sm text-[#5e6e83]">Check the backend routes and retry once the API is healthy.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={adminPageShellClass}>

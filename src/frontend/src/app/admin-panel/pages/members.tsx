@@ -797,8 +797,8 @@ export default function AdminMembersPage() {
             <div className="min-h-[268px] rounded-[28px] border border-[#dbe8f6] bg-white p-6">
               <h3 className="text-lg font-semibold text-[#10213a]">Condition summary</h3>
               <div className="mt-5 flex flex-wrap gap-3">
-                {builderConditionChips.map((chip) => (
-                  <span key={chip} className="rounded-full border border-[#d6e0f7] bg-[#f8fbff] px-5 py-3 text-base text-[#10213a]">
+                {builderConditionChips.map((chip, index) => (
+                  <span key={`builder-chip-${index}-${chip}`} className="rounded-full border border-[#d6e0f7] bg-[#f8fbff] px-5 py-3 text-base text-[#10213a]">
                     {chip}
                   </span>
                 ))}

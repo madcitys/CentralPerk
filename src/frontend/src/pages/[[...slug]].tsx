@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import dynamic from "next/dynamic";
 
 function LoadingShell() {
   return (
@@ -11,28 +11,16 @@ function LoadingShell() {
   );
 }
 
+const LegacySpaApp = dynamic(
+  () => import("../next/LegacySpaApp").then((mod) => mod.LegacySpaApp),
+  {
+    ssr: false,
+    loading: () => <LoadingShell />,
+  },
+);
+
 export default function CatchAllPage() {
-  const [ClientApp, setClientApp] = useState<ComponentType | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    import("../next/LegacySpaApp").then((mod) => {
-      if (isMounted) {
-        setClientApp(() => mod.LegacySpaApp);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  if (!ClientApp) {
-    return <LoadingShell />;
-  }
-
-  return <ClientApp />;
+  return <LegacySpaApp />;
 }
 
 export async function getServerSideProps() {

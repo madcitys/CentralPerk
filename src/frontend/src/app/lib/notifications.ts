@@ -1,7 +1,7 @@
 import { supabase } from "../../utils/supabase/client";
 import { getCurrentCustomerSession } from "../auth/auth";
-import { requestJson } from "./api";
 import { canSendNotificationByPreference, loadCommunicationPreference } from "./member-lifecycle";
+import { apiUrl } from "./api-config";
 
 export type AppNotification = {
   id: string;
@@ -60,8 +60,9 @@ async function queueLocalNotification(input: {
   message: string;
   trigger?: string;
 }) {
-  await requestJson("/notifications/sms", {
+  await fetch(apiUrl("/notifications/sms"), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       memberId: input.memberId || undefined,
       subject: input.subject,
@@ -92,7 +93,9 @@ export async function loadUserNotifications(limit = 20): Promise<AppNotification
     if (localSession?.memberId) params.set("memberId", localSession.memberId);
     if (localSession?.email) params.set("email", localSession.email);
     params.set("limit", String(limit));
-    const payload = await requestJson<{ notifications?: AppNotification[] }>(`/notifications?${params.toString()}`);
+    const response = await fetch(apiUrl(`/notifications?${params.toString()}`), { cache: "no-store" });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { notifications?: AppNotification[] };
     return payload.notifications || [];
   }
 

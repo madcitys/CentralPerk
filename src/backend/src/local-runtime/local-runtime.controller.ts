@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Post } from "@nestjs/common";
 import { LocalRuntimeService } from "./local-runtime.service";
 
 @Controller("local-runtime")
@@ -6,16 +6,37 @@ export class LocalRuntimeController {
   constructor(private readonly runtime: LocalRuntimeService) {}
 
   @Get("points")
-  async pointsSnapshot() {
-    const state = await this.runtime.read();
+  async points() {
     return {
       ok: true,
-      snapshot: {
-        members: Object.values(state.pointMembers || {}).filter(
-          (member) => !member.memberId.includes("{{") && !member.memberId.includes("}}"),
-        ),
-      },
       source: "local_runtime",
+      snapshot: {
+        members: await this.runtime.snapshotPoints(),
+      },
+    };
+  }
+
+  @Post("seed")
+  async seed() {
+    const state = await this.runtime.writeSeedFile();
+    const pointsLedgerRows = Object.values(state.pointMembers || {}).reduce(
+      (sum, member) => sum + (Array.isArray(member.history) ? member.history.length : 0),
+      0,
+    );
+    return {
+      ok: true,
+      source: "local_runtime",
+      seeded: true,
+      counts: {
+        members: Object.keys(state.pointMembers || {}).length,
+        rewards: Object.keys(state.rewards || {}).length,
+        campaigns: Object.keys(state.campaigns || {}).length,
+        segments: Object.keys(state.segments || {}).length,
+        partners: Object.keys(state.partners || {}).length,
+        notifications: (state.notifications || []).length,
+        pointsLedgerRows,
+        partnerTransactions: (state.partnerTransactions || []).length,
+      },
     };
   }
 }

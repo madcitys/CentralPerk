@@ -1,42 +1,40 @@
-# System 3 Frontend
+# Loyalty Frontend
 
-This package is the Next.js UI only. It does not contain backend API routes.
+This is the Sprint 5 loyalty frontend package for CentralPerk.
 
-## Run Locally
-
-Start the backend first from the repository root:
+## Setup
 
 ```powershell
-npm run build:backend
-npm run dev:backend
+Copy-Item .env.example .env.local
+npm install
 ```
 
-Then start the frontend:
+## Run
 
 ```powershell
-cd src/frontend
-npm install
 npm run dev
 ```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-## Environment
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-```
-
-All app API requests go to `NEXT_PUBLIC_API_BASE_URL`.
 
 ## Build
 
 ```powershell
 npm run build
+npm run start
 ```
+
+## Tests
+
+Contract consumer tests:
+
+```powershell
+npm run test:contracts
+```
+
+Performance script:
+
+```powershell
+npm run test:performance:baseline
+```
+
+Never commit `.env.local`, `.env`, credentials, or service-role keys.
+

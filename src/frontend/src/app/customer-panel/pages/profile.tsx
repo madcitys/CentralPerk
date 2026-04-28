@@ -21,7 +21,6 @@ import { fetchTierRules, loadTierHistory, updateMemberProfile, uploadMemberProfi
 import { loadBadgeLeaderboard, loadMemberBadgeProgress, type BadgeLeaderboardEntry, type MemberBadgeProgress } from "../../lib/promotions";
 import type { AppOutletContext } from "../../types/app-context";
 import { brandNavyBadgeClass, brandNavySolidClass, brandNavySolidHoverClass, brandTealBadgeClass } from "../../lib/ui-color-tokens";
-import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 import {
   customerEyebrowClass,
   customerPageDescriptionClass,
@@ -52,7 +51,6 @@ const profileTabs: { value: ProfileTab; label: string; hash: string }[] = [
 
 export default function Profile() {
   const { user, setUser, refreshUser } = useOutletContext<AppOutletContext>();
-  const safeUser = createDefaultMemberData(user);
   const [activeTab, setActiveTab] = useState<ProfileTab>("overview");
   const [isEditing, setIsEditing] = useState(false);
   const [pendingOtp, setPendingOtp] = useState<string | null>(null);
@@ -67,14 +65,14 @@ export default function Profile() {
   const [globalOptOutDialogOpen, setGlobalOptOutDialogOpen] = useState(false);
   const [tierMinimums, setTierMinimums] = useState({ Bronze: 0, Silver: 250, Gold: 750 });
   const [formData, setFormData] = useState({
-    fullName: safeUser.fullName,
-    email: safeUser.email,
-    phone: safeUser.phone,
-    birthdate: safeUser.birthdate || "",
-    address: safeUser.address || "",
-    profileImage: safeUser.profileImage,
+    fullName: user.fullName,
+    email: user.email,
+    phone: user.phone,
+    birthdate: user.birthdate || "",
+    address: user.address || "",
+    profileImage: user.profileImage,
   });
-  const memberLookupId = safeUser.memberId || safeUser.email;
+  const memberLookupId = user.memberId || user.email;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -95,30 +93,22 @@ export default function Profile() {
 
   useEffect(() => {
     setFormData({
-      fullName: safeUser.fullName,
-      email: safeUser.email,
-      phone: safeUser.phone,
-      birthdate: safeUser.birthdate || "",
-      address: safeUser.address || "",
-      profileImage: safeUser.profileImage,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      birthdate: user.birthdate || "",
+      address: user.address || "",
+      profileImage: user.profileImage,
     });
     if (!memberLookupId) return;
-    loadCommunicationPreference(memberLookupId, safeUser.email).then(setPreferences).catch(() => {});
-    loadTierHistory(memberLookupId, safeUser.email)
+    loadCommunicationPreference(memberLookupId, user.email).then(setPreferences).catch(() => {});
+    loadTierHistory(memberLookupId, user.email)
       .then((rows) => setTierTimeline(rows.map((r) => ({ id: String(r.id), old_tier: String(r.old_tier || "Bronze"), new_tier: String(r.new_tier || "Bronze"), changed_at: String(r.changed_at || new Date().toISOString()), reason: r.reason ? String(r.reason) : undefined }))))
       .catch(() => setTierTimeline([]));
-    loadBirthdayRewardStatus(memberLookupId, safeUser.email).then((status) => setBirthdayBadge(status.badgeLabel)).catch(() => setBirthdayBadge(null));
-    loadMemberBadgeProgress(memberLookupId, safeUser.email).then(setBadgeProgress).catch(() => setBadgeProgress([]));
+    loadBirthdayRewardStatus(memberLookupId, user.email).then((status) => setBirthdayBadge(status.badgeLabel)).catch(() => setBirthdayBadge(null));
+    loadMemberBadgeProgress(memberLookupId, user.email).then(setBadgeProgress).catch(() => setBadgeProgress([]));
     loadBadgeLeaderboard(5).then(setBadgeLeaderboard).catch(() => setBadgeLeaderboard([]));
-  }, [
-    memberLookupId,
-    safeUser.address,
-    safeUser.birthdate,
-    safeUser.email,
-    safeUser.fullName,
-    safeUser.phone,
-    safeUser.profileImage,
-  ]);
+  }, [memberLookupId, user]);
 
   useEffect(() => {
     fetchTierRules()
@@ -136,7 +126,7 @@ export default function Profile() {
   }, []);
 
   const handleCancel = () => {
-    setFormData({ fullName: safeUser.fullName, email: safeUser.email, phone: safeUser.phone, birthdate: safeUser.birthdate || "", address: safeUser.address || "", profileImage: safeUser.profileImage });
+    setFormData({ fullName: user.fullName, email: user.email, phone: user.phone, birthdate: user.birthdate || "", address: user.address || "", profileImage: user.profileImage });
     setPendingOtp(null);
     setOtpInput("");
     setPendingSave(false);
@@ -144,8 +134,8 @@ export default function Profile() {
   };
 
   const handleSave = async () => {
-    const emailChanged = formData.email.trim().toLowerCase() !== safeUser.email.trim().toLowerCase();
-    const addressChanged = (formData.address || "").trim() !== (safeUser.address || "").trim();
+    const emailChanged = formData.email.trim().toLowerCase() !== user.email.trim().toLowerCase();
+    const addressChanged = (formData.address || "").trim() !== (user.address || "").trim();
     if ((emailChanged || addressChanged) && !pendingSave) {
       const generatedOtp = `${Math.floor(100000 + Math.random() * 900000)}`;
       setPendingOtp(generatedOtp);
@@ -158,12 +148,12 @@ export default function Profile() {
       toast.error("Invalid OTP. Please try again.");
       return;
     }
-    const { firstName, lastName } = splitName(safeUser.fullName);
+    const { firstName, lastName } = splitName(user.fullName);
     try {
       if (!memberLookupId) throw new Error("Member ID is still loading. Please wait a moment and try again.");
       const updateResult = await updateMemberProfile({
         memberIdentifier: memberLookupId,
-        fallbackEmail: safeUser.email,
+        fallbackEmail: user.email,
         firstName,
         lastName,
         email: formData.email,
@@ -209,29 +199,27 @@ export default function Profile() {
   const savePreferences = async () => {
     try {
       if (!memberLookupId) throw new Error("Member ID is still loading. Please wait a moment and try again.");
-      await saveCommunicationPreference(memberLookupId, preferences, safeUser.email);
+      await saveCommunicationPreference(memberLookupId, preferences, user.email);
       toast.success("Communication preferences saved.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save communication preferences.");
     }
   };
 
-  const safeTransactions = ensureArray(safeUser.transactions);
   const nextTierInfo = { Bronze: { name: "Silver", pointsNeeded: tierMinimums.Silver }, Silver: { name: "Gold", pointsNeeded: tierMinimums.Gold }, Gold: { name: "Gold", pointsNeeded: tierMinimums.Gold } } as const;
-  const nextTier = nextTierInfo[safeUser.tier];
-  const tierProgress = safeUser.tier === "Gold" ? 100 : nextTier.pointsNeeded > 0 ? Math.min(100, (safeUser.lifetimePoints / nextTier.pointsNeeded) * 100) : 0;
+  const nextTier = nextTierInfo[user.tier];
+  const tierProgress = user.tier === "Gold" ? 100 : nextTier.pointsNeeded > 0 ? Math.min(100, (user.lifetimePoints / nextTier.pointsNeeded) * 100) : 0;
   const tierBenefits: Record<"Bronze" | "Silver" | "Gold", string[]> = {
     Bronze: ["Earn 1 point per $1 spent", "Basic member promotions", "Monthly welcome offers"],
     Silver: ["Earn 2 points per $1 spent", "Birthday month bonus: 100 points", "Early access to new products"],
     Gold: ["Earn 3 points per $1 spent", "Birthday month bonus: 200 points", "Priority customer support", "Exclusive Gold member events", "Free delivery on online orders"],
   };
-  const safeTierBenefits = tierBenefits[safeUser.tier] ?? tierBenefits.Bronze;
 
   const membershipStats = [
-    { label: "Member ID", value: safeUser.memberId || "Not provided", icon: Award, iconClass: "bg-emerald-100 text-emerald-600" },
-    { label: "Member Since", value: safeUser.memberSince || "Not provided", icon: Calendar, iconClass: "bg-blue-100 text-blue-600" },
-    { label: "Current Points", value: safeUser.points.toLocaleString(), icon: Star, iconClass: "bg-purple-100 text-purple-600" },
-    { label: "Lifetime Points", value: safeUser.lifetimePoints.toLocaleString(), icon: Star, iconClass: "bg-orange-100 text-orange-600" },
+    { label: "Member ID", value: user.memberId, icon: Award, iconClass: "bg-emerald-100 text-emerald-600" },
+    { label: "Member Since", value: user.memberSince, icon: Calendar, iconClass: "bg-blue-100 text-blue-600" },
+    { label: "Current Points", value: user.points.toLocaleString(), icon: Star, iconClass: "bg-purple-100 text-purple-600" },
+    { label: "Lifetime Points", value: user.lifetimePoints.toLocaleString(), icon: Star, iconClass: "bg-orange-100 text-orange-600" },
   ];
 
   const preferenceChannels = [
@@ -318,9 +306,9 @@ export default function Profile() {
               </Card>
 
               <Card className={customerPanelClass}>
-                <h3 className="font-semibold text-gray-900 text-lg mb-4">{safeUser.tier} Tier Benefits</h3>
+                <h3 className="font-semibold text-gray-900 text-lg mb-4">{user.tier} Tier Benefits</h3>
                 <ul className="space-y-3">
-                  {safeTierBenefits.map((benefit) => (
+                  {tierBenefits[user.tier].map((benefit) => (
                     <li key={benefit} className="flex items-start gap-3">
                       <div className="w-5 h-5 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                         <svg className="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -337,13 +325,13 @@ export default function Profile() {
                 <h3 className="font-semibold text-gray-900 mb-4">Tier Progress</h3>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">{safeUser.tier === "Gold" ? "Max tier achieved" : `Progress to ${nextTier.name}`}</span>
+                    <span className="text-gray-600">{user.tier === "Gold" ? "Max tier achieved" : `Progress to ${nextTier.name}`}</span>
                     <span className="font-semibold text-gray-900">{Math.min(100, Math.round(tierProgress))}%</span>
                   </div>
                   <Progress value={tierProgress} className="h-3" />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">{Math.min(safeUser.lifetimePoints, nextTier.pointsNeeded).toLocaleString()} / {nextTier.pointsNeeded.toLocaleString()}</span>
-                    <span className="text-[#1A2B47] font-medium">{safeUser.tier === "Gold" ? "Top tier" : `${Math.max(0, nextTier.pointsNeeded - safeUser.lifetimePoints).toLocaleString()} to go`}</span>
+                    <span className="text-gray-600">{Math.min(user.lifetimePoints, nextTier.pointsNeeded).toLocaleString()} / {nextTier.pointsNeeded.toLocaleString()}</span>
+                    <span className="text-[#1A2B47] font-medium">{user.tier === "Gold" ? "Top tier" : `${Math.max(0, nextTier.pointsNeeded - user.lifetimePoints).toLocaleString()} to go`}</span>
                   </div>
                 </div>
               </Card>
@@ -351,18 +339,18 @@ export default function Profile() {
               <Card className="p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Quick Stats</h3>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">This Month</span><div className="text-right"><p className="font-semibold text-green-600">+{safeUser.earnedThisMonth}</p><p className="text-xs text-gray-500">earned</p></div></div>
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">Redeemed</span><div className="text-right"><p className="font-semibold text-orange-600">-{safeUser.redeemedThisMonth}</p><p className="text-xs text-gray-500">this month</p></div></div>
-                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">Transactions</span><div className="text-right"><p className="font-semibold text-gray-900">{safeTransactions.length}</p><p className="text-xs text-gray-500">total</p></div></div>
-                  <div className="flex items-center justify-between"><span className="text-gray-600 text-sm">Surveys Completed</span><div className="text-right"><p className="font-semibold text-gray-900">{safeUser.surveysCompleted}</p><p className="text-xs text-gray-500">surveys</p></div></div>
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">This Month</span><div className="text-right"><p className="font-semibold text-green-600">+{user.earnedThisMonth}</p><p className="text-xs text-gray-500">earned</p></div></div>
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">Redeemed</span><div className="text-right"><p className="font-semibold text-orange-600">-{user.redeemedThisMonth}</p><p className="text-xs text-gray-500">this month</p></div></div>
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-200"><span className="text-gray-600 text-sm">Transactions</span><div className="text-right"><p className="font-semibold text-gray-900">{user.transactions.length}</p><p className="text-xs text-gray-500">total</p></div></div>
+                  <div className="flex items-center justify-between"><span className="text-gray-600 text-sm">Surveys Completed</span><div className="text-right"><p className="font-semibold text-gray-900">{user.surveysCompleted}</p><p className="text-xs text-gray-500">surveys</p></div></div>
                 </div>
               </Card>
 
               <Card className="p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Account Status</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Profile Complete</span><Badge className={safeUser.profileComplete ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>{safeUser.profileComplete ? "Yes" : "No"}</Badge></div>
-                  <div className="flex items-center justify-between"><span className="text-sm text-gray-600">App Downloaded</span><Badge className={safeUser.hasDownloadedApp ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>{safeUser.hasDownloadedApp ? "Yes" : "No"}</Badge></div>
+                  <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Profile Complete</span><Badge className={user.profileComplete ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>{user.profileComplete ? "Yes" : "No"}</Badge></div>
+                  <div className="flex items-center justify-between"><span className="text-sm text-gray-600">App Downloaded</span><Badge className={user.hasDownloadedApp ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}>{user.hasDownloadedApp ? "Yes" : "No"}</Badge></div>
                   <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Email Verified</span><Badge className="bg-green-100 text-green-700">Verified</Badge></div>
                 </div>
               </Card>
@@ -391,8 +379,8 @@ export default function Profile() {
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">{formData.fullName}</h2>
                 <div className="flex items-center gap-2 mt-2">
-                  <Badge className={brandNavyBadgeClass}>{safeUser.tier} Member</Badge>
-                  <Badge variant="outline" className={safeUser.status === "Active" ? brandTealBadgeClass : "border-gray-200 text-gray-500"}>{safeUser.status}</Badge>
+                  <Badge className={brandNavyBadgeClass}>{user.tier} Member</Badge>
+                  <Badge variant="outline" className={user.status === "Active" ? brandTealBadgeClass : "border-gray-200 text-gray-500"}>{user.status}</Badge>
                 </div>
                 {isEditing ? (
                   <div className="mt-3">
@@ -437,9 +425,9 @@ export default function Profile() {
           </Card>
 
           <Card className="p-6">
-            <h3 className="font-semibold text-gray-900 text-lg mb-4">{safeUser.tier} Tier Benefits</h3>
+            <h3 className="font-semibold text-gray-900 text-lg mb-4">{user.tier} Tier Benefits</h3>
             <ul className="space-y-3">
-              {safeTierBenefits.map((benefit) => (
+              {tierBenefits[user.tier].map((benefit) => (
                 <li key={benefit} className="flex items-start gap-3">
                   <div className="w-5 h-5 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <svg className="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>

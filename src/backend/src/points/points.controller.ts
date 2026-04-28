@@ -12,6 +12,15 @@ function mergePayload(body: object | undefined, request: Request) {
   return payload;
 }
 
+function resolveLookupInput(memberId?: string, email?: string) {
+  const normalizedMemberId = String(memberId || "").trim();
+  const normalizedEmail = String(email || "").trim();
+  return {
+    memberIdentifier: normalizedMemberId || normalizedEmail,
+    email: normalizedEmail || undefined,
+  };
+}
+
 @Controller()
 export class PointsController {
   constructor(private readonly points: PointsService) {}
@@ -37,7 +46,7 @@ export class PointsController {
     const activity = await this.points.activity(id, email);
     return {
       ok: true,
-      memberId: id,
+      memberId: activity.balance.member_id,
       points: activity.balance.points_balance,
       balance: activity.balance,
     };
@@ -46,6 +55,25 @@ export class PointsController {
   @Get("members/:id/points-history")
   async history(@Param("id") id: string, @Query("email") email?: string) {
     const activity = await this.points.activity(id, email);
-    return { ok: true, memberId: id, history: activity.history.slice(0, 200) };
+    return { ok: true, memberId: activity.balance.member_id, history: activity.history.slice(0, 200) };
+  }
+
+  @Get("points")
+  async pointsLookup(@Query("memberId") memberId?: string, @Query("email") email?: string) {
+    const lookup = resolveLookupInput(memberId, email);
+    const activity = email && !lookup.memberIdentifier ? await this.points.lookupByEmail(email) : await this.points.activity(lookup.memberIdentifier, lookup.email);
+    return {
+      ok: true,
+      memberId: activity.balance.member_id,
+      points: activity.balance.points_balance,
+      balance: activity.balance,
+    };
+  }
+
+  @Get("points-history")
+  async pointsHistoryLookup(@Query("memberId") memberId?: string, @Query("email") email?: string) {
+    const lookup = resolveLookupInput(memberId, email);
+    const activity = email && !lookup.memberIdentifier ? await this.points.lookupByEmail(email) : await this.points.activity(lookup.memberIdentifier, lookup.email);
+    return { ok: true, memberId: activity.balance.member_id, history: activity.history.slice(0, 200) };
   }
 }

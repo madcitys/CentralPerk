@@ -1,47 +1,172 @@
 services:
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./src/frontend
     environment:
-      NODE_ENV: production
-      NEXT_PUBLIC_API_BASE_URL: http://backend:4000
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      GATEWAY_URL: http://gateway:4000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:4000
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "true"
+      NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: "false"
+      NEXT_PUBLIC_USE_REMOTE_LOYALTY_API: "true"
+      NEXT_PUBLIC_USE_LOCAL_LOYALTY_API: "false"
+      POINTS_SERVICE_TIMEOUT_MS: "5000"
     ports:
       - "3000:3000"
     depends_on:
-      backend:
+      gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
-      interval: 15s
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/admin/settings').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  gateway:
+    build:
+      context: ./src/backend/gateway
+    environment:
+      PORT: "4000"
+      POINTS_ENGINE_URL: http://points-engine:4001
+      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+      MEMBER_SERVICE_URL: http://member-service:4003
+      SEGMENT_SERVICE_URL: http://segment-service:4004
+      NOTIFICATION_SERVICE_URL: http://notification-service:4005
+      REWARD_SERVICE_URL: http://reward-service:4006
+      BACKEND_API_URL: http://backend-api:4000
+      USE_LOCAL_LOYALTY_API: "false"
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
+      CAMPAIGN_WRITE_TOKEN: ${CAMPAIGN_WRITE_TOKEN:-}
+    ports:
+      - "4000:4000"
+    depends_on:
+      - backend-api
+      - member-service
+      - points-engine
+      - campaign-service
+      - segment-service
+      - notification-service
+      - reward-service
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
       timeout: 5s
       retries: 5
 
-  backend:
+  member-service:
+    build:
+      context: ./src/backend/member-service
+    environment:
+      PORT: "4003"
+      USE_LOCAL_LOYALTY_API: "true"
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    expose:
+      - "4003"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  points-engine:
+    build:
+      context: ./src/backend/points-engine
+    environment:
+      PORT: "4001"
+      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+      USE_LOCAL_LOYALTY_API: "false"
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    expose:
+      - "4001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  campaign-service:
+    build:
+      context: ./src/backend/campaign-service
+    environment:
+      PORT: "4002"
+      USE_LOCAL_LOYALTY_API: "false"
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    expose:
+      - "4002"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  segment-service:
+    build:
+      context: ./src/backend/segment-service
+    environment:
+      PORT: "4004"
+      USE_LOCAL_LOYALTY_API: "true"
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    expose:
+      - "4004"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notification-service:
+    build:
+      context: ./src/backend/notification-service
+    environment:
+      PORT: "4005"
+    expose:
+      - "4005"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4005/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  reward-service:
+    build:
+      context: ./src/backend/reward-service
+    environment:
+      PORT: "4006"
+    expose:
+      - "4006"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4006/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend-api:
     build:
       context: .
       dockerfile: Dockerfile.backend
     environment:
-      NODE_ENV: production
-      PORT: 4000
-      EMAIL_PROVIDER: demo
-      SMS_PROVIDER: demo
-    ports:
-      - "4000:4000"
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "true"
+      USE_LOCAL_LOYALTY_API: "true"
+      NEXT_PUBLIC_USE_LOCAL_LOYALTY_API: "true"
+      NEXT_PUBLIC_USE_REMOTE_LOYALTY_API: "false"
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    expose:
+      - "4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
-      interval: 15s
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
       timeout: 5s
       retries: 5
-
-  redis:
-    image: redis:7-alpine
-    profiles: ["optional"]
-
-  worker:
-    image: node:20-alpine
-    profiles: ["optional"]
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: ["sh", "-lc", "echo worker placeholder"]

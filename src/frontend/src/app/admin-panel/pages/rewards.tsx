@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -22,7 +23,6 @@ import {
   adminPageShellClass,
   adminPageTitleClass,
   adminPanelClass,
-  adminPanelSoftClass,
   adminSelectClass,
 } from "../lib/page-theme";
 import {
@@ -44,7 +44,6 @@ import {
   saveCampaignViaApi,
   triggerPartnerSettlementViaApi,
 } from "../../lib/api";
-import { ensureArray, type PartnerDashboardRow } from "../../lib/defaults";
 
 function toInputDate(value: Date) {
   const year = value.getFullYear();
@@ -56,6 +55,7 @@ function toInputDate(value: Date) {
 type RewardsTab = "overview" | "campaigns" | "flash" | "partners";
 type CampaignWizardStep = 1 | 2 | 3;
 type CampaignPerformanceTab = "overview" | "audience" | "engagement" | "financials";
+type PartnerDashboardWidget = "active" | "redemptions" | "settlements" | "commission";
 
 const rewardsTabs: { value: RewardsTab; label: string; hash: string }[] = [
   { value: "overview", label: "Overview", hash: "#rewards-overview" },
@@ -64,23 +64,56 @@ const rewardsTabs: { value: RewardsTab; label: string; hash: string }[] = [
   { value: "partners", label: "Partners", hash: "#rewards-partners" },
 ];
 
+function tabHash(tab: RewardsTab) {
+  return rewardsTabs.find((item) => item.value === tab)?.hash || "#rewards-overview";
+}
+
+function tabPath(tab: RewardsTab) {
+  return "/admin/rewards";
+}
+
 export default function AdminRewardsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { loading, error, metrics, rewardsCatalog, refetch } = useAdminData({ scope: "rewards" });
   const [activeTab, setActiveTab] = useState<RewardsTab>("overview");
   const [campaigns, setCampaigns] = useState<PromotionCampaign[]>([]);
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance[]>([]);
   const [partners, setPartners] = useState<RewardPartner[]>([]);
   const [partnerPerformance, setPartnerPerformance] = useState<RewardPartnerPerformance[]>([]);
-  const [partnerDashboardRows, setPartnerDashboardRows] = useState<PartnerDashboardRow[]>([]);
+  const [partnerDashboardRows, setPartnerDashboardRows] = useState<
+    Array<{
+      partner: {
+        id: string;
+        partnerCode: string;
+        partnerName: string;
+        description: string | null;
+        logoUrl: string | null;
+        conversionRate: number;
+        isActive: boolean;
+      };
+      totals: {
+        transactions: number;
+        pendingTransactions: number;
+        settledTransactions: number;
+        points: number;
+        grossAmount: number;
+        totalCommission: number;
+      };
+    }>
+  >([]);
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [savingPartner, setSavingPartner] = useState(false);
   const [publishingCampaignId, setPublishingCampaignId] = useState<string | null>(null);
   const [settlingPartnerId, setSettlingPartnerId] = useState<string | null>(null);
   const [campaignWizardStep, setCampaignWizardStep] = useState<CampaignWizardStep>(1);
   const [campaignPerformanceTab, setCampaignPerformanceTab] = useState<CampaignPerformanceTab>("overview");
+  const [partnerDashboardWidget, setPartnerDashboardWidget] = useState<PartnerDashboardWidget>("active");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>("");
   const [performanceWindow, setPerformanceWindow] = useState<"7d" | "30d" | "90d">("30d");
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<"all" | "active" | "draft" | "paused" | "completed">("all");
+  const [partnerStatusFilter, setPartnerStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [abTestEnabled, setAbTestEnabled] = useState(true);
   const [abAudienceSplit, setAbAudienceSplit] = useState("50 / 50");
   const [abSuccessMetric, setAbSuccessMetric] = useState("redemption_rate");
@@ -120,13 +153,13 @@ export default function AdminRewardsPage() {
       loadCampaignPerformance(),
       loadRewardPartners(),
       loadPartnerPerformance(),
-      loadPartnerDashboardViaApi().catch(() => ({ ok: true as const, partners: [] as PartnerDashboardRow[] })),
+      loadPartnerDashboardViaApi().catch(() => ({ ok: true as const, partners: [] })),
     ]);
     setCampaigns(campaignRows);
     setCampaignPerformance(performanceRows);
     setPartners(partnerRows);
     setPartnerPerformance(partnerPerfRows);
-    setPartnerDashboardRows(ensureArray<PartnerDashboardRow>(partnerDashboardResponse.partners));
+    setPartnerDashboardRows(partnerDashboardResponse.partners);
   };
 
   useEffect(() => {
@@ -177,21 +210,16 @@ export default function AdminRewardsPage() {
   }, [campaigns]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    const matchedTab = rewardsTabs.find((tab) => tab.hash === hash);
-    if (matchedTab) {
-      setActiveTab(matchedTab.value);
-    }
-  }, []);
+    const matchedTab = rewardsTabs.find((tab) => tab.hash === location.hash);
+    setActiveTab(matchedTab?.value || "overview");
+  }, [location.hash]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const current = rewardsTabs.find((tab) => tab.value === activeTab);
-    if (!current) return;
-    const nextUrl = `${window.location.pathname}${window.location.search}${current.hash}`;
-    window.history.replaceState(null, "", nextUrl);
-  }, [activeTab]);
+    const nextPath = tabPath(activeTab);
+    const nextHash = tabHash(activeTab);
+    if (location.pathname === nextPath && location.hash === nextHash) return;
+    navigate({ pathname: nextPath, hash: nextHash }, { replace: true });
+  }, [activeTab, location.hash, location.pathname, navigate]);
 
   const campaignPerformanceById = useMemo(
     () => new Map(campaignPerformance.map((row) => [row.campaignId, row])),
@@ -210,6 +238,48 @@ export default function AdminRewardsPage() {
     }
     return next;
   }, [rewardsCatalog]);
+  const partnerListRows = useMemo(
+    () => {
+      const partnerMap = new Map<string, RewardPartner>();
+      for (const partner of partners) {
+        partnerMap.set(String(partner.id), partner);
+      }
+      for (const row of partnerDashboardRows) {
+        const id = String(row.partner.id);
+        if (!partnerMap.has(id)) {
+          partnerMap.set(id, {
+            id,
+            partnerCode: row.partner.partnerCode,
+            partnerName: row.partner.partnerName,
+            description: row.partner.description,
+            logoUrl: row.partner.logoUrl,
+            conversionRate: row.partner.conversionRate,
+            isActive: row.partner.isActive,
+          });
+        }
+      }
+
+      return Array.from(partnerMap.values()).map((partner) => {
+        const performance = partnerPerformance.find((row) => row.id === partner.id);
+        const dashboardRow = partnerDashboardRows.find((row) => String(row.partner.id) === String(partner.id));
+        const linkedRewards = rewardsByPartner.get(partner.id) || [];
+
+        return {
+          partner,
+          performance,
+          dashboardRow,
+          linkedRewards,
+          rewardsCount: performance?.rewardsCount ?? linkedRewards.length,
+          transactions: dashboardRow?.totals.transactions ?? 0,
+          pendingTransactions: dashboardRow?.totals.pendingTransactions ?? 0,
+          pointsRecorded: dashboardRow?.totals.points ?? performance?.pointsRedeemed ?? 0,
+          estimatedSettlement: dashboardRow?.totals.grossAmount ?? 0,
+          estimatedCommission: dashboardRow?.totals.totalCommission ?? 0,
+        };
+      });
+    },
+    [partnerDashboardRows, partnerPerformance, partners, rewardsByPartner]
+  );
   const campaignComparisonChart = useMemo(
     () =>
       campaigns.slice(0, 6).map((campaign) => {
@@ -236,17 +306,16 @@ export default function AdminRewardsPage() {
   );
   const partnerRedemptionChart = useMemo(
     () =>
-      partners
-        .map((partner) => {
-          const performance = partnerPerformance.find((row) => row.id === partner.id);
+      partnerListRows
+        .map(({ partner, performance, dashboardRow }) => {
           return {
             name: partner.partnerName,
-            value: performance?.redemptionCount ?? 0,
+            value: performance?.redemptionCount ?? dashboardRow?.totals.transactions ?? 0,
           };
         })
         .filter((entry) => entry.value > 0)
         .slice(0, 6),
-    [partnerPerformance, partners]
+    [partnerListRows]
   );
 
   const partnerDashboardSummary = useMemo(() => {
@@ -308,12 +377,66 @@ export default function AdminRewardsPage() {
       ),
     [campaignListRows, campaignStatusFilter]
   );
+  const visiblePartnerListRows = useMemo(
+    () =>
+      partnerListRows.filter(({ partner }) => {
+        if (partnerStatusFilter === "active") return partner.isActive;
+        if (partnerStatusFilter === "disabled") return !partner.isActive;
+        return true;
+      }),
+    [partnerListRows, partnerStatusFilter]
+  );
+  const selectedPartnerRow = useMemo(
+    () => partnerListRows.find((row) => String(row.partner.id) === selectedPartnerId) ?? partnerListRows[0] ?? null,
+    [partnerListRows, selectedPartnerId]
+  );
+  const partnerDashboardWidgets = useMemo(
+    () => [
+      {
+        key: "active" as const,
+        eyebrow: "Partner Coverage",
+        title: "Active Partners",
+        value: partnerDashboardSummary.activePartners.toLocaleString(),
+        description: "Live partner relationships",
+      },
+      {
+        key: "redemptions" as const,
+        eyebrow: "Redemption Flow",
+        title: "Partner Redemptions",
+        value: partnerDashboardSummary.totalRedemptions.toLocaleString(),
+        description: "Linked reward redemptions",
+      },
+      {
+        key: "settlements" as const,
+        eyebrow: "Settlement Value",
+        title: "Settlement Value",
+        value: `PHP ${partnerDashboardSummary.totalSettlementValue.toFixed(0)}`,
+        description: "Estimated by conversion rate",
+      },
+      {
+        key: "commission" as const,
+        eyebrow: "Commission Summary",
+        title: "Commission Summary",
+        value: `PHP ${partnerDashboardSummary.totalCommission.toFixed(0)}`,
+        description: partnerDashboardSummary.topPartner
+          ? `Top partner: ${partnerDashboardSummary.topPartner.name}`
+          : "No partner redemption activity yet",
+      },
+    ],
+    [partnerDashboardSummary]
+  );
 
   useEffect(() => {
     if (!selectedCampaignId && campaigns[0]?.id) {
       setSelectedCampaignId(String(campaigns[0].id));
     }
   }, [campaigns, selectedCampaignId]);
+
+  useEffect(() => {
+    if (!selectedPartnerId && partnerListRows[0]?.partner.id) {
+      setSelectedPartnerId(String(partnerListRows[0].partner.id));
+    }
+  }, [partnerListRows, selectedPartnerId]);
 
   const handleSaveCampaign = async () => {
     if (!campaignForm.campaignCode.trim() || !campaignForm.campaignName.trim()) {
@@ -489,7 +612,7 @@ export default function AdminRewardsPage() {
             <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}><p className="text-sm text-gray-500">Points Liability</p><p className="mt-2 text-3xl font-bold text-gray-900">{metrics.pointsLiability.toLocaleString()}</p></Card>
             <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}><p className="text-sm text-gray-500">Redeemed (6m)</p><p className="mt-2 text-3xl font-bold text-gray-900">{metrics.redemptionSeries.reduce((sum, point) => sum + point.value, 0).toLocaleString()}</p></Card>
             <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}><p className="text-sm text-gray-500">Active Campaigns</p><p className="mt-2 text-3xl font-bold text-gray-900">{campaigns.filter((campaign) => campaign.status === "active").length}</p></Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}><p className="text-sm text-gray-500">Active Partners</p><p className="mt-2 text-3xl font-bold text-gray-900">{partners.filter((partner) => partner.isActive).length}</p></Card>
+            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}><p className="text-sm text-gray-500">Active Partners</p><p className="mt-2 text-3xl font-bold text-gray-900">{partnerListRows.filter((row) => row.partner.isActive).length}</p></Card>
           </div>
 
           <Card className={adminPanelClass}>
@@ -507,76 +630,58 @@ export default function AdminRewardsPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <Card className={adminPanelClass}>
-                <h2 className="text-lg font-semibold text-gray-900">Campaign Comparison</h2>
-                <p className="mt-1 text-sm text-gray-500">Quick read on which campaigns drive points and redemptions.</p>
-                <div className="mt-4 h-72">
-                  {campaignComparisonChart.length === 0 ? (
-                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
-                      No campaign comparison data yet.
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={campaignComparisonChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                        <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                        <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[8, 8, 0, 0]} fill="#0fa7b4" />
-                        <Bar dataKey="redemptions" name="Redemptions" radius={[8, 8, 0, 0]} fill="#1A2B47" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </Card>
+            <Card className={adminPanelClass}>
+              <h2 className="text-lg font-semibold text-gray-900">Campaign Comparison</h2>
+              <p className="mt-1 text-sm text-gray-500">Quick read on which campaigns drive points and redemptions.</p>
+              <div className="mt-4 h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={campaignComparisonChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
+                    <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[8, 8, 0, 0]} fill="#0fa7b4" />
+                    <Bar dataKey="redemptions" name="Redemptions" radius={[8, 8, 0, 0]} fill="#1A2B47" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
 
-              <Card className={adminPanelClass}>
-                <h2 className="text-lg font-semibold text-gray-900">Flash Sale Sell-through</h2>
-                <p className="mt-1 text-sm text-gray-500">Which flash drops are converting fastest and clearing inventory.</p>
-                <div className="mt-4 h-72">
-                  {flashPerformanceChart.length === 0 ? (
-                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
-                      No flash sale sell-through data yet.
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={flashPerformanceChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                        <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                        <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[8, 8, 0, 0]} fill="#f59e0b" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </Card>
+            <Card className={adminPanelClass}>
+              <h2 className="text-lg font-semibold text-gray-900">Flash Sale Sell-through</h2>
+              <p className="mt-1 text-sm text-gray-500">Which flash drops are converting fastest and clearing inventory.</p>
+              <div className="mt-4 h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={flashPerformanceChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
+                    <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[8, 8, 0, 0]} fill="#f59e0b" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
 
-              <Card className={adminPanelClass}>
-                <h2 className="text-lg font-semibold text-gray-900">Partner Redemption Share</h2>
-                <p className="mt-1 text-sm text-gray-500">Top partners by redeemed rewards volume.</p>
-                <div className="mt-4 h-72">
-                  {partnerRedemptionChart.length === 0 ? (
-                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#dbe8f6] bg-[#f8fbff] px-6 text-center text-sm text-gray-500">
-                      No partner redemption data yet.
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} paddingAngle={3}>
-                          {partnerRedemptionChart.map((entry, index) => (
-                            <Cell
-                              key={`${entry.name}-${index}`}
-                              fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </Card>
+            <Card className={adminPanelClass}>
+              <h2 className="text-lg font-semibold text-gray-900">Partner Redemption Share</h2>
+              <p className="mt-1 text-sm text-gray-500">Top partners by redeemed rewards volume.</p>
+              <div className="mt-4 h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} paddingAngle={3}>
+                      {partnerRedemptionChart.map((entry, index) => (
+                        <Cell
+                          key={`${entry.name}-${index}`}
+                          fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
           </div>
         </TabsContent>
 
@@ -617,7 +722,7 @@ export default function AdminRewardsPage() {
                   <div><Label className="mb-2 inline-block">Campaign Code</Label><Input value={campaignForm.campaignCode} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignCode: e.target.value }))} /></div>
                   <div><Label className="mb-2 inline-block">Campaign Name</Label><Input value={campaignForm.campaignName} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignName: e.target.value }))} /></div>
                   <div><Label className="mb-2 inline-block">Type</Label><select className={adminSelectClass} value={campaignForm.campaignType} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignType: e.target.value as typeof campaignForm.campaignType }))}><option value="bonus_points">Bonus points</option><option value="multiplier_event">Multiplier event</option><option value="flash_sale">Flash sale</option></select></div>
-                  <div><Label className="mb-2 inline-block">Reward Link</Label><select className={adminSelectClass} value={campaignForm.rewardId} onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}><option value="">No linked reward</option>{rewardsCatalog.map((reward) => <option key={reward.id ?? reward.reward_id} value={String(reward.id ?? "")}>{reward.name}</option>)}</select></div>
+                  <div><Label className="mb-2 inline-block">Reward Link</Label><select className={adminSelectClass} value={campaignForm.rewardId} onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}><option value="">No linked reward</option>{rewardsCatalog.map((reward) => <option key={reward.id ?? reward.reward_id} value={String(reward.id ?? reward.reward_id ?? "")}>{reward.name}</option>)}</select></div>
                 </div>
                 <div className="mt-4"><Label className="mb-2 inline-block">Description</Label><Textarea rows={3} value={campaignForm.description} onChange={(e) => setCampaignForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -847,103 +952,268 @@ export default function AdminRewardsPage() {
 
         <TabsContent value="partners" className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}>
-              <p className="text-sm text-gray-500">Active Partners</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{partnerDashboardSummary.activePartners}</p>
-              <p className="mt-1 text-xs text-gray-500">Live partner relationships</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}>
-              <p className="text-sm text-gray-500">Partner Redemptions</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{partnerDashboardSummary.totalRedemptions}</p>
-              <p className="mt-1 text-xs text-gray-500">Linked reward redemptions</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}>
-              <p className="text-sm text-gray-500">Settlement Value</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">PHP {partnerDashboardSummary.totalSettlementValue.toFixed(0)}</p>
-              <p className="mt-1 text-xs text-gray-500">Estimated by conversion rate</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}>
-              <p className="text-sm text-gray-500">Commission Summary</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">PHP {partnerDashboardSummary.totalCommission.toFixed(0)}</p>
-              <p className="mt-1 text-xs text-gray-500">
-                {partnerDashboardSummary.topPartner
-                  ? `Top partner: ${partnerDashboardSummary.topPartner.name}`
-                  : "No partner redemption activity yet"}
-              </p>
-            </Card>
+            {partnerDashboardWidgets.map((widget) => {
+              const isActive = partnerDashboardWidget === widget.key;
+              return (
+                <button
+                  key={widget.key}
+                  type="button"
+                  onClick={() => setPartnerDashboardWidget(widget.key)}
+                  className={`rounded-[28px] border p-5 text-left transition ${
+                    isActive
+                      ? "border-[#1A2B47] bg-[#172845] text-white shadow-[0_18px_36px_rgba(16,33,58,0.16)]"
+                      : "border-[#d6e0f7] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] text-[#10213a] hover:border-[#9bb5d5] hover:shadow-[0_12px_28px_rgba(16,33,58,0.08)]"
+                  }`}
+                >
+                  <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isActive ? "text-white/70" : "text-[#5f7895]"}`}>
+                    {widget.eyebrow}
+                  </p>
+                  <p className="mt-4 text-[1.05rem] font-semibold">{widget.title}</p>
+                  <p className="mt-2 text-3xl font-bold">{widget.value}</p>
+                  <p className={`mt-2 text-sm ${isActive ? "text-white/80" : "text-[#47617f]"}`}>{widget.description}</p>
+                </button>
+              );
+            })}
           </div>
 
           <Card className={adminPanelClass}>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Partner Dashboard</h2>
-                <p className="mt-1 text-sm text-gray-500">Partner setup, commission monitoring, and performance in the shared admin style.</p>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {partnerDashboardWidget === "active" ? "Partner Setup" : null}
+                  {partnerDashboardWidget === "redemptions" ? "Redemption Flow" : null}
+                  {partnerDashboardWidget === "settlements" ? "Settlement Queue" : null}
+                  {partnerDashboardWidget === "commission" ? "Commission Summary" : null}
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  {partnerDashboardWidget === "active" ? "Create partners and keep active relationships ready for linked rewards." : null}
+                  {partnerDashboardWidget === "redemptions" ? "Review partner redemption volume, points recorded, and linked reward activity." : null}
+                  {partnerDashboardWidget === "settlements" ? "Track pending transactions and settle partners from the same workspace." : null}
+                  {partnerDashboardWidget === "commission" ? "Compare estimated commission and settlement value by partner." : null}
+                </p>
               </div>
               <div className="rounded-2xl border border-[#dbe8f6] bg-[#f7fbff] px-4 py-3 text-sm text-[#39506c]">
-                <p className="font-semibold text-[#1A2B47]">Commission spotlight</p>
+                <p className="font-semibold text-[#1A2B47]">
+                  {partnerDashboardWidget === "active" ? "Partner count" : null}
+                  {partnerDashboardWidget === "redemptions" ? "Redemption spotlight" : null}
+                  {partnerDashboardWidget === "settlements" ? "Settlement spotlight" : null}
+                  {partnerDashboardWidget === "commission" ? "Commission spotlight" : null}
+                </p>
                 <p className="mt-1">
-                  {partnerDashboardSummary.topPartner
-                    ? `${partnerDashboardSummary.topPartner.name} is leading with ${partnerDashboardSummary.topPartner.redemptions} redemptions.`
-                    : "Commission insights will appear once redemptions come in."}
+                  {partnerDashboardWidget === "active" ? `${partnerDashboardSummary.activePartners} active of ${partnerListRows.length} total partners.` : null}
+                  {partnerDashboardWidget === "redemptions"
+                    ? partnerDashboardSummary.topPartner
+                      ? `${partnerDashboardSummary.topPartner.name} leads with ${partnerDashboardSummary.topPartner.redemptions} redemptions.`
+                      : "Redemption insights will appear once activity comes in."
+                    : null}
+                  {partnerDashboardWidget === "settlements"
+                    ? `${partnerListRows.reduce((sum, row) => sum + row.pendingTransactions, 0)} transactions are waiting for settlement.`
+                    : null}
+                  {partnerDashboardWidget === "commission"
+                    ? selectedPartnerRow
+                      ? `${selectedPartnerRow.partner.partnerName} has PHP ${selectedPartnerRow.estimatedCommission.toFixed(0)} commission.`
+                      : "Commission insights will appear once partners are added."
+                    : null}
                 </p>
               </div>
             </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div><Label>Partner Code</Label><Input value={partnerForm.partnerCode} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerCode: e.target.value }))} /></div>
-              <div><Label>Partner Name</Label><Input value={partnerForm.partnerName} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerName: e.target.value }))} /></div>
-              <div><Label>Conversion Rate</Label><Input type="number" step="0.01" value={partnerForm.conversionRate} onChange={(e) => setPartnerForm((prev) => ({ ...prev, conversionRate: e.target.value }))} /></div>
-              <div><Label>Logo URL</Label><Input value={partnerForm.logoUrl} onChange={(e) => setPartnerForm((prev) => ({ ...prev, logoUrl: e.target.value }))} /></div>
-            </div>
-            <div className="mt-4"><Label>Description</Label><Textarea rows={3} value={partnerForm.description} onChange={(e) => setPartnerForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
-            <label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={partnerForm.isActive} onChange={(e) => setPartnerForm((prev) => ({ ...prev, isActive: e.target.checked }))} /> Active partner</label>
-            <div className="mt-5"><Button className={adminDarkButtonClass} onClick={handleSavePartner} disabled={savingPartner}>{savingPartner ? "Saving..." : "Save Partner"}</Button></div>
+
+            {partnerDashboardWidget === "active" ? (
+              <>
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <div><Label>Partner Code</Label><Input value={partnerForm.partnerCode} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerCode: e.target.value }))} /></div>
+                  <div><Label>Partner Name</Label><Input value={partnerForm.partnerName} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerName: e.target.value }))} /></div>
+                  <div><Label>Conversion Rate</Label><Input type="number" step="0.01" value={partnerForm.conversionRate} onChange={(e) => setPartnerForm((prev) => ({ ...prev, conversionRate: e.target.value }))} /></div>
+                  <div><Label>Logo URL</Label><Input value={partnerForm.logoUrl} onChange={(e) => setPartnerForm((prev) => ({ ...prev, logoUrl: e.target.value }))} /></div>
+                </div>
+                <div className="mt-4"><Label>Description</Label><Textarea rows={3} value={partnerForm.description} onChange={(e) => setPartnerForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
+                <label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={partnerForm.isActive} onChange={(e) => setPartnerForm((prev) => ({ ...prev, isActive: e.target.checked }))} /> Active partner</label>
+                <div className="mt-5"><Button className={adminDarkButtonClass} onClick={handleSavePartner} disabled={savingPartner}>{savingPartner ? "Saving..." : "Save Partner"}</Button></div>
+              </>
+            ) : null}
+
+            {partnerDashboardWidget === "redemptions" ? (
+              <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                {partnerListRows
+                  .slice()
+                  .sort((left, right) => right.transactions - left.transactions)
+                  .map((row) => (
+                    <div key={`redemption-${row.partner.id}`} className="rounded-[24px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-[#10213a]">{row.partner.partnerName}</p>
+                          <p className="text-xs text-[#7a8aa2]">{row.partner.partnerCode}</p>
+                        </div>
+                        <Badge className="bg-[#e6f8fa] text-[#0f5f65]">{row.transactions} redemptions</Badge>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-2xl bg-white p-3"><p className="text-gray-500">Rewards Linked</p><p className="mt-1 text-lg font-semibold text-gray-900">{row.rewardsCount}</p></div>
+                        <div className="rounded-2xl bg-white p-3"><p className="text-gray-500">Points</p><p className="mt-1 text-lg font-semibold text-gray-900">{row.pointsRecorded.toLocaleString()}</p></div>
+                      </div>
+                    </div>
+                  ))}
+                {partnerListRows.length === 0 ? <p className="text-sm text-gray-500">No partner redemption activity yet.</p> : null}
+              </div>
+            ) : null}
+
+            {partnerDashboardWidget === "settlements" ? (
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                {partnerListRows
+                  .slice()
+                  .sort((left, right) => right.pendingTransactions - left.pendingTransactions)
+                  .map((row) => (
+                    <div key={`settlement-${row.partner.id}`} className="rounded-[24px] border border-[#dbe8f6] bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-[#10213a]">{row.partner.partnerName}</p>
+                          <p className="mt-1 text-sm text-[#607087]">{row.pendingTransactions} pending transactions</p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleSettlePartner(row.partner.id)}
+                          disabled={settlingPartnerId === row.partner.id || row.pendingTransactions === 0}
+                        >
+                          {settlingPartnerId === row.partner.id ? "Settling..." : "Settle & Download PDF"}
+                        </Button>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)} p-3`}><p className="text-gray-500">Settlement Value</p><p className="mt-1 text-lg font-semibold text-gray-900">PHP {row.estimatedSettlement.toFixed(0)}</p></div>
+                        <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)} p-3`}><p className="text-gray-500">Commission</p><p className="mt-1 text-lg font-semibold text-gray-900">PHP {row.estimatedCommission.toFixed(0)}</p></div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+
+            {partnerDashboardWidget === "commission" ? (
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {partnerListRows
+                  .slice()
+                  .sort((left, right) => right.estimatedCommission - left.estimatedCommission)
+                  .map((row, index) => (
+                    <button
+                      key={`commission-${row.partner.id}`}
+                      type="button"
+                      onClick={() => setSelectedPartnerId(String(row.partner.id))}
+                      className={`rounded-[24px] border p-4 text-left transition ${
+                        selectedPartnerRow?.partner.id === row.partner.id ? "border-[#1A2B47] bg-[#172845] text-white" : "border-[#dbe8f6] bg-white text-[#10213a] hover:bg-[#f8fbff]"
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${selectedPartnerRow?.partner.id === row.partner.id ? "text-white/70" : "text-[#5f7895]"}`}>Rank {index + 1}</p>
+                      <p className="mt-3 font-semibold">{row.partner.partnerName}</p>
+                      <p className="mt-2 text-2xl font-bold">PHP {row.estimatedCommission.toFixed(0)}</p>
+                      <p className={`mt-1 text-sm ${selectedPartnerRow?.partner.id === row.partner.id ? "text-white/80" : "text-[#607087]"}`}>PHP {row.estimatedSettlement.toFixed(0)} settlement value</p>
+                    </button>
+                  ))}
+                {partnerListRows.length === 0 ? <p className="text-sm text-gray-500">No commission activity yet.</p> : null}
+              </div>
+            ) : null}
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            {partners.map((partner) => {
-              const performance = partnerPerformance.find((row) => row.id === partner.id);
-              const dashboardRow = partnerDashboardRows.find((row) => row.partner.id === partner.id);
-              const linkedRewards = rewardsByPartner.get(partner.id) || [];
-              const estimatedSettlement = dashboardRow?.totals.grossAmount ?? 0;
-              const estimatedCommission = dashboardRow?.totals.totalCommission ?? 0;
-              return (
-                <Card key={partner.id} className={adminPanelSoftClass}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div><p className="text-xl font-semibold text-gray-900">{partner.partnerName}</p><p className="text-sm text-gray-500">{partner.partnerCode}</p></div>
-                    <Badge className={partner.isActive ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{partner.isActive ? "Active" : "Disabled"}</Badge>
-                  </div>
-                  <p className="mt-3 text-sm text-gray-600">{partner.description || "No description provided."}</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)} p-3`}><p className="text-gray-500">Rewards Linked</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.rewardsCount ?? linkedRewards.length}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)} p-3`}><p className="text-gray-500">Partner Transactions</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.transactions ?? 0}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)} p-3`}><p className="text-gray-500">Pending Settlement</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.pendingTransactions ?? 0}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)} p-3`}><p className="text-gray-500">Points Recorded</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.points ?? performance?.pointsRedeemed ?? 0}</p></div>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl border border-[#dbe8f6] bg-white px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[#5f6f86]">Settlement Value</p>
-                      <p className="mt-2 text-lg font-semibold text-[#1A2B47]">PHP {estimatedSettlement.toFixed(0)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[#dbe8f6] bg-white px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[#5f6f86]">Commission</p>
-                      <p className="mt-2 text-lg font-semibold text-[#1A2B47]">PHP {estimatedCommission.toFixed(0)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">{linkedRewards.map((reward) => <Badge key={reward.reward_id} variant="outline">{reward.name}</Badge>)}{linkedRewards.length === 0 ? <span className="text-xs text-gray-500">No linked rewards yet.</span> : null}</div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => toggleRewardPartner(partner.id, !partner.isActive).then(async () => { await reload(); await refetch(); }).catch((toggleError) => toast.error(toggleError instanceof Error ? toggleError.message : "Unable to update partner."))}>{partner.isActive ? "Disable Partner" : "Enable Partner"}</Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSettlePartner(partner.id)}
-                      disabled={settlingPartnerId === partner.id || (dashboardRow?.totals.pendingTransactions ?? 0) === 0}
-                    >
-                      {settlingPartnerId === partner.id ? "Settling..." : "Settle & Download PDF"}
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+          <Card className={adminPanelClass}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Partners List</h2>
+                <p className="mt-1 text-sm text-gray-500">Linked rewards, settlement readiness, and partner actions stay inline for quick review.</p>
+              </div>
+              <div className="flex flex-wrap gap-3 lg:justify-end">
+                <select className={`${adminSelectClass} min-w-[168px] lg:w-[220px]`} value={partnerStatusFilter} onChange={(e) => setPartnerStatusFilter(e.target.value as typeof partnerStatusFilter)}>
+                  <option value="all">All partners</option>
+                  <option value="active">Active</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+                <select className={`${adminSelectClass} min-w-[168px] lg:w-[220px]`} value={selectedPartnerId} onChange={(e) => setSelectedPartnerId(e.target.value)}>
+                  {partnerListRows.map((row) => <option key={row.partner.id} value={String(row.partner.id)}>{row.partner.partnerName}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-x-auto rounded-[24px] border border-[#dbe8f6] bg-white">
+              <table className="w-full min-w-[1080px]">
+                <thead>
+                  <tr className="border-b border-[#dbe8f6] text-left text-sm text-[#607087]">
+                    <th className="px-3 py-3 font-semibold">Partner</th>
+                    <th className="px-3 py-3 font-semibold">Status</th>
+                    <th className="px-3 py-3 font-semibold">Rewards</th>
+                    <th className="px-3 py-3 font-semibold">Transactions</th>
+                    <th className="px-3 py-3 font-semibold">Pending</th>
+                    <th className="px-3 py-3 font-semibold">Points</th>
+                    <th className="px-3 py-3 font-semibold">Settlement</th>
+                    <th className="px-3 py-3 font-semibold">Commission</th>
+                    <th className="px-3 py-3 font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePartnerListRows.map((row) => (
+                    <tr key={row.partner.id} className="border-b border-[#edf2fb] transition hover:bg-[#f8fbff]">
+                      <td className="px-3 py-4">
+                        <button type="button" className="max-w-[260px] text-left" onClick={() => setSelectedPartnerId(String(row.partner.id))}>
+                          <p className="font-semibold text-[#10213a]">{row.partner.partnerName}</p>
+                          <p className="text-xs text-[#7a8aa2]">{row.partner.partnerCode} - {row.partner.description || "No description provided."}</p>
+                        </button>
+                      </td>
+                      <td className="px-3 py-4"><Badge className={row.partner.isActive ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{row.partner.isActive ? "Active" : "Disabled"}</Badge></td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#10213a]">{row.rewardsCount}</td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#10213a]">{row.transactions}</td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#5d3fd3]">{row.pendingTransactions}</td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#10213a]">{row.pointsRecorded.toLocaleString()}</td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#0b7f88]">PHP {row.estimatedSettlement.toFixed(0)}</td>
+                      <td className="px-3 py-4 text-sm font-semibold text-[#0b7f88]">PHP {row.estimatedCommission.toFixed(0)}</td>
+                      <td className="px-3 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPartnerId(String(row.partner.id))}
+                            className="rounded-[12px] border border-[#dbe8f6] bg-white px-4 py-2 text-sm font-medium text-[#10213a] transition hover:border-[#0f8b92] hover:bg-[#0f8b92] hover:text-white"
+                          >
+                            View Partner
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleRewardPartner(row.partner.id, !row.partner.isActive).then(async () => { await reload(); await refetch(); }).catch((toggleError) => toast.error(toggleError instanceof Error ? toggleError.message : "Unable to update partner."))}
+                            className="rounded-[12px] border border-[#dbe8f6] bg-white px-4 py-2 text-sm font-medium text-[#10213a] transition hover:border-[#172845] hover:bg-[#172845] hover:text-white"
+                          >
+                            {row.partner.isActive ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSettlePartner(row.partner.id)}
+                            disabled={settlingPartnerId === row.partner.id || row.pendingTransactions === 0}
+                            className="rounded-[12px] border border-[#dbe8f6] bg-white px-4 py-2 text-sm font-medium text-[#10213a] transition hover:border-[#172845] hover:bg-[#172845] hover:text-white disabled:opacity-60"
+                          >
+                            {settlingPartnerId === row.partner.id ? "Settling..." : "Settle"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {visiblePartnerListRows.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-6 text-sm text-gray-500" colSpan={9}>No partners match the selected filter.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-5 rounded-[28px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{selectedPartnerRow?.partner.partnerName || "Partner Details"}</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {selectedPartnerRow?.partner.description || "Select a partner from the list to review linked rewards and settlement details."}
+                  </p>
+                </div>
+                {selectedPartnerRow ? (
+                  <Badge className={selectedPartnerRow.partner.isActive ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{selectedPartnerRow.partner.isActive ? "Active" : "Disabled"}</Badge>
+                ) : null}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {selectedPartnerRow?.linkedRewards.map((reward) => <Badge key={`${selectedPartnerRow.partner.id}-${reward.id ?? reward.reward_id ?? reward.name}`} variant="outline">{reward.name}</Badge>)}
+                {selectedPartnerRow && selectedPartnerRow.linkedRewards.length === 0 ? <span className="text-xs text-gray-500">No linked rewards yet.</span> : null}
+              </div>
+            </div>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

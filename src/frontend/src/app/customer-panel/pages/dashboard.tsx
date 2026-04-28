@@ -9,7 +9,6 @@ import type { AppOutletContext } from "../../types/app-context";
 import { supabase } from "../../../utils/supabase/client";
 import { getChallengeProgress, loadEngagementState } from "../../lib/member-engagement";
 import { loadActivePromotionCampaigns, type PromotionCampaign } from "../../lib/promotions";
-import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 import {
   brandNavyBadgeClass,
   brandTealBadgeClass,
@@ -79,7 +78,6 @@ function fixed(value: unknown, digits = 0) {
 
 export default function Dashboard() {
   const { user } = useOutletContext<AppOutletContext>();
-  const safeUser = createDefaultMemberData(user);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [tierMinimums, setTierMinimums] = useState<Record<TierName, number>>({
     Bronze: 0,
@@ -99,32 +97,32 @@ export default function Dashboard() {
   const derivedTierName = useMemo<TierName>(() => {
     const level = [...resolvedTierLevels]
       .sort((a, b) => b.min - a.min)
-      .find((tier) => safeUser.points >= tier.min);
+      .find((tier) => user.points >= tier.min);
     return (level?.name ?? "Bronze") as TierName;
-  }, [resolvedTierLevels, safeUser.points]);
+  }, [resolvedTierLevels, user.points]);
 
   const [selectedTier, setSelectedTier] = useState<TierName>(derivedTierName);
   const [activeCampaigns, setActiveCampaigns] = useState<PromotionCampaign[]>([]);
   const [activeCampaignIndex, setActiveCampaignIndex] = useState(0);
   const [benefitsExpanded, setBenefitsExpanded] = useState(true);
 
-  const projectedBalance = safeUser.points + safeUser.pendingPoints;
+  const projectedBalance = user.points + user.pendingPoints;
   const currentTierIndexRaw = resolvedTierLevels.findIndex((tier) => tier.name === derivedTierName);
   const currentTierIndex = Math.max(0, currentTierIndexRaw);
   const currentTierData = resolvedTierLevels[currentTierIndex];
   const nextTierData = resolvedTierLevels[currentTierIndex + 1] ?? null;
   const progressBase = currentTierData.min;
-  const progressTarget = nextTierData ? nextTierData.min : Math.max(currentTierData.min, safeUser.points);
+  const progressTarget = nextTierData ? nextTierData.min : Math.max(currentTierData.min, user.points);
   const tierProgress =
     nextTierData && progressTarget > progressBase
-      ? Math.min(100, ((safeUser.points - progressBase) / (progressTarget - progressBase)) * 100)
+      ? Math.min(100, ((user.points - progressBase) / (progressTarget - progressBase)) * 100)
       : 100;
   const selectedTierInfo = useMemo(
     () => resolvedTierLevels.find((tier) => tier.name === selectedTier) ?? resolvedTierLevels[0],
     [resolvedTierLevels, selectedTier]
   );
   const [showWelcomeNotice, setShowWelcomeNotice] = useState(false);
-  const recentFive = [...ensureArray(safeUser.transactions)].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+  const recentFive = [...user.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
   const now = useMemo(() => new Date(countdownNow), [countdownNow]);
   const tierBenefits: Record<TierName, string[]> = {
     Bronze: [
@@ -190,10 +188,10 @@ export default function Dashboard() {
   }, [activeCampaigns]);
 
   useEffect(() => {
-    loadActivePromotionCampaigns(safeUser.tier)
+    loadActivePromotionCampaigns(user.tier)
       .then((rows) => setActiveCampaigns(rows))
       .catch(() => setActiveCampaigns([]));
-  }, [safeUser.tier]);
+  }, [user.tier]);
 
   useEffect(() => {
     try {
@@ -201,7 +199,7 @@ export default function Dashboard() {
       if (!rawNotice) return;
 
       const parsedNotice = JSON.parse(rawNotice) as { memberNumber?: string };
-      if (parsedNotice.memberNumber === safeUser.memberId) {
+      if (parsedNotice.memberNumber === user.memberId) {
         setShowWelcomeNotice(true);
         localStorage.removeItem(WELCOME_NOTICE_STORAGE_KEY);
         return;
@@ -212,7 +210,7 @@ export default function Dashboard() {
       localStorage.removeItem(WELCOME_NOTICE_STORAGE_KEY);
       setShowWelcomeNotice(false);
     }
-  }, [safeUser.memberId]);
+  }, [user.memberId]);
 
   return (
     <div className="space-y-6">
@@ -220,7 +218,7 @@ export default function Dashboard() {
         <div className={customerPageHeroInnerClass}>
           <div className={customerEyebrowClass}>Member Overview</div>
           <h1 className={customerPageTitleClass}>Dashboard</h1>
-          <p className={customerPageDescriptionClass}>Welcome back, {safeUser.fullName.split(" ")[0] || "member"}. Track your points, tiers, campaigns, and member benefits in one calmer workspace.</p>
+          <p className={customerPageDescriptionClass}>Welcome back, {user.fullName.split(" ")[0]}. Track your points, tiers, campaigns, and member benefits in one calmer workspace.</p>
         </div>
       </div>
 
@@ -241,7 +239,7 @@ export default function Dashboard() {
                 Member balance
               </div>
               <div className="mt-5 flex items-end gap-3">
-                <h2 className="text-5xl font-black tracking-tight">{safeUser.points.toLocaleString()}</h2>
+                <h2 className="text-5xl font-black tracking-tight">{user.points.toLocaleString()}</h2>
                 <p className="pb-1 text-sm uppercase tracking-[0.22em] text-white/72">points</p>
               </div>
               <p className="mt-3 max-w-lg text-sm leading-6 text-white/78">
@@ -254,7 +252,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-white/65">Tier progress</p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    {nextTierData ? `${Math.max(nextTierData.min - safeUser.points, 0).toLocaleString()} pts to ${nextTierData.name}` : "Maximum tier reached"}
+                    {nextTierData ? `${Math.max(nextTierData.min - user.points, 0).toLocaleString()} pts to ${nextTierData.name}` : "Maximum tier reached"}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-white/14 p-3">
@@ -265,7 +263,7 @@ export default function Dashboard() {
                 <Progress value={tierProgress} className="h-2.5 bg-white/15 [&>div]:bg-[#35d4dc]" />
               </div>
               <div className="mt-3 flex items-center justify-between text-xs text-white/72">
-                <span>{safeUser.points.toLocaleString()} pts</span>
+                <span>{user.points.toLocaleString()} pts</span>
                 <span>{progressTarget.toLocaleString()} pts</span>
               </div>
             </div>
@@ -289,7 +287,7 @@ export default function Dashboard() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <p className="text-gray-600 text-sm font-medium">Pending Points</p>
-                <h2 className="text-3xl font-bold text-gray-900 mt-2">{safeUser.pendingPoints}</h2>
+                <h2 className="text-3xl font-bold text-gray-900 mt-2">{user.pendingPoints}</h2>
                 <p className="text-gray-500 text-sm mt-1">processing</p>
               </div>
               <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", infoPillClass)}>
@@ -304,7 +302,7 @@ export default function Dashboard() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <p className="text-gray-600 text-sm font-medium">Earned This Month</p>
-                  <h2 className="text-3xl font-bold text-gray-900 mt-2">{safeUser.earnedThisMonth}</h2>
+                  <h2 className="text-3xl font-bold text-gray-900 mt-2">{user.earnedThisMonth}</h2>
                   <p className="text-gray-500 text-sm mt-1">points</p>
                 </div>
                 <div className="w-10 h-10 bg-[#dcfce7] rounded-lg flex items-center justify-center">
@@ -313,7 +311,7 @@ export default function Dashboard() {
               </div>
               <p className="text-gray-600 text-sm">
                 {
-                  ensureArray(safeUser.transactions).filter(
+                  user.transactions.filter(
                     (t) =>
                       t.type === "earned" &&
                       new Date(t.date).getMonth() === now.getMonth() &&
@@ -327,7 +325,7 @@ export default function Dashboard() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <p className="text-gray-600 text-sm font-medium">Redeemed This Month</p>
-                  <h2 className="text-3xl font-bold text-gray-900 mt-2">{safeUser.redeemedThisMonth}</h2>
+                  <h2 className="text-3xl font-bold text-gray-900 mt-2">{user.redeemedThisMonth}</h2>
                   <p className="text-gray-500 text-sm mt-1">points</p>
                 </div>
                 <div className="w-10 h-10 bg-[#ffedd5] rounded-lg flex items-center justify-center">
@@ -336,7 +334,7 @@ export default function Dashboard() {
               </div>
               <p className="text-gray-600 text-sm">
                 {
-                  ensureArray(safeUser.transactions).filter(
+                  user.transactions.filter(
                     (t) =>
                       t.type === "redeemed" &&
                       new Date(t.date).getMonth() === now.getMonth() &&

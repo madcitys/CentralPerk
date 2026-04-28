@@ -67,7 +67,6 @@ import {
   customerPageHeroInnerClass,
   customerPageTitleClass,
 } from "../lib/page-theme";
-import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 
 type EngagementTab = "overview" | "rewards" | "challenges" | "sharing" | "surveys";
 
@@ -81,7 +80,6 @@ const engagementTabs: { value: EngagementTab; label: string; hash: string }[] = 
 
 export default function CustomerEngagementPage() {
   const { user, refreshUser, setUser } = useOutletContext<AppOutletContext>();
-  const safeUser = createDefaultMemberData(user);
   const [activeTab, setActiveTab] = useState<EngagementTab>("overview");
   const [state, setState] = useState<EngagementState>(() => loadEngagementState());
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -170,24 +168,24 @@ export default function CustomerEngagementPage() {
   }, [activeTab]);
 
   const privacySettings = useMemo<SharePrivacySettings>(
-    () => getMemberPrivacySettings(state, safeUser.memberId),
-    [state, safeUser.memberId]
+    () => getMemberPrivacySettings(state, user.memberId),
+    [state, user.memberId]
   );
   useEffect(() => {
-    getMemberReferralCode(safeUser.memberId, safeUser.email)
+    getMemberReferralCode(user.memberId, user.email)
       .then(setReferralCode)
       .catch(() => setReferralCode(""));
-    loadReferrals(safeUser.memberId)
+    loadReferrals(user.memberId)
       .then(setMyReferrals)
       .catch(() => setMyReferrals([]));
-    loadBirthdayRewardStatus(safeUser.memberId, safeUser.email)
+    loadBirthdayRewardStatus(user.memberId, user.email)
       .then(setBirthdayStatus)
       .catch(() => setBirthdayStatus({ hasReward: false, voucherCode: null, pointsAwarded: 0, badgeLabel: null }));
-  }, [safeUser.memberId, safeUser.email]);
+  }, [user.memberId, user.email]);
 
   useEffect(() => {
     let alive = true;
-    loadChallengeProgressByMember(safeUser.memberId)
+    loadChallengeProgressByMember(user.memberId)
       .then((rows) => {
         if (alive) setChallengeProgressMap(rows);
       })
@@ -198,11 +196,11 @@ export default function CustomerEngagementPage() {
     return () => {
       alive = false;
     };
-  }, [safeUser.memberId]);
+  }, [user.memberId]);
 
   useEffect(() => {
     let alive = true;
-    loadSocialShareEvents({ memberIdentifier: safeUser.memberId })
+    loadSocialShareEvents({ memberIdentifier: user.memberId })
       .then((rows) => {
         if (!alive) return;
         setDbShareEvents(rows);
@@ -217,7 +215,7 @@ export default function CustomerEngagementPage() {
     return () => {
       alive = false;
     };
-  }, [safeUser.memberId]);
+  }, [user.memberId]);
 
   useEffect(() => {
     let alive = true;
@@ -245,28 +243,25 @@ export default function CustomerEngagementPage() {
       alive = false;
     };
   }, []);
-  const surveys = ensureArray(state.surveys);
-  const shareEvents = ensureArray(state.shareEvents);
-  const challenges = ensureArray(state.challenges);
-  const claimedChallenges = new Set((state.claimedChallengeRewardsByMember?.[safeUser.memberId] ?? []) as string[]);
-  const activeSurveys = surveys.filter((survey) => survey.status === "live");
+  const claimedChallenges = new Set(state.claimedChallengeRewardsByMember[user.memberId] ?? []);
+  const activeSurveys = state.surveys.filter((survey) => survey.status === "live");
   const completedSurveyIdSet = useMemo(() => {
     const completed = new Set(completedSurveyIds);
-    surveys.forEach((survey) => {
+    state.surveys.forEach((survey) => {
       const hasResponseFromCurrentMember = survey.responses.some(
-        (response) => response.memberId === safeUser.memberId || response.memberName === safeUser.fullName
+        (response) => response.memberId === user.memberId || response.memberName === user.fullName
       );
       if (hasResponseFromCurrentMember) completed.add(survey.id);
     });
     return completed;
-  }, [completedSurveyIds, surveys, safeUser.fullName, safeUser.memberId]);
+  }, [completedSurveyIds, state.surveys, user.fullName, user.memberId]);
   const memberShareEvents = shareEventsBackedByDb
     ? dbShareEvents
-    : shareEvents.filter((item) => item.memberId === safeUser.memberId);
-  const competitiveChallenge = challenges.find((challenge) => challenge.competitive);
-  const activeChallenges = challenges.filter((challenge) => new Date(challenge.endAt).getTime() > countdownNow);
-  const resolveChallengeProgress = (challenge: (typeof challenges)[number]) =>
-    challengeProgressMap.get(challenge.id) ?? getChallengeProgress(challenge, safeUser);
+    : state.shareEvents.filter((item) => item.memberId === user.memberId);
+  const competitiveChallenge = state.challenges.find((challenge) => challenge.competitive);
+  const activeChallenges = state.challenges.filter((challenge) => new Date(challenge.endAt).getTime() > countdownNow);
+  const resolveChallengeProgress = (challenge: (typeof state.challenges)[number]) =>
+    challengeProgressMap.get(challenge.id) ?? getChallengeProgress(challenge, user);
   const completedChallengesCount = activeChallenges.filter((challenge) => resolveChallengeProgress(challenge).completed).length;
   const nextChallenge = activeChallenges
     .map((challenge) => ({ challenge, progress: resolveChallengeProgress(challenge) }))
@@ -306,36 +301,36 @@ export default function CustomerEngagementPage() {
   );
   const highlightedLeaderboard = useMemo(() => {
     const topRows = challengeLeaderboard.slice(0, 5);
-    const currentMemberRow = challengeLeaderboard.find((row) => row.memberId === safeUser.memberId);
+    const currentMemberRow = challengeLeaderboard.find((row) => row.memberId === user.memberId);
     if (!currentMemberRow || topRows.some((row) => row.memberId === currentMemberRow.memberId)) {
       return topRows;
     }
     return [...topRows, currentMemberRow];
-  }, [challengeLeaderboard, safeUser.memberId]);
+  }, [challengeLeaderboard, user.memberId]);
   const currentMemberRank = useMemo(() => {
-    const index = challengeLeaderboard.findIndex((row) => row.memberId === safeUser.memberId);
+    const index = challengeLeaderboard.findIndex((row) => row.memberId === user.memberId);
     return index >= 0 ? index + 1 : null;
-  }, [challengeLeaderboard, safeUser.memberId]);
+  }, [challengeLeaderboard, user.memberId]);
   const shareBadgeLabel = useMemo(() => {
     if (currentMemberRank === 1) return "Champion Circle";
     if (currentMemberRank === 2) return "Silver Spotlight";
     if (currentMemberRank === 3) return "Bronze Breakout";
-    if (safeUser.tier === "Gold") return "Gold Status";
-    if (safeUser.tier === "Silver") return "Silver Momentum";
+    if (user.tier === "Gold") return "Gold Status";
+    if (user.tier === "Silver") return "Silver Momentum";
     return "Bronze Builder";
-  }, [currentMemberRank, safeUser.tier]);
+  }, [currentMemberRank, user.tier]);
   const sharePreview = useMemo(
     () =>
       buildShareAssetDataUrl({
-        memberName: safeUser.fullName,
-        tier: safeUser.tier,
+        memberName: user.fullName,
+        tier: user.tier,
         achievement: selectedAchievement,
         referralCode,
         badgeLabel: shareBadgeLabel,
         ranking: currentMemberRank,
         privacy: privacySettings,
       }),
-    [currentMemberRank, privacySettings, referralCode, selectedAchievement, shareBadgeLabel, safeUser.fullName, safeUser.tier]
+    [currentMemberRank, privacySettings, referralCode, selectedAchievement, shareBadgeLabel, user.fullName, user.tier]
   );
 
   const formatTimeRemaining = (targetDate: string) => {
@@ -358,8 +353,8 @@ export default function CustomerEngagementPage() {
       ...prev,
       privacySettingsByMember: {
         ...prev.privacySettingsByMember,
-        [safeUser.memberId]: {
-          ...getMemberPrivacySettings(prev, safeUser.memberId),
+        [user.memberId]: {
+          ...getMemberPrivacySettings(prev, user.memberId),
           ...patch,
         },
       },
@@ -376,7 +371,7 @@ export default function CustomerEngagementPage() {
           throw new Error("Facebook share popup was blocked. Allow popups and try again.");
         }
       } else {
-        await triggerImageDownload(sharePreview, `centralperk-${safeUser.memberId}-story-card.png`);
+        await triggerImageDownload(sharePreview, `centralperk-${user.memberId}-story-card.png`);
         toast.success("Instagram share asset downloaded.", {
           description: "Upload the generated image to your story or post.",
         });
@@ -384,9 +379,9 @@ export default function CustomerEngagementPage() {
 
       const nextEvent: ShareEvent = {
         id: crypto.randomUUID(),
-        memberId: safeUser.memberId,
-        memberName: safeUser.fullName,
-        tier: safeUser.tier,
+        memberId: user.memberId,
+        memberName: user.fullName,
+        tier: user.tier,
         channel,
         achievement: selectedAchievement,
         referralCode,
@@ -400,9 +395,9 @@ export default function CustomerEngagementPage() {
       }));
 
       const savedEvent = await recordSocialShareEvent({
-        memberIdentifier: safeUser.memberId,
-        memberName: safeUser.fullName,
-        tier: safeUser.tier,
+        memberIdentifier: user.memberId,
+        memberName: user.fullName,
+        tier: user.tier,
         channel,
         achievement: selectedAchievement,
         referralCode,
@@ -466,8 +461,8 @@ export default function CustomerEngagementPage() {
     try {
       setClaimingChallengeId(challengeId);
       await awardMemberPoints({
-        memberIdentifier: safeUser.memberId,
-        fallbackEmail: safeUser.email,
+        memberIdentifier: user.memberId,
+        fallbackEmail: user.email,
         points: rewardPoints,
         transactionType: "MANUAL_AWARD",
         reason: `Challenge reward (${challengeId}): ${title}`,
@@ -477,7 +472,7 @@ export default function CustomerEngagementPage() {
         ...prev,
         claimedChallengeRewardsByMember: {
           ...prev.claimedChallengeRewardsByMember,
-          [safeUser.memberId]: [...new Set([...(prev.claimedChallengeRewardsByMember[safeUser.memberId] ?? []), challengeId])],
+          [user.memberId]: [...new Set([...(prev.claimedChallengeRewardsByMember[user.memberId] ?? []), challengeId])],
         },
       }));
 
@@ -500,10 +495,10 @@ export default function CustomerEngagementPage() {
     }
 
     createReferral({
-      referrerMemberId: safeUser.memberId,
+      referrerMemberId: user.memberId,
       refereeEmail: email,
     })
-      .then(() => loadReferrals(safeUser.memberId))
+      .then(() => loadReferrals(user.memberId))
       .then((rows) => {
         setMyReferrals(rows);
         setReferralEmail("");
@@ -515,32 +510,32 @@ export default function CustomerEngagementPage() {
   const handleBirthdayClaim = async () => {
     if (birthdaySettings.fulfillmentMode === "auto_credit") {
       await refreshUser({ force: true });
-      const status = await loadBirthdayRewardStatus(safeUser.memberId, safeUser.email);
+      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
       setBirthdayStatus(status);
       toast.success(
         status.hasReward
-          ? `Birthday reward already credited: +${status.pointsAwarded || getBirthdayRewardPoints(safeUser.tier)} points.`
+          ? `Birthday reward already credited: +${status.pointsAwarded || getBirthdayRewardPoints(user.tier)} points.`
           : "Birthday rewards are credited automatically once your schedule window starts."
       );
       return;
     }
-    if (!isBirthdayMonth(safeUser)) {
+    if (!isBirthdayMonth(user)) {
       toast.error("Birthday rewards unlock on your birthday month.");
       return;
     }
-    const alreadyClaimed = await hasBirthdayClaimedThisYear(safeUser.memberId, safeUser.email);
+    const alreadyClaimed = await hasBirthdayClaimedThisYear(user.memberId, user.email);
     if (alreadyClaimed) {
       toast.error("Birthday reward already claimed this year.");
       return;
     }
     try {
-      const result = await claimBirthdayReward(safeUser.memberId, safeUser.email);
+      const result = await claimBirthdayReward(user.memberId, user.email);
       await refreshUser({ force: true });
-      const status = await loadBirthdayRewardStatus(safeUser.memberId, safeUser.email);
+      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
       setBirthdayStatus(status);
       toast.success(
         result.granted
-          ? `Birthday reward credited: +${result.pointsAwarded || getBirthdayRewardPoints(safeUser.tier)} points.`
+          ? `Birthday reward credited: +${result.pointsAwarded || getBirthdayRewardPoints(user.tier)} points.`
           : "Birthday reward is already granted for this year."
       );
     } catch (error) {
@@ -564,8 +559,8 @@ export default function CustomerEngagementPage() {
 
     try {
       const saved = await submitFeedback({
-        memberId: safeUser.memberId,
-        memberName: safeUser.fullName,
+        memberId: user.memberId,
+        memberName: user.fullName,
         category: feedbackCategory,
         rating: feedbackRating,
         comment,
@@ -598,7 +593,7 @@ export default function CustomerEngagementPage() {
   };
 
   const handleSubmitSurvey = async (surveyId: string) => {
-    const survey = surveys.find((item) => item.id === surveyId);
+    const survey = state.surveys.find((item) => item.id === surveyId);
     if (!survey) return;
 
     const answers = surveyAnswers[surveyId] ?? {};
@@ -618,22 +613,22 @@ export default function CustomerEngagementPage() {
       setSubmittingSurveyId(surveyId);
       const savedResponse = await submitSurveyResponseRecord({
         surveyId,
-        memberIdentifier: safeUser.memberId,
+        memberIdentifier: user.memberId,
         answers,
         bonusPoints: survey.bonusPoints,
       });
 
       try {
         await awardMemberPoints({
-          memberIdentifier: safeUser.memberId,
-          fallbackEmail: safeUser.email,
+          memberIdentifier: user.memberId,
+          fallbackEmail: user.email,
           points: survey.bonusPoints,
           transactionType: "MANUAL_AWARD",
           reason: `Survey completion (${surveyId}): ${survey.title}`,
         });
       } catch (awardError) {
         if (savedResponse) {
-          await deleteSurveyResponseRecord(surveyId, safeUser.memberId);
+          await deleteSurveyResponseRecord(surveyId, user.memberId);
         }
         throw awardError;
       }
@@ -647,8 +642,8 @@ export default function CustomerEngagementPage() {
                 responses: [
                   ...item.responses,
                   savedResponse ?? {
-                    memberId: safeUser.memberId,
-                    memberName: safeUser.fullName,
+                    memberId: user.memberId,
+                    memberName: user.fullName,
                     answers,
                     submittedAt: new Date().toISOString(),
                   },
@@ -729,7 +724,7 @@ export default function CustomerEngagementPage() {
             <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[320px]">
               <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
                 <p className="text-[#b9f6ff]">Surveys done</p>
-                <p className="mt-1 text-2xl font-bold">{safeUser.surveysCompleted}</p>
+                <p className="mt-1 text-2xl font-bold">{user.surveysCompleted}</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
                 <p className="text-[#b9f6ff]">Shares tracked</p>
@@ -831,7 +826,7 @@ export default function CustomerEngagementPage() {
             <p className="mt-1 text-sm text-gray-500">A yearly surprise tied to your current tier.</p>
             <div className="mt-4 rounded-2xl bg-[#fff8eb] p-4">
               <p className="text-sm text-[#9a6700]">Current bonus</p>
-              <p className="mt-2 text-2xl font-bold text-[#7c4a00]">{getBirthdayRewardPoints(safeUser.tier)} points</p>
+              <p className="mt-2 text-2xl font-bold text-[#7c4a00]">{getBirthdayRewardPoints(user.tier)} points</p>
               <p className="mt-2 text-sm text-[#9a6700]">
                 {birthdayStatus.hasReward
                   ? "Already credited this year."
@@ -895,7 +890,7 @@ export default function CustomerEngagementPage() {
                 : "Auto-credited starting on the 1st of your birthday month once per year."
               : "Available to claim once per year during your birthday month."}
           </p>
-          <p className="mt-3 text-sm">Current tier bonus: <span className="font-semibold">{getBirthdayRewardPoints(safeUser.tier)} points</span></p>
+          <p className="mt-3 text-sm">Current tier bonus: <span className="font-semibold">{getBirthdayRewardPoints(user.tier)} points</span></p>
           <p className="mt-1 text-xs text-gray-500">
             Voucher + birthday badge are included in your month benefits.
             {birthdayStatus.voucherCode ? ` Voucher: ${birthdayStatus.voucherCode}` : ""}
@@ -903,9 +898,9 @@ export default function CustomerEngagementPage() {
           {birthdayStatus.badgeLabel ? <Badge className="mt-2">{birthdayStatus.badgeLabel}</Badge> : null}
           <div className="mt-4 rounded-2xl border border-[#fde68a] bg-[#fffdf4] p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Birthday email preview</p>
-            <p className="mt-2 font-semibold text-gray-900">Happy birthday, {safeUser.fullName.split(" ")[0] || "member"}.</p>
+            <p className="mt-2 font-semibold text-gray-900">Happy birthday, {user.fullName.split(" ")[0] || "member"}.</p>
             <p className="mt-1 text-sm text-gray-600">
-              Your {getBirthdayRewardPoints(safeUser.tier)}-point surprise is ready, with your
+              Your {getBirthdayRewardPoints(user.tier)}-point surprise is ready, with your
               {birthdayStatus.voucherCode ? ` voucher ${birthdayStatus.voucherCode}` : " birthday voucher"} and badge included.
             </p>
             <p className="mt-2 text-xs text-gray-500">Subject: Happy Birthday from Central Perk Rewards</p>
@@ -916,8 +911,8 @@ export default function CustomerEngagementPage() {
             disabled={
               birthdayStatus.hasReward ||
               (birthdaySettings.fulfillmentMode === "manual_claim"
-                ? !isBirthdayMonth(safeUser)
-                : !shouldAutoCreditBirthdayReward(safeUser, birthdaySettings))
+                ? !isBirthdayMonth(user)
+                : !shouldAutoCreditBirthdayReward(user, birthdaySettings))
             }
           >
             {birthdayStatus.hasReward
@@ -984,7 +979,7 @@ export default function CustomerEngagementPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            {challenges.map((challenge) => {
+            {state.challenges.map((challenge) => {
               const progress = resolveChallengeProgress(challenge);
               const claimed = claimedChallenges.has(challenge.id);
               return (
@@ -1041,7 +1036,7 @@ export default function CustomerEngagementPage() {
               </div>
               <div className="mt-4 space-y-3">
                 {highlightedLeaderboard.map((entry, index) => {
-                  const isCurrentMember = entry.memberId === safeUser.memberId;
+                  const isCurrentMember = entry.memberId === user.memberId;
                   const rank = challengeLeaderboard.findIndex((row) => row.memberId === entry.memberId) + 1 || index + 1;
                   return (
                     <div
@@ -1144,7 +1139,7 @@ export default function CustomerEngagementPage() {
               <Button
                 variant="outline"
                 className="border-[#d1deeb] bg-white hover:bg-[#f8fbff]"
-                onClick={() => void triggerImageDownload(sharePreview, `centralperk-${safeUser.memberId}-achievement.png`)}
+                onClick={() => void triggerImageDownload(sharePreview, `centralperk-${user.memberId}-achievement.png`)}
               >
                 <Download className="mr-2 h-4 w-4" />
                 Download PNG
@@ -1190,7 +1185,7 @@ export default function CustomerEngagementPage() {
           <div className="mt-5 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
               <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Tier</p>
-              <p className="mt-2 text-lg font-semibold text-[#10213a]">{safeUser.tier}</p>
+              <p className="mt-2 text-lg font-semibold text-[#10213a]">{user.tier}</p>
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
               <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Badge</p>

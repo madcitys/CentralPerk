@@ -22,13 +22,14 @@ export class PartnersController {
   }
 
   @Get("dashboard")
-  async dashboard(@Query("partnerId") partnerId?: string) {
-    return { ok: true, dashboard: await this.partners.dashboard(partnerId) };
+  async dashboard() {
+    const partners = await this.partners.dashboard();
+    return { ok: true, partners, source: "local_runtime" };
   }
 
   @Get(":id/dashboard")
   async dashboardById(@Param("id") id: string) {
-    return { ok: true, dashboard: await this.partners.dashboard(id) };
+    return { ok: true, dashboard: await this.partners.dashboardById(id), source: "local_runtime" };
   }
 
   @Post("settlements")
@@ -37,8 +38,8 @@ export class PartnersController {
   }
 
   @Post(":id/settlement")
-  async monthlySettlement(@Param("id") id: string, @Query("month") month?: string) {
-    return { ok: true, settlement: await this.partners.createSettlement({ partnerId: id, month }) };
+  async settlementByPartner(@Param("id") id: string, @Body() body: PartnerSettlementDto, @Req() request: Request) {
+    return { ok: true, settlement: await this.partners.createSettlement({ ...merge(body, request), partnerId: id }) };
   }
 
   @Get("settlements/:id/pdf")
@@ -49,21 +50,23 @@ export class PartnersController {
     response.send(pdf);
   }
 
-  @Patch("settlements/:id/paid")
-  async paid(@Param("id") id: string) {
-    return { ok: true, settlement: await this.partners.markPaid(id) };
-  }
-
   @Get(":id/settlement/:month/pdf")
-  async monthlyPdf(@Param("id") id: string, @Param("month") month: string, @Res() response: Response) {
-    const pdf = await this.partners.monthlySettlementPdf(id, month);
+  async pdfByPartnerMonth(@Param("id") id: string, @Param("month") month: string, @Res() response: Response) {
+    const settlement = await this.partners.findSettlementByPartnerMonth(id, month);
+    const pdf = await this.partners.settlementPdf(String(settlement.id));
     response.setHeader("Content-Type", "application/pdf");
     response.setHeader("Content-Disposition", `inline; filename="${id}-${month}.pdf"`);
     response.send(pdf);
   }
 
+  @Patch("settlements/:id/paid")
+  async paid(@Param("id") id: string) {
+    return { ok: true, settlement: await this.partners.markPaid(id) };
+  }
+
   @Patch(":id/settlement/:month/paid")
-  async monthlyPaid(@Param("id") id: string, @Param("month") month: string) {
-    return { ok: true, settlement: await this.partners.markMonthlyPaid(id, month) };
+  async paidByPartnerMonth(@Param("id") id: string, @Param("month") month: string) {
+    const settlement = await this.partners.findSettlementByPartnerMonth(id, month);
+    return { ok: true, settlement: await this.partners.markPaid(String(settlement.id)) };
   }
 }

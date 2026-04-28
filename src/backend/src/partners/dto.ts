@@ -8,13 +8,45 @@ export class PartnerTransactionDto {
 
   @IsOptional()
   @IsString()
+  partnerCode?: string;
+
+  @IsOptional()
+  @IsString()
+  partnerName?: string;
+
+  @IsOptional()
+  @IsString()
   memberId?: string;
+
+  @IsOptional()
+  @IsString()
+  memberEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  orderId?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  points?: number;
 
   @Type(() => Number)
   @IsOptional()
   @IsNumber()
   @Min(0)
   amount?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  grossAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 export class PartnerSettlementDto {
@@ -25,4 +57,10 @@ export class PartnerSettlementDto {
   @IsOptional()
   @IsString()
   month?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  commissionRate?: number;
 }

@@ -1,99 +1,104 @@
-# System 3 Loyalty Platform
+# CentralPerk Loyalty
 
-System 3 is a separated frontend/backend TypeScript monorepo.
+Local loyalty platform for System 3.
 
-## Tech Stack
-
-Frontend:
-- Language: React / TypeScript
-- Framework: Next.js
-
-Backend:
-- Language: TypeScript
-- Framework: NestJS
-- JavaScript backend runtime files are not used
-
-## Repository Layout
+## Layout
 
 ```text
-/
-  postman/
-    System3.postman_collection.json
-    System3.postman_environment.json
-  src/
-    backend/      NestJS API backend
-    frontend/     Next.js UI frontend
-  supabase/
-    migrations/
-    seeds/
-  Dockerfile.backend
-  Dockerfile.frontend
-  docker-compose.yml
+postman/
+supabase/
+  migrations/
+  seeds/
+  queries/
+src/
+  frontend/
+  backend/
+    src/
+    gateway/
+    member-service/
+    points-engine/
+    campaign-service/
+    segment-service/
+    notification-service/
+    reward-service/
+docs/
+  archive/
+    legacy-frontend/
+    legacy-services/
 ```
 
-## Local Development
+Explorer tip: `.github`, `.runtime`, `.vscode`, `docs`, `scripts`, and dependency folders are hidden in the shared VS Code workspace settings so the root view stays close to the cleaner Carlos-style layout.
 
-Install dependencies:
+## Docker Stack
+
+The Docker stack runs the frontend on `http://localhost:3000` and the gateway on `http://localhost:4000`.
+
+Use:
 
 ```powershell
-npm install
+npm run setup:backend
+npm run compose:config
+npm run compose:up
 ```
 
-Build both apps:
+Key microservice containers:
+
+```text
+gateway            -> 4000
+backend-api        -> internal 4000 (legacy Nest support for UI-only routes)
+points-engine      -> internal 4001
+campaign-service   -> internal 4002
+member-service     -> internal 4003
+segment-service    -> internal 4004
+notification-service -> internal 4005
+reward-service     -> internal 4006
+```
+
+## Frontend Handoff
 
 ```powershell
-npm run build:backend
+npm run verify:loyalty-frontend
+npm run test:contracts
 npm run build:frontend
 ```
 
-Run backend:
+`src/frontend` is prepared for FE-only push and contains:
 
-```powershell
-npm run dev:backend
+```text
+README.md
+.env.example
+.github/workflows/master-pipeline-fe.yml
+.github/workflows/frontend-handoff.yml
+tests/contracts
+tests/performance
 ```
 
-Run frontend in another terminal:
+## Project Buckets
 
+- `postman/` keeps the API inventory and local environments together.
+- `supabase/` keeps database-side work together: migrations, seeds, and query references.
+- `src/` keeps the active frontend and backend code together.
+- `docs/` is reference-only and not part of the running Docker stack.
+
+## Local Dev
+
+Frontend:
 ```powershell
 npm run dev:frontend
 ```
 
-Open:
-
-```text
-http://localhost:3000
+Legacy Nest backend:
+```powershell
+npm run dev:backend
 ```
 
-Backend API:
-
-```text
-http://localhost:4000
+Smoke checks:
+```powershell
+Invoke-RestMethod http://localhost:4000/health
+Invoke-RestMethod http://localhost:4000/members
+Invoke-RestMethod http://localhost:4000/campaigns
+Invoke-RestMethod http://localhost:4000/segments
+Invoke-RestMethod http://localhost:4000/notifications?limit=20
+Invoke-RestMethod http://localhost:4000/tiers/rules
+Invoke-RestMethod http://localhost:4000/rewards
 ```
-
-## Environment
-
-Frontend uses:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
-```
-
-Backend uses:
-
-```env
-PORT=4000
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-EMAIL_PROVIDER=demo
-SMS_PROVIDER=demo
-```
-
-## API Validation
-
-Postman validates the NestJS backend directly:
-
-```text
-baseUrl=http://localhost:4000
-```
-
-Do not use `http://localhost:3000/api`.

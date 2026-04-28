@@ -6,8 +6,16 @@ export class MembersController {
   constructor(private readonly members: MembersService) {}
 
   @Get()
-  async list() {
-    return { ok: true, members: await this.members.list(), source: "local_runtime" };
+  async list(@Query("limit") limit?: string, @Query("email") email?: string) {
+    return {
+      ok: true,
+      members: await this.members.list(Math.min(500, Math.max(1, Number(limit || 100))), email),
+    };
+  }
+
+  @Get(":id")
+  async get(@Param("id") id: string, @Query("email") email?: string) {
+    return { ok: true, member: await this.members.get(id, email) };
   }
 
   @Get(":id/profile")
@@ -32,14 +40,5 @@ export class MembersController {
   @Patch(":id/preferences")
   async preferences(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return { ok: true, memberId: id, preference: await this.members.preferences(id, body || {}) };
-  }
-
-  @Patch(":id/segment")
-  async segment(@Param("id") id: string, @Body() body: Record<string, unknown>) {
-    return {
-      ok: true,
-      memberId: id,
-      member: await this.members.updateSegment(id, String(body.segment || body.effectiveSegment || "Active")),
-    };
   }
 }

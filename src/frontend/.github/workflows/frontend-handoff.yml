@@ -1,0 +1,31 @@
+name: Loyalty Frontend Handoff
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-frontend-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify frontend handoff
+        run: npm run verify:handoff
+
+      - name: Run Pact consumer tests
+        run: npm run test:contracts
+
+      - name: Build frontend
+        run: npm run build

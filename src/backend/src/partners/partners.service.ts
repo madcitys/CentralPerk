@@ -2,12 +2,30 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { LocalRuntimeService } from "../local-runtime/local-runtime.service";
 import { cleanString, nowIso, numberValue } from "../common/utils";
 
+type PartnerDescriptor = {
+  id: string;
+  partnerCode: string;
+  partnerName: string;
+  description: string | null;
+  logoUrl: string | null;
+  conversionRate: number;
+  isActive: boolean;
+};
+
 @Injectable()
 export class PartnersService {
   constructor(private readonly runtime: LocalRuntimeService) {}
 
+  private async partnerCatalog() {
+    const state = await this.runtime.read();
+    return state.partners || {};
+  }
+
   private money(row: Record<string, unknown>) {
-    return numberValue(row.amount, numberValue(row.grossAmount, numberValue(row.totalGrossAmount, numberValue(row.commissionAmount, 0))));
+    return numberValue(
+      row.amount,
+      numberValue(row.grossAmount, numberValue(row.totalGrossAmount, numberValue(row.commissionAmount, 0))),
+    );
   }
 
   private monthKey(value?: unknown) {
@@ -15,52 +33,115 @@ export class PartnersService {
     return text || new Date().toISOString().slice(0, 7);
   }
 
+  private commissionForAmount(amount: number) {
+    return Number((amount * 0.12).toFixed(2));
+  }
+
+  private async resolvePartner(row: Record<string, unknown>): Promise<PartnerDescriptor> {
+    const partnerId = cleanString(row.partnerId) || "PARTNER-001";
+    const catalog = await this.partnerCatalog();
+    const existing = catalog[partnerId] as Partial<PartnerDescriptor> | undefined;
+    return {
+      id: existing?.id || partnerId,
+      partnerCode: cleanString(row.partnerCode) || cleanString(existing?.partnerCode) || partnerId,
+      partnerName: cleanString(row.partnerName) || cleanString(existing?.partnerName) || partnerId,
+      description: existing?.description || null,
+      logoUrl: existing?.logoUrl || null,
+      conversionRate: numberValue(existing?.conversionRate, 10),
+      isActive: existing?.isActive !== false,
+    };
+  }
+
   async createTransaction(input: Record<string, unknown>) {
     const partnerId = cleanString(input.partnerId) || "PARTNER-001";
-    const memberId = cleanString(input.memberId) || "MEM-000011";
-    const amount = numberValue(input.amount, 0);
-    if (amount <= 0) throw new BadRequestException("amount must be greater than zero.");
+    const memberId = cleanString(input.memberId) || "MEM-000008";
+    const amount = numberValue(input.grossAmount, numberValue(input.amount, 0));
+    if (amount <= 0) throw new BadRequestException("grossAmount must be greater than zero.");
 
     return this.runtime.update((state) => {
-      const transaction = {
-        id: `ptxn-${Date.now()}`,
+      return this.resolvePartner({
         partnerId,
-        memberId,
-        amount,
-        points: Math.floor(amount),
-        status: "posted",
-        createdAt: nowIso(),
-      };
-      state.partnerTransactions.unshift(transaction);
-      return transaction;
+        partnerCode: input.partnerCode,
+        partnerName: input.partnerName,
+      }).then((partner) => {
+        const transaction = {
+          id: cleanString(input.orderId) || `ptxn-${Date.now()}`,
+          partnerId,
+          partnerCode: partner.partnerCode,
+          partnerName: partner.partnerName,
+          memberId,
+          amount,
+          grossAmount: amount,
+          points: Math.max(1, Math.floor(numberValue(input.points, amount / partner.conversionRate))),
+          status: "pending",
+          note: cleanString(input.note) || null,
+          createdAt: nowIso(),
+        };
+        state.partnerTransactions.unshift(transaction);
+        return transaction;
+      });
     });
   }
 
-  async dashboard(partnerId?: string) {
+  async dashboard() {
     const state = await this.runtime.read();
-    const selectedPartner = cleanString(partnerId);
-    const transactions = state.partnerTransactions.filter((row) => !selectedPartner || row.partnerId === selectedPartner);
-    const settlements = state.partnerSettlements.filter((row) => !selectedPartner || row.partnerId === selectedPartner);
-    const totalTransactionAmount = transactions.reduce((sum, row) => sum + this.money(row), 0);
-    const pendingSettlementAmount = settlements
-      .filter((row) => row.status !== "paid")
-      .reduce((sum, row) => sum + this.money(row), 0);
-    const paidSettlementAmount = settlements
-      .filter((row) => row.status === "paid")
-      .reduce((sum, row) => sum + this.money(row), 0);
+    const catalog = await this.partnerCatalog();
+    const groups = new Map<string, { partner: PartnerDescriptor; transactions: Array<Record<string, unknown>>; settlements: Array<Record<string, unknown>> }>();
 
+    for (const row of state.partnerTransactions) {
+      const partner = await this.resolvePartner(row);
+      const entry = groups.get(partner.id) || { partner, transactions: [], settlements: [] };
+      entry.transactions.push(row);
+      groups.set(partner.id, entry);
+    }
+
+    for (const row of state.partnerSettlements) {
+      const partner = await this.resolvePartner(row);
+      const entry = groups.get(partner.id) || { partner, transactions: [], settlements: [] };
+      entry.settlements.push(row);
+      groups.set(partner.id, entry);
+    }
+
+    for (const partner of Object.values(catalog) as PartnerDescriptor[]) {
+      if (!groups.has(partner.id)) {
+        groups.set(partner.id, { partner, transactions: [], settlements: [] });
+      }
+    }
+
+    return Array.from(groups.values())
+      .map(({ partner, transactions, settlements }) => {
+        const pendingTransactions = transactions.filter((row) => cleanString(row.status) !== "settled").length;
+        const settledTransactions = transactions.length - pendingTransactions;
+        const points = transactions.reduce((sum, row) => sum + numberValue(row.points, 0), 0);
+        const grossAmount = transactions.reduce((sum, row) => sum + this.money(row), 0);
+        const totalCommission = settlements.length
+          ? settlements.reduce((sum, row) => sum + numberValue(row.commissionAmount, this.commissionForAmount(this.money(row))), 0)
+          : this.commissionForAmount(grossAmount);
+        return {
+          partner,
+          totals: {
+            transactions: transactions.length,
+            pendingTransactions,
+            settledTransactions,
+            points,
+            grossAmount,
+            totalCommission,
+          },
+        };
+      })
+      .sort((left, right) => left.partner.partnerName.localeCompare(right.partner.partnerName));
+  }
+
+  async dashboardById(partnerId: string) {
+    const state = await this.runtime.read();
+    const partners = await this.dashboard();
+    const row = partners.find((entry) => entry.partner.id === partnerId);
+    if (!row) throw new NotFoundException("Partner not found.");
     return {
-      partnerId: selectedPartner || "all",
-      summary: {
-        transactionCount: transactions.length,
-        totalTransactionAmount,
-        settlementCount: settlements.length,
-        pendingSettlementAmount,
-        paidSettlementAmount,
-      },
-      recentTransactions: transactions.slice(0, 10),
-      recentSettlements: settlements.slice(0, 10),
-      source: "local_runtime",
+      partner: row.partner,
+      totals: row.totals,
+      settlements: state.partnerSettlements.filter((entry) => cleanString(entry.partnerId) === partnerId),
+      recentTransactions: state.partnerTransactions.filter((entry) => cleanString(entry.partnerId) === partnerId).slice(0, 20),
     };
   }
 
@@ -69,27 +150,36 @@ export class PartnersService {
     const month = this.monthKey(input.month);
 
     return this.runtime.update((state) => {
-      const transactionIds = state.partnerTransactions
-        .filter((row) => row.partnerId === partnerId && String(row.createdAt || "").startsWith(month))
-        .map((row) => row.id);
-      const amount = state.partnerTransactions
-        .filter((row) => transactionIds.includes(row.id))
-        .reduce((sum, row) => sum + this.money(row), 0);
-      const existing = state.partnerSettlements.find((row) => row.partnerId === partnerId && row.month === month);
-      const settlement = {
-        ...(existing || {}),
-        id: existing?.id || `set-${partnerId}-${month}`.replace(/[^a-zA-Z0-9-]/g, "-"),
-        partnerId,
-        month,
-        amount,
-        transactionIds,
-        status: existing?.status || "pending",
-        createdAt: existing?.createdAt || nowIso(),
-        updatedAt: nowIso(),
-      };
-      if (existing) Object.assign(existing, settlement);
-      else state.partnerSettlements.unshift(settlement);
-      return settlement;
+      return this.resolvePartner({ partnerId }).then((partner) => {
+        const transactionIds = state.partnerTransactions
+          .filter((row) => row.partnerId === partnerId && String(row.createdAt || "").startsWith(month))
+          .map((row) => row.id);
+        const amount = state.partnerTransactions
+          .filter((row) => transactionIds.includes(String(row.id)))
+          .reduce((sum, row) => sum + this.money(row), 0);
+        const existing = state.partnerSettlements.find((row) => row.partnerId === partnerId && row.month === month);
+        const settlement = {
+          ...(existing || {}),
+          id: existing?.id || `set-${partnerId}-${month}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+          partnerId,
+          partnerCode: partner.partnerCode,
+          partnerName: partner.partnerName,
+          month,
+          amount,
+          grossAmount: amount,
+          commissionAmount: this.commissionForAmount(amount),
+          transactionIds,
+          status: existing?.status || "pending",
+          createdAt: existing?.createdAt || nowIso(),
+          updatedAt: nowIso(),
+        };
+        if (existing) Object.assign(existing, settlement);
+        else state.partnerSettlements.unshift(settlement);
+        for (const row of state.partnerTransactions) {
+          if (transactionIds.includes(String(row.id))) row.status = "settled";
+        }
+        return settlement;
+      });
     });
   }
 
@@ -104,9 +194,13 @@ export class PartnersService {
     });
   }
 
-  async markMonthlyPaid(partnerId: string, month: string) {
-    const settlement = await this.createSettlement({ partnerId, month });
-    return this.markPaid(String(settlement.id));
+  async findSettlementByPartnerMonth(partnerId: string, month: string) {
+    const state = await this.runtime.read();
+    const settlement = state.partnerSettlements.find(
+      (row) => cleanString(row.partnerId) === partnerId && cleanString(row.month) === month,
+    );
+    if (!settlement) throw new NotFoundException("Partner settlement not found.");
+    return settlement;
   }
 
   async settlementPdf(id: string) {
@@ -117,16 +211,13 @@ export class PartnersService {
       "System 3 Loyalty Partner Settlement",
       `Settlement ID: ${settlement.id}`,
       `Partner ID: ${settlement.partnerId}`,
+      `Partner Name: ${settlement.partnerName}`,
       `Month: ${settlement.month}`,
-      `Amount: ${numberValue(settlement.amount, 0).toFixed(2)}`,
+      `Gross Amount: ${numberValue(settlement.grossAmount, this.money(settlement)).toFixed(2)}`,
+      `Commission: ${numberValue(settlement.commissionAmount, 0).toFixed(2)}`,
       `Status: ${settlement.status}`,
     ];
     return this.tinyPdf(lines.join("\\n"));
-  }
-
-  async monthlySettlementPdf(partnerId: string, month: string) {
-    const settlement = await this.createSettlement({ partnerId, month });
-    return this.settlementPdf(String(settlement.id));
   }
 
   private tinyPdf(text: string) {

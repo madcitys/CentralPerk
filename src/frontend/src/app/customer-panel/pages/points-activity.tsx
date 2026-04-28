@@ -9,7 +9,6 @@ import { PointsExpiry } from "../../../components/points-expiry";
 import { CalendarDatePicker } from "../../../components/calendar-date-picker";
 import type { AppOutletContext } from "../../types/app-context";
 import { emailStatement, generateStatementData } from "../../lib/statement";
-import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 import { toast } from "sonner";
 import { brandNavySolidClass, brandNavySolidHoverClass } from "../../lib/ui-color-tokens";
 import {
@@ -31,7 +30,6 @@ function toLocalInputDate(value: Date): string {
 
 export default function PointsActivity() {
   const { user } = useOutletContext<AppOutletContext>();
-  const safeUser = createDefaultMemberData(user);
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
   const [page, setPage] = useState(1);
@@ -45,7 +43,7 @@ export default function PointsActivity() {
 
   const filteredTransactions = useMemo(
     () =>
-      [...ensureArray(safeUser.transactions)]
+      [...user.transactions]
         .filter((t) => (filterType === "all" ? true : t.type === filterType))
         .filter((t) => {
           const txDate = new Date(t.date).getTime();
@@ -60,15 +58,15 @@ export default function PointsActivity() {
           if (sortBy === "points-asc") return a.points - b.points;
           return 0;
         }),
-    [safeUser.transactions, filterType, sortBy, startDate, endDate]
+    [user.transactions, filterType, sortBy, startDate, endDate]
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedTransactions = filteredTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const totalEarned = ensureArray(safeUser.transactions).filter((t) => t.type === "earned").reduce((sum, t) => sum + t.points, 0);
-  const totalRedeemed = ensureArray(safeUser.transactions).filter((t) => t.type === "redeemed").reduce((sum, t) => sum + t.points, 0);
+  const totalEarned = user.transactions.filter((t) => t.type === "earned").reduce((sum, t) => sum + t.points, 0);
+  const totalRedeemed = user.transactions.filter((t) => t.type === "redeemed").reduce((sum, t) => sum + t.points, 0);
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -141,8 +139,8 @@ export default function PointsActivity() {
   const downloadCsv = async () => {
     try {
       const statement = await generateStatementData({
-        memberId: safeUser.memberId,
-        memberEmail: safeUser.email,
+        memberId: user.memberId,
+        memberEmail: user.email,
         startDate,
         endDate,
       });
@@ -159,7 +157,7 @@ export default function PointsActivity() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `points-statement-${safeUser.memberId || "member"}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `points-statement-${user.memberId}-${new Date().toISOString().slice(0, 10)}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -172,8 +170,8 @@ export default function PointsActivity() {
 
   const buildStatementHtml = async () => {
     const statement = await generateStatementData({
-      memberId: safeUser.memberId,
-      memberEmail: safeUser.email,
+      memberId: user.memberId,
+      memberEmail: user.email,
       startDate,
       endDate,
     });
@@ -201,7 +199,7 @@ export default function PointsActivity() {
         </head>
         <body>
           <div class="brand"><strong>CentralPerk Loyalty</strong><span>Statement</span></div>
-          <p>Member: ${safeUser.fullName} (${safeUser.memberId})</p>
+          <p>Member: ${user.fullName} (${user.memberId})</p>
           <p>Period: ${startDate} to ${endDate}</p>
           <p>Tier: ${statement.tier} | Opening Balance: ${statement.openingBalance} | Closing Balance: ${statement.closingBalance}</p>
           <table>
@@ -238,7 +236,7 @@ export default function PointsActivity() {
     try {
       const { html } = await buildStatementHtml();
       const pdfBlob = new Blob([html], { type: "application/pdf" });
-      await emailStatement(safeUser.memberId, pdfBlob);
+      await emailStatement(user.memberId, pdfBlob);
       toast.success("Statement queued for email delivery.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to email statement.");
@@ -295,7 +293,7 @@ export default function PointsActivity() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-3">
-          <PointsExpiry expiringPoints={safeUser.expiringPoints} daysUntilExpiry={safeUser.daysUntilExpiry} />
+          <PointsExpiry expiringPoints={user.expiringPoints} daysUntilExpiry={user.daysUntilExpiry} />
         </div>
         <Card className={customerPanelClass}>
           <div className="flex items-center justify-between">
@@ -323,7 +321,7 @@ export default function PointsActivity() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Pending Points</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">{safeUser.pendingPoints.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">{user.pendingPoints.toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
               <Clock className="w-6 h-6 text-blue-600" />

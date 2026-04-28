@@ -1,6 +1,6 @@
 import { supabase } from "../../utils/supabase/client";
 import type { MemberData } from "../types/loyalty";
-import { requestJson } from "./api";
+import { apiUrl } from "./api-config";
 
 const STORAGE_KEYS = {
   referrals: "centralperk-referrals-v1",
@@ -145,7 +145,9 @@ function useLocalSegmentApiFallback() {
 
 async function fetchLocalSegments(): Promise<ManualSegment[]> {
   try {
-    const payload = await requestJson<{ segments?: ManualSegment[] }>("/segments");
+    const response = await fetch(apiUrl("/segments"), { cache: "no-store" });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { segments?: ManualSegment[] };
     return (payload.segments || []).map((segment) => ({
       id: String(segment.id),
       name: String(segment.name),
@@ -254,9 +256,11 @@ export async function fetchMembersInSegment(segmentId: string) {
 export async function fetchSegmentAssignments() {
   if (useLocalSegmentApiFallback()) {
     try {
-      const payload = await requestJson<{
+      const response = await fetch(apiUrl("/segments"), { cache: "no-store" });
+      if (!response.ok) return [];
+      const payload = (await response.json()) as {
         segments?: Array<{ id: string; name: string; is_system?: boolean; memberIds?: string[] }>;
-      }>("/segments");
+      };
       return (payload.segments || []).flatMap((segment) =>
         (segment.memberIds || []).map((memberId) => ({
           member_id: memberId,

@@ -1,26 +1,42 @@
 {
-  "name": "system-3-loyalty-platform",
+  "name": "centralperk-monorepo",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
-  "workspaces": [
-    "src/frontend",
-    "src/backend"
-  ],
   "scripts": {
-    "dev": "npm run dev:frontend",
-    "server": "npm run dev:backend",
+    "dev": "npm --prefix src/frontend run dev",
+    "server": "npm --prefix src/backend run start:dev",
+    "setup:local": "npm install && npm --prefix src/frontend install && npm --prefix src/backend install",
+    "setup:backend": "npm --prefix src/backend install && npm run setup:services",
+    "setup:services": "npm --prefix src/backend/gateway install && npm --prefix src/backend/points-engine install && npm --prefix src/backend/campaign-service install && npm --prefix src/backend/member-service install && npm --prefix src/backend/segment-service install && npm --prefix src/backend/notification-service install && npm --prefix src/backend/reward-service install",
+    "seed": "node scripts/seed-local-runtime.mjs",
     "dev:frontend": "npm --prefix src/frontend run dev",
     "dev:backend": "npm --prefix src/backend run start:dev",
+    "build": "npm run build:frontend",
     "build:frontend": "npm --prefix src/frontend run build",
     "build:backend": "npm --prefix src/backend run build",
-    "build:all": "npm run build:backend && npm run build:frontend",
+    "build:services": "npm --prefix src/backend/gateway run build && npm --prefix src/backend/points-engine run build && npm --prefix src/backend/campaign-service run build && npm --prefix src/backend/member-service run build && npm --prefix src/backend/segment-service run build && npm --prefix src/backend/notification-service run build && npm --prefix src/backend/reward-service run build",
+    "build:all": "npm run build:backend && npm run build:services && npm run build:frontend",
     "start:frontend": "npm --prefix src/frontend run start",
     "start:backend": "npm --prefix src/backend run start",
+    "start:local": "concurrently -k -n BACKEND,FRONTEND -c blue,green \"npm run server\" \"npm run dev\"",
+    "local": "npm run start:local",
+    "clean:ports": "kill-port 3000 4000",
+    "restart:local": "npm run clean:ports && npm run start:local",
     "health": "node scripts/health-check.mjs",
-    "test:api": "node scripts/api-smoke-test.mjs"
+    "qa": "npm run health",
+    "smoke:api": "node scripts/api-smoke-test.mjs",
+    "test:api": "npm run smoke:api",
+    "verify:postman": "node scripts/postman-collection-check.mjs",
+    "verify:loyalty-frontend": "npm --prefix src/frontend run verify:handoff",
+    "test:contracts": "npm --prefix src/frontend run test:contracts",
+    "test:points": "npm --prefix src/backend/points-engine run test:coverage",
+    "test:campaigns": "npm --prefix src/backend/campaign-service run test:coverage",
+    "compose:config": "docker compose config",
+    "compose:up": "docker compose up --build -d",
+    "compose:down": "docker compose down --volumes"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0"
+    "concurrently": "^9.2.1",
+    "kill-port": "^2.0.1"
   }
 }

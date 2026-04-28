@@ -21,6 +21,11 @@ export class SegmentsController {
     return { ok: true, preview: await this.segments.preview({ ...query, ...body }) };
   }
 
+  @Get("preview")
+  async previewQuery(@Query() query: Record<string, unknown>) {
+    return { ok: true, preview: await this.segments.preview(query) };
+  }
+
   @Patch(":id")
   async update(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return { ok: true, segment: await this.segments.update(id, body || {}) };

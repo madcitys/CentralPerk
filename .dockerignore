@@ -4,9 +4,8 @@ node_modules
 **/.next
 dist
 **/dist
+.runtime
+*.log
 .env
 .env.local
-*.log
-.git
-.runtime
-tsconfig.tsbuildinfo
+*.tsbuildinfo

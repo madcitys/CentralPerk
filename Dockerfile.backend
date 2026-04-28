@@ -4,16 +4,17 @@ COPY src/backend/package*.json ./
 RUN npm install
 
 FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/src/backend/node_modules ./src/backend/node_modules
+COPY src/backend ./src/backend
+COPY scripts ./scripts
 WORKDIR /app/src/backend
-COPY --from=deps /app/src/backend/node_modules ./node_modules
-COPY src/backend ./
 RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app/src/backend
 ENV NODE_ENV=production
-ENV PORT=4000
-COPY --from=builder /app/src/backend/dist ./dist
-COPY --from=builder /app/src/backend/package*.json ./
-COPY --from=builder /app/src/backend/node_modules ./node_modules
-CMD ["node", "dist/main.js"]
+COPY --from=builder /app/src/backend ./
+COPY --from=builder /app/scripts /app/scripts
+EXPOSE 4000
+CMD ["npm", "run", "start"]

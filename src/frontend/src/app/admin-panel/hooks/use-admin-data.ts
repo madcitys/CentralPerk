@@ -88,7 +88,11 @@ type LocalRuntimePointTransaction = {
 
 type LocalRuntimePointMember = {
   memberId: string;
+  memberNumber?: string;
   email: string | null;
+  firstName?: string;
+  lastName?: string;
+  enrollmentDate?: string | null;
   pointsBalance: number;
   tier: string;
   history: LocalRuntimePointTransaction[];
@@ -164,10 +168,43 @@ async function loadLocalRuntimePointMembers() {
   }
 }
 
-function adminCacheKey(scope: AdminDataScope, includeInsights: boolean, localDemoMode: boolean) {
-  if (localDemoMode) {
-    return `local-demo:${includeInsights ? "insights" : "base"}`;
+async function loadLocalRewardsCatalog() {
+  try {
+    const payload = await requestJson<{
+      ok?: boolean;
+      rewards?: Array<{
+        id?: string | number;
+        rewardCatalogId?: string | number;
+        name?: string;
+        description?: string | null;
+        pointsCost?: number;
+        category?: string | null;
+        imageUrl?: string | null;
+        available?: boolean;
+        expiryDate?: string | null;
+        partnerId?: string | number | null;
+        cashValue?: number | null;
+      }>;
+    }>("/rewards");
+    return (payload.rewards || []).map((reward) => ({
+      id: reward.id,
+      reward_id: String(reward.rewardCatalogId || reward.id || ""),
+      name: String(reward.name || "Reward"),
+      description: reward.description || null,
+      points_cost: Number(reward.pointsCost || 0),
+      category: reward.category || null,
+      image_url: reward.imageUrl || null,
+      is_active: reward.available ?? true,
+      expiry_date: reward.expiryDate || null,
+      partner_id: reward.partnerId ?? null,
+      cash_value: reward.cashValue ?? null,
+    })) as RewardCatalogRow[];
+  } catch {
+    return [];
   }
+}
+
+function adminCacheKey(scope: AdminDataScope, includeInsights: boolean, localDemoMode: boolean) {
   return `${scope}:${includeInsights ? "insights" : "base"}:${localDemoMode ? "local" : "remote"}`;
 }
 
@@ -261,6 +298,9 @@ function fallbackNameFromEmail(email?: string | null) {
 }
 
 function localMemberDisplayName(memberId: string, email?: string | null) {
+  if (memberId === "MEM-000008" || String(email || "").toLowerCase() === "test3@gmail.com") {
+    return "Test Three";
+  }
   if (memberId === "MEM-000011" || String(email || "").toLowerCase() === "soundwave@example.com") {
     return "Sound Wave";
   }
@@ -292,17 +332,19 @@ function overlayLocalRuntimePoints(
     const byEmail = localMember.email ? indexByEmail.get(localMember.email.toLowerCase()) : undefined;
     const existingIndex = byNumber ?? byEmail;
     const existing = existingIndex !== undefined ? nextMembers[existingIndex] : undefined;
-    const displayName = localMemberDisplayName(localMember.memberId, localMember.email);
+    const displayName =
+      [localMember.firstName, localMember.lastName].filter(Boolean).join(" ").trim() ||
+      localMemberDisplayName(localMember.memberId, localMember.email);
     const [firstNameFallback, ...lastNameFallback] = displayName.split(" ");
     const mergedMember: Member = {
       member_id: existing?.member_id ?? localMember.memberId,
       id: existing?.id ?? localMember.memberId,
-      member_number: existing?.member_number || localMember.memberId,
+      member_number: existing?.member_number || localMember.memberNumber || localMember.memberId,
       first_name: existing?.first_name || firstNameFallback || "Local",
       last_name: existing?.last_name || lastNameFallback.join(" ") || "Member",
       email: existing?.email || localMember.email || "",
       phone: existing?.phone ?? null,
-      enrollment_date: existing?.enrollment_date || new Date().toISOString(),
+      enrollment_date: existing?.enrollment_date || localMember.enrollmentDate || new Date().toISOString(),
       points_balance: localMember.pointsBalance,
       tier: localMember.tier,
       manual_segment: existing?.manual_segment ?? null,
@@ -439,7 +481,10 @@ export function useAdminData(options?: { includeInsights?: boolean; scope?: Admi
       setError(null);
 
       if (localDemoMode) {
-        const localRuntimePointMembers = await loadLocalRuntimePointMembers();
+        const [localRuntimePointMembers, localRewardsCatalog] = await Promise.all([
+          loadLocalRuntimePointMembers(),
+          loadLocalRewardsCatalog(),
+        ]);
         const localOverlay = overlayLocalRuntimePoints([], [], localRuntimePointMembers);
         const nextTransactions = localOverlay.transactions;
         const snapshot: AdminDataSnapshot = {
@@ -448,7 +493,7 @@ export function useAdminData(options?: { includeInsights?: boolean; scope?: Admi
           transactions: nextTransactions,
           tierHistory: [],
           pointsLots: [],
-          rewardsCatalog: [],
+          rewardsCatalog: localRewardsCatalog,
           loginActivity: [],
           reengagementActions: [],
           tierRules: DEFAULT_TIER_RULES,

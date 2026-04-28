@@ -73,8 +73,16 @@ export const router = createBrowserRouter([
         lazy: () => import("./admin-panel/pages/rewards").then((m) => ({ Component: m.default })),
       },
       {
+        path: "campaigns",
+        loader: () => redirect("/admin/rewards#rewards-campaigns"),
+      },
+      {
         path: "analytics",
         lazy: () => import("./admin-panel/pages/analytics").then((m) => ({ Component: m.default })),
+      },
+      {
+        path: "partners",
+        loader: () => redirect("/admin/rewards#rewards-partners"),
       },
       {
         path: "settings",

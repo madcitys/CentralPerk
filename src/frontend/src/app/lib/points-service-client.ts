@@ -1,9 +1,13 @@
-import { apiUrl } from "./api";
+import { apiUrl } from "./api-config";
 
 const configuredTimeout = Number(process.env.POINTS_SERVICE_TIMEOUT_MS || 900);
 const DEFAULT_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 900;
 
 function fullUrl(path: string) {
+  const pointsServiceBaseUrl = (process.env.POINTS_ENGINE_URL || "").replace(/\/+$/, "");
+  if (pointsServiceBaseUrl) {
+    return `${pointsServiceBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
   return apiUrl(path);
 }
 
@@ -15,8 +19,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     signal: controller.signal,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   }).finally(() => clearTimeout(timeout));
+  const raw = await res.text();
+  if (raw.includes("<!DOCTYPE html") || raw.includes("__next/static") || raw.includes("<html")) {
+    throw new Error("Points API returned HTML instead of backend JSON.");
+  }
   if (!res.ok) {
-    const raw = await res.text();
     let message = raw;
     try {
       const parsed = JSON.parse(raw || "{}") as { error?: unknown; message?: unknown };
@@ -25,7 +32,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message || `Points service error (${res.status})`);
   }
-  return (await res.json()) as T;
+  return (raw ? JSON.parse(raw) : {}) as T;
 }
 
 export async function awardPoints(payload: any, idempotencyKey?: string) {
@@ -45,7 +52,15 @@ export async function redeemPoints(payload: any, idempotencyKey?: string) {
 }
 
 export async function fetchTiers() {
-  return call<{ ok: boolean; tiers: any[] }>("/tiers", { method: "GET" });
+  try {
+    return await call<{ ok: boolean; tiers: any[] }>("/points/tiers", { method: "GET" });
+  } catch (error) {
+    const message = String(error instanceof Error ? error.message : error || "");
+    if (message.includes("404")) {
+      return call<{ ok: boolean; tiers: any[] }>("/tiers", { method: "GET" });
+    }
+    throw error;
+  }
 }
 
 export async function runExpiry() {

@@ -1,0 +1,10 @@
+node_modules
+.next
+coverage
+pacts
+.github
+tests
+scripts
+README.md
+.env.local
+npm-debug.log*

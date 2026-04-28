@@ -1,6 +1,10 @@
-import { apiUrl } from "./api";
+import { apiUrl } from "./api-config";
 
 function fullUrl(path: string) {
+  const campaignServiceBaseUrl = (process.env.CAMPAIGN_SERVICE_URL || "").replace(/\/+$/, "");
+  if (campaignServiceBaseUrl) {
+    return `${campaignServiceBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
   return apiUrl(path);
 }
 
@@ -12,11 +16,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
-  if (!res.ok) {
-    const message = await res.text();
-    throw new Error(message || `Campaign service error (${res.status})`);
+  const raw = await res.text();
+  if (raw.includes("<!DOCTYPE html") || raw.includes("__next/static") || raw.includes("<html")) {
+    throw new Error("Campaign API returned HTML instead of backend JSON.");
   }
-  return (await res.json()) as T;
+  if (!res.ok) {
+    throw new Error(raw || `Campaign service error (${res.status})`);
+  }
+  return (raw ? JSON.parse(raw) : {}) as T;
 }
 
 function adminWriteHeaders(init?: RequestInit) {

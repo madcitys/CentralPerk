@@ -7,7 +7,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { TimingInterceptor } from "./common/interceptors/timing.interceptor";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule);
   const config = app.get(ApiConfigService);
 
   app.useGlobalPipes(
@@ -20,13 +20,15 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TimingInterceptor());
   app.enableCors({
-    origin: true,
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
     credentials: true,
   });
 
-  const port = config.port;
-  await app.listen(port, "0.0.0.0");
-  console.log(`[nest-backend] listening on http://localhost:${port}`);
+  const port = Number(process.env.PORT || config.port || 4000);
+  await app.listen(port);
+  console.log(`Backend listening on http://localhost:${port}`);
+  console.log(`Health check: http://localhost:${port}/health`);
+  console.log(`Data mode: ${config.useLocalFallback ? "local_runtime" : "supabase"}`);
 }
 
 void bootstrap();

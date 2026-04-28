@@ -18,7 +18,6 @@ import { loadRewardsCatalog } from "../../lib/loyalty-supabase";
 import { ensureMemberNotification } from "../../lib/notifications";
 import { loadActivePromotionCampaigns, type PromotionCampaign } from "../../lib/promotions";
 import { loadActiveCampaignsViaApi, recordPartnerTransactionViaApi, redeemPointsViaApi } from "../../lib/api";
-import { createDefaultMemberData, ensureArray } from "../../lib/defaults";
 import {
   brandNavyBadgeClass,
   brandNavySolidClass,
@@ -127,7 +126,6 @@ function normalizeCampaign(campaign: PromotionCampaign): PromotionCampaign {
 
 export default function Rewards() {
   const { user, refreshUser } = useOutletContext<AppOutletContext>();
-  const safeUser = createDefaultMemberData(user);
   const [activeTab, setActiveTab] = useState<RewardCategoryTab>("all");
   const [catalog, setCatalog] = useState<Reward[]>([]);
   const [activeCampaigns, setActiveCampaigns] = useState<PromotionCampaign[]>([]);
@@ -162,8 +160,8 @@ export default function Rewards() {
         })),
       ]);
 
-      setCatalog(ensureArray(rewards).map(normalizeReward));
-      setActiveCampaigns(ensureArray(campaignsResponse.campaigns).map(normalizeCampaign));
+      setCatalog(rewards.map(normalizeReward));
+      setActiveCampaigns(campaignsResponse.campaigns.map(normalizeCampaign));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Unable to load rewards right now.");
       setCatalog([]);
@@ -200,15 +198,15 @@ export default function Rewards() {
       try {
         const [rewards, campaignsResponse] = await Promise.all([
           loadRewardsCatalog(),
-          loadActiveCampaignsViaApi(safeUser.tier).catch(async () => ({
+          loadActiveCampaignsViaApi(user.tier).catch(async () => ({
             ok: true as const,
-            campaigns: await loadActivePromotionCampaigns(safeUser.tier),
+            campaigns: await loadActivePromotionCampaigns(user.tier),
           })),
         ]);
 
         if (!active) return;
-        setCatalog(ensureArray(rewards).map(normalizeReward));
-        setActiveCampaigns(ensureArray(campaignsResponse.campaigns).map(normalizeCampaign));
+        setCatalog(rewards.map(normalizeReward));
+        setActiveCampaigns(campaignsResponse.campaigns.map(normalizeCampaign));
       } catch (error) {
         if (!active) return;
         setLoadError(error instanceof Error ? error.message : "Unable to load rewards right now.");
@@ -223,8 +221,8 @@ export default function Rewards() {
 
     void loadData();
     const interval = window.setInterval(() => {
-      void loadActiveCampaignsViaApi(safeUser.tier)
-        .then((response) => setActiveCampaigns(ensureArray(response.campaigns).map(normalizeCampaign)))
+      void loadActiveCampaignsViaApi(user.tier)
+        .then((response) => setActiveCampaigns(response.campaigns.map(normalizeCampaign)))
         .catch(() => undefined);
     }, 30_000);
 
@@ -232,10 +230,10 @@ export default function Rewards() {
       active = false;
       window.clearInterval(interval);
     };
-  }, [safeUser.tier]);
+  }, [user.tier]);
 
   useEffect(() => {
-    if (!safeUser.memberId) return;
+    if (!user.memberId) return;
 
     const activeFlashRewards = catalog.filter((reward) => {
       if (!reward.activeFlashSaleId || !reward.flashSaleStartsAt || !reward.flashSaleEndsAt) return false;
@@ -245,13 +243,13 @@ export default function Rewards() {
     });
 
     activeFlashRewards.forEach((reward) => {
-      const notificationKey = `flash-live:${safeUser.memberId}:${reward.id}:${reward.flashSaleEndsAt ?? ""}`;
+      const notificationKey = `flash-live:${user.memberId}:${reward.id}:${reward.flashSaleEndsAt ?? ""}`;
       if (typeof window !== "undefined" && window.sessionStorage.getItem(notificationKey)) {
         return;
       }
 
       void ensureMemberNotification({
-        memberId: safeUser.memberId,
+        memberId: user.memberId,
         channel: "push",
         subject: "Flash Sale Live",
         message: `Flash sale now live: ${reward.name}. Redeem it before ${new Date(String(reward.flashSaleEndsAt)).toLocaleString()}.`,
@@ -264,7 +262,7 @@ export default function Rewards() {
         })
         .catch(() => undefined);
     });
-  }, [catalog, safeUser.memberId]);
+  }, [catalog, user.memberId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000);
@@ -292,10 +290,10 @@ export default function Rewards() {
   );
   const redeemedHistory = useMemo(() => {
     const keyword = redeemSearch.trim().toLowerCase();
-    return ensureArray(safeUser.transactions)
+    return user.transactions
       .filter((tx) => tx.type === "redeemed")
       .filter((tx) => (keyword ? tx.description.toLowerCase().includes(keyword) : true));
-  }, [safeUser.transactions, redeemSearch]);
+  }, [user.transactions, redeemSearch]);
 
   const isFlashSaleSoldOut = (reward: Reward) =>
     Boolean(
@@ -316,8 +314,8 @@ export default function Rewards() {
     reward?: Reward | null
   ) => {
     await redeemPointsViaApi({
-      memberIdentifier: safeUser.memberId,
-      fallbackEmail: safeUser.email,
+      memberIdentifier: user.memberId,
+      fallbackEmail: user.email,
       points,
       transactionType: type === "gifted" ? "GIFT" : "REDEEM",
       reason: `${description}${category ? ` [${category}]` : ""}${type === "gifted" ? " (gifted)" : ""}`,
@@ -330,8 +328,8 @@ export default function Rewards() {
         partnerId: String(reward.partnerId),
         partnerCode: reward.partnerCode,
         partnerName: reward.partnerName,
-        memberId: safeUser.memberId,
-        memberEmail: safeUser.email,
+        memberId: user.memberId,
+        memberEmail: user.email,
         orderId: `reward-${reward.id}-${Date.now()}`,
         points,
         grossAmount:
@@ -465,7 +463,7 @@ export default function Rewards() {
       return;
     }
 
-    const maxApplicablePoints = Math.min(safeUser.points, Math.floor(subtotal * 100));
+    const maxApplicablePoints = Math.min(user.points, Math.floor(subtotal * 100));
     if (maxApplicablePoints <= 0) {
       toast.error("No points available to apply.");
       return;
@@ -490,7 +488,7 @@ export default function Rewards() {
   const renderRewardCard = (reward: Reward, imageIndex: number) => {
     const isReserved = reservedRewards.includes(reward.id);
     const pointsCost = safeNumber(reward.pointsCost, 0);
-    const userPoints = safeNumber(safeUser.points, 0);
+    const userPoints = safeNumber(user.points, 0);
     const cashValue = positiveNumberOrNull(reward.cashValue);
     const partnerConversionRate = positiveNumberOrNull(reward.partnerConversionRate);
     reward = { ...reward, cashValue, partnerConversionRate };
@@ -596,7 +594,7 @@ export default function Rewards() {
 
       <Card className="p-6 bg-gradient-to-br from-[#1A2B47] to-[#1A2B47] border-0 text-white">
         <div className="flex items-center justify-between gap-4">
-          <div><p className="text-white/90 text-sm font-medium">Available Points</p><h2 className="text-4xl font-bold mt-2 text-white">{safeUser.points.toLocaleString()}</h2><p className="text-white/85 text-sm mt-1">{safeUser.pendingPoints > 0 && `+${safeUser.pendingPoints} pending`}</p></div>
+          <div><p className="text-white/90 text-sm font-medium">Available Points</p><h2 className="text-4xl font-bold mt-2 text-white">{user.points.toLocaleString()}</h2><p className="text-white/85 text-sm mt-1">{user.pendingPoints > 0 && `+${user.pendingPoints} pending`}</p></div>
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center"><Award className="w-8 h-8" /></div>
         </div>
       </Card>
@@ -612,7 +610,7 @@ export default function Rewards() {
               variant="outline"
               className="border-[#d7b0b0] text-[#7f1d1d] hover:bg-[#fff1f1]"
               onClick={() => {
-                void loadRewardsData(safeUser.tier);
+                void loadRewardsData(user.tier);
               }}
             >
               Retry
@@ -733,7 +731,7 @@ export default function Rewards() {
             <p className="text-sm text-gray-600 mb-4">Apply your points to reduce the cost of any purchase (1 point = $0.01)</p>
             {usePoints && (
               <div className="flex flex-col sm:flex-row gap-3 max-w-md">
-                <Input type="number" placeholder="Enter points" value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)} max={safeUser.points} />
+                <Input type="number" placeholder="Enter points" value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)} max={user.points} />
                 <Button className={`${brandTealSolidClass} ${brandTealSolidHoverClass}`} onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>Apply</Button>
               </div>
             )}
