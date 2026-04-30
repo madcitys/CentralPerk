@@ -1,0 +1,28 @@
+name: Points Expiry Nightly
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-expiry:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run points expiry
+        env:
+          POINTS_ENGINE_URL: ${{ secrets.POINTS_ENGINE_URL }}
+          POINTS_EXPIRY_TOKEN: ${{ secrets.POINTS_EXPIRY_TOKEN }}
+        run: |
+          if [ -z "$POINTS_ENGINE_URL" ]; then
+            echo "POINTS_ENGINE_URL secret is not set; skipping expiry run."
+            exit 0
+          fi
+
+          if [ -n "$POINTS_EXPIRY_TOKEN" ]; then
+            curl -fsS -X POST "$POINTS_ENGINE_URL/points/expiry/run" \
+              -H "Authorization: Bearer $POINTS_EXPIRY_TOKEN"
+          else
+            curl -fsS -X POST "$POINTS_ENGINE_URL/points/expiry/run"
+          fi

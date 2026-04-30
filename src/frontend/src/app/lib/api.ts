@@ -3,7 +3,7 @@ import type { PromotionCampaign } from "./promotions";
 import type { AppNotification } from "./notifications";
 import { API_BASE_URL, apiUrl, BACKEND_OFFLINE_MESSAGE } from "./api-config";
 
-export { API_BASE_URL, apiUrl, BACKEND_OFFLINE_MESSAGE } from "./api-config";
+export { API_BASE_URL, apiUrl, BACKEND_OFFLINE_MESSAGE };
 
 const GET_CACHE_TTL_MS = 20_000;
 const REQUEST_TIMEOUT_MS = 8_000;

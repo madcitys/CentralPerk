@@ -3,6 +3,18 @@ import { apiUrl } from "./api-config";
 const configuredTimeout = Number(process.env.POINTS_SERVICE_TIMEOUT_MS || 900);
 const DEFAULT_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 900;
 
+export class PointsServiceError extends Error {
+  statusCode: number;
+  code?: string;
+
+  constructor(message: string, statusCode: number, code?: string) {
+    super(message);
+    this.name = "PointsServiceError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 function fullUrl(path: string) {
   const pointsServiceBaseUrl = (process.env.POINTS_ENGINE_URL || "").replace(/\/+$/, "");
   if (pointsServiceBaseUrl) {

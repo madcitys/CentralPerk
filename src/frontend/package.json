@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "node scripts/next-dev-inproc.cjs",
     "build": "next build",
-    "start": "next start -p 3000",
-    "verify:handoff": "node scripts/verify-loyalty-frontend.mjs",
-    "test:contracts": "node --import tsx --test tests/contracts/points.consumer.contract.test.ts tests/contracts/campaign.consumer.contract.test.ts",
-    "test:contracts:break:generate": "node --import tsx --test tests/contracts/points.breaking.contract.test.ts",
-    "test:performance:baseline": "k6 run tests/performance/points-and-campaigns.js"
+    "health": "powershell -NoProfile -Command \"Invoke-RestMethod http://localhost:4000/health | ConvertTo-Json -Depth 6\"",
+    "preserver": "next build",
+    "prestart": "next build",
+    "server": "next start --hostname 0.0.0.0 --port 3000",
+    "start": "next start --hostname 0.0.0.0 --port 3000"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "1.2.3",

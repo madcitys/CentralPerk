@@ -1,0 +1,88 @@
+name: Loyalty Backend CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build backend services
+        run: |
+          for service in gateway member-service points-engine campaign-service segment-service notification-service reward-service; do
+            npm install --prefix "src/backend/$service"
+            npm run build --prefix "src/backend/$service"
+          done
+
+      - name: Create CI env file
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_SUPABASE_PROJECT_ID }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CAMPAIGN_WRITE_TOKEN: ${{ secrets.CAMPAIGN_WRITE_TOKEN }}
+        run: |
+          : "${NEXT_PUBLIC_SUPABASE_URL:=http://localhost:54321}"
+          : "${NEXT_PUBLIC_SUPABASE_PROJECT_ID:=local-ci}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:=local-ci-publishable-key}"
+          : "${SUPABASE_SERVICE_ROLE_KEY:=local-ci-service-role-key}"
+          : "${CAMPAIGN_WRITE_TOKEN:=change_me_for_internal_gateway_writes}"
+
+          cat > src/frontend/.env <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID=${NEXT_PUBLIC_SUPABASE_PROJECT_ID}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+          NEXT_PUBLIC_ENABLE_DEMO_AUTH=true
+          NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH=false
+          USE_REMOTE_LOYALTY_API=false
+          USE_LOCAL_LOYALTY_API=true
+          NEXT_PUBLIC_USE_REMOTE_LOYALTY_API=false
+          NEXT_PUBLIC_USE_LOCAL_LOYALTY_API=true
+          POINTS_SERVICE_TIMEOUT_MS=5000
+          SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+          MEMBER_SERVICE_URL=http://127.0.0.1:4003
+          SEGMENT_SERVICE_URL=http://127.0.0.1:4004
+          NOTIFICATION_SERVICE_URL=http://127.0.0.1:4005
+          REWARD_SERVICE_URL=http://127.0.0.1:4006
+          GATEWAY_URL=http://127.0.0.1:4000
+          NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:4000
+          CAMPAIGN_WRITE_TOKEN=${CAMPAIGN_WRITE_TOKEN:-change_me_for_internal_gateway_writes}
+          EOF
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Start Docker stack
+        run: docker compose up --build -d
+
+      - name: Run smoke checks
+        run: npm test
+
+      - name: Docker logs
+        if: always()
+        run: |
+          if [ -f src/frontend/.env ]; then
+            docker compose logs --tail=100
+          else
+            echo "Skipping Docker logs because the CI env file was not created."
+          fi
+
+      - name: Stop Docker stack
+        if: always()
+        run: |
+          if [ -f src/frontend/.env ]; then
+            docker compose down --volumes
+          else
+            echo "Skipping Docker cleanup because the CI env file was not created."
+          fi
