@@ -48,6 +48,19 @@ export function createServer() {
     result: { queued: true, channel: "sms" },
   }));
 
+  app.patch("/notifications/:id/read", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const notification = notifications.find((entry) => entry.id === params.id);
+
+    if (!notification) {
+      reply.code(404);
+      return { ok: false, error: "notification_not_found" };
+    }
+
+    notification.status = "read";
+    return { ok: true, notification };
+  });
+
   return app;
 }
 

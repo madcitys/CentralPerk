@@ -160,8 +160,8 @@ export function createServer() {
   app.all("/members/:id/points", proxyToBackendApi);
   app.all("/members/:id/points-history", proxyToBackendApi);
   app.all("/members/*", async (req, reply) => proxy(req, reply, memberTarget()));
-  app.all("/notifications", proxyToBackendApi);
-  app.all("/notifications/*", proxyToBackendApi);
+  app.all("/notifications", async (req, reply) => proxy(req, reply, notificationTarget()));
+  app.all("/notifications/*", async (req, reply) => proxy(req, reply, notificationTarget()));
   app.all("/communications/*", proxyToBackendApi);
   app.all("/analytics/*", proxyToBackendApi);
   app.all("/partners", proxyToBackendApi);
