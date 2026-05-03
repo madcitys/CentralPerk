@@ -1,0 +1,262 @@
+{
+  "consumer": {
+    "name": "loyalty-frontend"
+  },
+  "interactions": [
+    {
+      "description": "a campaign create request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "campaigns can be created in draft"
+        }
+      ],
+      "request": {
+        "body": {
+          "autoPause": true,
+          "budgetLimit": 1000,
+          "campaignCode": "CMP-PACT",
+          "campaignName": "Pact Campaign",
+          "campaignType": "multiplier_event",
+          "endsAt": "2026-12-31T23:59:59.000Z",
+          "minimumPurchaseAmount": 0,
+          "multiplier": 2,
+          "startsAt": "2026-01-01T00:00:00.000Z",
+          "status": "draft"
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "x-role": "admin"
+        },
+        "method": "POST",
+        "path": "/campaigns"
+      },
+      "response": {
+        "body": {
+          "campaign": {
+            "budgetSpent": 0,
+            "campaignCode": "CMP-PACT",
+            "campaignName": "Pact Campaign",
+            "campaignType": "multiplier_event",
+            "id": "cmp-pact",
+            "status": "draft"
+          },
+          "ok": true
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.campaign.budgetSpent": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.campaign.campaignCode": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaign.campaignName": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaign.campaignType": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaign.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaign.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a campaign publish request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "a draft campaign can be published"
+        }
+      ],
+      "request": {
+        "body": {
+          "queueNotifications": false
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "x-role": "admin"
+        },
+        "method": "PATCH",
+        "path": "/campaigns/cmp-pact/publish"
+      },
+      "response": {
+        "body": {
+          "campaign": {
+            "id": "cmp-pact",
+            "status": "active"
+          },
+          "notificationsQueued": 0,
+          "ok": true
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.campaign.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.campaign.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.notificationsQueued": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a campaign budget status request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "a campaign budget status can be queried"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/campaigns/cmp-pact/budget-status"
+      },
+      "response": {
+        "body": {
+          "budgetStatus": {
+            "active": true,
+            "budgetLimit": 1000,
+            "budgetRemaining": 800,
+            "budgetSpent": 200,
+            "campaignId": "cmp-pact",
+            "status": "active",
+            "utilizationPercent": 20
+          },
+          "ok": true
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.budgetStatus.budgetLimit": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.budgetStatus.budgetRemaining": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.budgetStatus.budgetSpent": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.budgetStatus.campaignId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.budgetStatus.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.budgetStatus.utilizationPercent": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "16.3.0"
+    },
+    "pactRust": {
+      "ffi": "0.5.3",
+      "models": "1.3.9"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "campaign-service"
+  }
+}

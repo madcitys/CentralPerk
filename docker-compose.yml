@@ -1,20 +1,33 @@
 services:
   frontend:
     build:
-      context: ./src/frontend
+      context: ./centralperk-frontend
+      secrets:
+        - frontend_env
+      args:
+        NEXT_PUBLIC_GATEWAY_URL: http://127.0.0.1:4000
+        NEXT_PUBLIC_ENABLE_DEMO_AUTH: "true"
+        NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: "false"
+        NEXT_PUBLIC_USE_REMOTE_LOYALTY_API: "true"
+        NEXT_PUBLIC_USE_LOCAL_LOYALTY_API: "false"
+    env_file:
+      - ./centralperk-frontend/.env
     environment:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       GATEWAY_URL: http://gateway:4000
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-      NEXT_PUBLIC_GATEWAY_URL: http://localhost:4000
+      NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:4000
+      NEXT_PUBLIC_GATEWAY_URL: http://127.0.0.1:4000
       NEXT_PUBLIC_ENABLE_DEMO_AUTH: "true"
       NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: "false"
+      USE_REMOTE_LOYALTY_API: "true"
+      USE_LOCAL_LOYALTY_API: "false"
       NEXT_PUBLIC_USE_REMOTE_LOYALTY_API: "true"
       NEXT_PUBLIC_USE_LOCAL_LOYALTY_API: "false"
-      POINTS_SERVICE_TIMEOUT_MS: "5000"
+      POINTS_SERVICE_TIMEOUT_MS: "15000"
+      CAMPAIGN_WRITE_TOKEN: ${CAMPAIGN_WRITE_TOKEN:-}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       gateway:
         condition: service_healthy
@@ -26,7 +39,7 @@ services:
 
   gateway:
     build:
-      context: ./src/backend/gateway
+      context: ./centralperk-backend/gateway
     environment:
       PORT: "4000"
       POINTS_ENGINE_URL: http://points-engine:4001
@@ -40,7 +53,7 @@ services:
       NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
       CAMPAIGN_WRITE_TOKEN: ${CAMPAIGN_WRITE_TOKEN:-}
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     depends_on:
       - member-service
       - points-engine
@@ -56,15 +69,13 @@ services:
 
   member-service:
     build:
-      context: ./src/backend/member-service
+      context: ./centralperk-backend/member-service
+    env_file:
+      - ./centralperk-frontend/.env
     environment:
       PORT: "4003"
-      USE_LOCAL_LOYALTY_API: "true"
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4003"
+    ports:
+      - "127.0.0.1:4003:4003"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -73,7 +84,9 @@ services:
 
   points-engine:
     build:
-      context: ./src/backend/points-engine
+      context: ./centralperk-backend/points-engine
+    env_file:
+      - ./centralperk-frontend/.env
     environment:
       PORT: "4001"
       CAMPAIGN_SERVICE_URL: http://campaign-service:4002
@@ -81,8 +94,8 @@ services:
       NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4001"
+    ports:
+      - "127.0.0.1:4001:4001"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -91,15 +104,17 @@ services:
 
   campaign-service:
     build:
-      context: ./src/backend/campaign-service
+      context: ./centralperk-backend/campaign-service
+    env_file:
+      - ./centralperk-frontend/.env
     environment:
       PORT: "4002"
       USE_LOCAL_LOYALTY_API: "false"
       NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4002"
+    ports:
+      - "127.0.0.1:4002:4002"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -108,15 +123,13 @@ services:
 
   segment-service:
     build:
-      context: ./src/backend/segment-service
+      context: ./centralperk-backend/segment-service
+    env_file:
+      - ./centralperk-frontend/.env
     environment:
       PORT: "4004"
-      USE_LOCAL_LOYALTY_API: "true"
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4004"
+    ports:
+      - "127.0.0.1:4004:4004"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -125,11 +138,11 @@ services:
 
   notification-service:
     build:
-      context: ./src/backend/notification-service
+      context: ./centralperk-backend/notification-service
     environment:
       PORT: "4005"
-    expose:
-      - "4005"
+    ports:
+      - "127.0.0.1:4005:4005"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4005/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -138,13 +151,17 @@ services:
 
   reward-service:
     build:
-      context: ./src/backend/reward-service
+      context: ./centralperk-backend/reward-service
     environment:
       PORT: "4006"
-    expose:
-      - "4006"
+    ports:
+      - "127.0.0.1:4006:4006"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4006/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+secrets:
+  frontend_env:
+    file: ./centralperk-frontend/.env

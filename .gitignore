@@ -12,7 +12,7 @@ dist/
 .env.*
 !.env.example
 .env.local
-src/frontend/.env.local
-src/backend/.env
+centralperk-frontend/.env.local
+centralperk-backend/.env
 tsconfig.tsbuildinfo
 *.tsbuildinfo

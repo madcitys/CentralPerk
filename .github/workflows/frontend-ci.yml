@@ -1,8 +1,18 @@
-name: Loyalty Frontend CI
+name: frontend-ci
 
 on:
   push:
+    paths:
+      - "centralperk-frontend/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-ci.yml"
   pull_request:
+    paths:
+      - "centralperk-frontend/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-ci.yml"
 
 jobs:
   frontend:
@@ -16,9 +26,85 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: centralperk-frontend/package-lock.json
 
-      - name: Install frontend
-        run: npm install --prefix src/frontend
+      - name: Create frontend CI env
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_SUPABASE_PROJECT_ID }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CAMPAIGN_WRITE_TOKEN: ${{ secrets.CAMPAIGN_WRITE_TOKEN }}
+        run: |
+          : "${NEXT_PUBLIC_SUPABASE_URL:=http://127.0.0.1:54321}"
+          : "${NEXT_PUBLIC_SUPABASE_PROJECT_ID:=local-ci}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:=local-ci-publishable-key}"
+          : "${SUPABASE_SERVICE_ROLE_KEY:=local-ci-service-role-key}"
+          : "${CAMPAIGN_WRITE_TOKEN:=change_me_for_internal_gateway_writes}"
+
+          cat > centralperk-frontend/.env <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+          SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID=${NEXT_PUBLIC_SUPABASE_PROJECT_ID}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+          NEXT_PUBLIC_ENABLE_DEMO_AUTH=true
+          NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH=false
+          USE_REMOTE_LOYALTY_API=true
+          USE_LOCAL_LOYALTY_API=false
+          NEXT_PUBLIC_USE_REMOTE_LOYALTY_API=true
+          NEXT_PUBLIC_USE_LOCAL_LOYALTY_API=false
+          POINTS_SERVICE_TIMEOUT_MS=5000
+          SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+          MEMBER_SERVICE_URL=http://127.0.0.1:4003
+          SEGMENT_SERVICE_URL=http://127.0.0.1:4004
+          NOTIFICATION_SERVICE_URL=http://127.0.0.1:4005
+          REWARD_SERVICE_URL=http://127.0.0.1:4006
+          GATEWAY_URL=http://127.0.0.1:4000
+          NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:4000
+          CAMPAIGN_WRITE_TOKEN=${CAMPAIGN_WRITE_TOKEN}
+          EOF
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix centralperk-frontend
+
+      - name: Run Pact consumer tests
+        run: npm run test:contracts --prefix centralperk-frontend
 
       - name: Build frontend
-        run: npm run build --prefix src/frontend
+        run: npm run build --prefix centralperk-frontend
+
+      - name: Upload Pact artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loyalty-frontend-pacts
+          path: centralperk-frontend/pacts/*.json
+
+      - name: Publish Pact files to broker
+        if: ${{ github.event_name == 'push' && secrets.PACT_BROKER_BASE_URL != '' }}
+        shell: bash
+        env:
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+          PACT_BROKER_USERNAME: ${{ secrets.PACT_BROKER_USERNAME }}
+          PACT_BROKER_PASSWORD: ${{ secrets.PACT_BROKER_PASSWORD }}
+        run: |
+          args=(
+            publish centralperk-frontend/pacts
+            --broker-base-url="${PACT_BROKER_BASE_URL}"
+            --consumer-app-version="${GITHUB_SHA}"
+            --branch="${GITHUB_REF_NAME}"
+          )
+
+          if [ -n "${PACT_BROKER_TOKEN}" ]; then
+            args+=(--broker-token="${PACT_BROKER_TOKEN}")
+          fi
+          if [ -n "${PACT_BROKER_USERNAME}" ]; then
+            args+=(--broker-username="${PACT_BROKER_USERNAME}")
+          fi
+          if [ -n "${PACT_BROKER_PASSWORD}" ]; then
+            args+=(--broker-password="${PACT_BROKER_PASSWORD}")
+          fi
+
+          npx pact-broker "${args[@]}"

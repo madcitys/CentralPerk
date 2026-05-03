@@ -4,7 +4,95 @@
     "name": "System 3 Loyalty API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "variable": [
+    {
+      "key": "gatewayUrl",
+      "value": "http://127.0.0.1:4000"
+    },
+    {
+      "key": "frontendUrl",
+      "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:4000"
+    }
+  ],
   "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const now = Date.now();",
+          "const normalizeLocalUrl = (value, fallback) => String(value || fallback).replace('http://localhost:', 'http://127.0.0.1:').replace(/\\/+$/, '');",
+          "const gatewayUrl = normalizeLocalUrl(pm.environment.get('gatewayUrl') || pm.collectionVariables.get('gatewayUrl'), 'http://127.0.0.1:4000');",
+          "const frontendUrl = normalizeLocalUrl(pm.environment.get('frontendUrl') || pm.collectionVariables.get('frontendUrl'), 'http://127.0.0.1:3000');",
+          "pm.environment.set('gatewayUrl', gatewayUrl);",
+          "pm.environment.set('baseUrl', gatewayUrl);",
+          "pm.environment.set('frontendUrl', frontendUrl);",
+          "const setIfValue = (key, value) => {",
+          "  if (value !== undefined && value !== null && String(value).trim() !== '') pm.environment.set(key, String(value));",
+          "};",
+          "const stamp = String(now);",
+          "if (!pm.environment.get('transactionRef')) setIfValue('transactionRef', `POS-${stamp}`);",
+          "if (!pm.environment.get('eventId')) setIfValue('eventId', `EVT-${stamp}`);",
+          "if (!pm.environment.get('partnerOrderId')) setIfValue('partnerOrderId', `ORDER-${stamp}`);",
+          "if (!pm.environment.get('month')) setIfValue('month', new Date().toISOString().slice(0, 7));",
+          "if (!pm.environment.get('settlementMonth')) setIfValue('settlementMonth', pm.environment.get('month'));",
+          "if (!pm.environment.get('refereeEmail')) setIfValue('refereeEmail', `friend+${stamp}@example.com`);",
+          "const contextIsFresh = now - Number(pm.environment.get('contextLoadedAt') || 0) < 30000 && pm.environment.get('memberId') && pm.environment.get('campaignId') && pm.environment.get('rewardId') && pm.environment.get('partnerId');",
+          "if (!contextIsFresh) {",
+          "  let pending = 5;",
+          "  const done = () => {",
+          "    pending -= 1;",
+          "    if (pending === 0) pm.environment.set('contextLoadedAt', String(Date.now()));",
+          "  };",
+          "  const requestJson = (path, apply) => {",
+          "    pm.sendRequest({ url: `${gatewayUrl}${path}`, method: 'GET', header: { Accept: 'application/json' } }, (err, res) => {",
+          "      try {",
+          "        if (!err && res && res.code < 400) apply(res.json());",
+          "      } catch (error) {}",
+          "      done();",
+          "    });",
+          "  };",
+          "  requestJson('/members?limit=1', (json) => {",
+          "    const member = Array.isArray(json.members) ? json.members[0] : null;",
+          "    if (member) {",
+          "      setIfValue('memberId', member.memberNumber || member.member_number || member.memberId || member.id);",
+          "      setIfValue('memberEmail', member.email);",
+          "    }",
+          "  });",
+          "  requestJson('/campaigns', (json) => {",
+          "    const campaigns = Array.isArray(json.campaigns) ? json.campaigns.filter((row) => row && row.id) : [];",
+          "    const campaign = campaigns.find((row) => row.status === 'draft') || campaigns.find((row) => row.status === 'active') || campaigns[0];",
+          "    if (campaign) {",
+          "      setIfValue('campaignId', campaign.id);",
+          "      setIfValue('campaignCode', campaign.campaignCode || campaign.campaign_code);",
+          "    }",
+          "  });",
+          "  requestJson('/rewards', (json) => {",
+          "    const rewards = Array.isArray(json.rewards) ? json.rewards : [];",
+          "    const reward = rewards.find((row) => row && (row.is_active !== false && row.active !== false)) || rewards[0];",
+          "    if (reward) {",
+          "      setIfValue('rewardId', reward.reward_catalog_id || reward.rewardCatalogId || reward.reward_id || reward.id);",
+          "      setIfValue('rewardCategory', reward.category);",
+          "      setIfValue('rewardSearch', String(reward.name || '').split(' ')[0] || 'coffee');",
+          "    }",
+          "  });",
+          "  requestJson('/partners/dashboard', (json) => {",
+          "    const rows = Array.isArray(json.partners) ? json.partners : [];",
+          "    const row = rows.find((entry) => entry.partner && entry.partner.isActive !== false) || rows[0];",
+          "    if (row && row.partner) setIfValue('partnerId', row.partner.id);",
+          "  });",
+          "  requestJson('/notifications?limit=1', (json) => {",
+          "    const notification = Array.isArray(json.notifications) ? json.notifications[0] : null;",
+          "    if (notification) setIfValue('notificationId', notification.id);",
+          "  });",
+          "}"
+        ]
+      }
+    },
     {
       "listen": "test",
       "script": {
@@ -22,7 +110,36 @@
           "  if (hit) {",
           "    pm.expect.fail('Wrong target: request hit Next.js frontend instead of backend. Marker: ' + hit);",
           "  }",
-          "});"
+          "});",
+          "let json = null;",
+          "try { json = pm.response.json(); } catch (error) {}",
+          "const setIfValue = (key, value) => {",
+          "  if (value !== undefined && value !== null && String(value).trim() !== '') pm.environment.set(key, String(value));",
+          "};",
+          "if (json) {",
+          "  const member = json.member || json.profile || (Array.isArray(json.members) ? json.members[0] : null);",
+          "  if (member) {",
+          "    setIfValue('memberId', member.memberNumber || member.member_number || member.memberId || member.id || member.member_id);",
+          "    setIfValue('memberEmail', member.email);",
+          "  }",
+          "  const campaign = json.campaign || (Array.isArray(json.campaigns) ? json.campaigns[0] : null);",
+          "  if (campaign) {",
+          "    setIfValue('campaignId', campaign.id || campaign.campaignId || campaign.campaign_id);",
+          "    setIfValue('campaignCode', campaign.campaignCode || campaign.campaign_code);",
+          "  }",
+          "  const reward = json.reward || (Array.isArray(json.rewards) ? json.rewards[0] : null);",
+          "  if (reward) {",
+          "    setIfValue('rewardId', reward.reward_catalog_id || reward.rewardCatalogId || reward.reward_id || reward.id);",
+          "    setIfValue('rewardCategory', reward.category);",
+          "  }",
+          "  const partnerRow = json.partner || (Array.isArray(json.partners) ? json.partners[0] && json.partners[0].partner : null);",
+          "  if (partnerRow) setIfValue('partnerId', partnerRow.id || partnerRow.partnerId);",
+          "  const notification = json.notification || (Array.isArray(json.notifications) ? json.notifications[0] : null);",
+          "  if (notification) setIfValue('notificationId', notification.id);",
+          "  const referral = json.referral || (Array.isArray(json.referrals) ? json.referrals[0] : null);",
+          "  if (referral) setIfValue('referralId', referral.id);",
+          "  if (json.transaction && json.transaction.reference) setIfValue('transactionRef', json.transaction.reference);",
+          "}"
         ]
       }
     }
@@ -32,7 +149,7 @@
       "name": "00 Health",
       "item": [
         {
-          "name": "Health Check",
+          "name": "Gateway Health Check",
           "request": {
             "method": "GET",
             "header": [
@@ -41,7 +158,20 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/health"
+            "url": "{{gatewayUrl}}/health"
+          }
+        },
+        {
+          "name": "Frontend API Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{frontendUrl}}/api/health"
           }
         }
       ]
@@ -50,7 +180,7 @@
       "name": "01 Points Service",
       "item": [
         {
-          "name": "Award Points - No Body Params",
+          "name": "Award Points - Purchase Claim",
           "request": {
             "method": "POST",
             "header": [
@@ -65,14 +195,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 625,\n  \"transactionType\": \"PURCHASE\",\n  \"transactionRef\": \"POS-{{$timestamp}}\",\n  \"reason\": \"POS purchase test\",\n  \"amountSpent\": 500,\n  \"productCode\": \"SKU-001\",\n  \"productCategory\": \"Beverage\"\n}",
+              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 625,\n  \"transactionType\": \"PURCHASE\",\n  \"transactionRef\": \"POS-{{$timestamp}}\",\n  \"reason\": \"Cafe purchase validation\",\n  \"amountSpent\": 500,\n  \"productCode\": \"LATTE-REG\",\n  \"productCategory\": \"Beverage\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/points/award"
+            "url": "{{gatewayUrl}}/points/award"
           }
         },
         {
@@ -87,14 +217,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 100,\n  \"reason\": \"Reward redemption test\",\n  \"transactionType\": \"REDEEM\",\n  \"rewardCatalogId\": \"{{rewardId}}\"\n}",
+              "raw": "{\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"points\": 100,\n  \"reason\": \"Coffee reward redemption\",\n  \"transactionType\": \"REDEEM\",\n  \"rewardCatalogId\": \"{{rewardId}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/points/redeem"
+            "url": "{{gatewayUrl}}/points/redeem"
           }
         },
         {
@@ -109,14 +239,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"eventType\": \"transaction.completed\",\n  \"transactionReference\": \"{{transactionRef}}-EVENT\",\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"amountSpent\": 500,\n  \"reason\": \"POS transaction completed test\",\n  \"productCode\": \"SKU-001\",\n  \"productCategory\": \"Beverage\"\n}",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"eventType\": \"transaction.completed\",\n  \"transactionReference\": \"{{transactionRef}}-EVENT\",\n  \"memberIdentifier\": \"{{memberId}}\",\n  \"fallbackEmail\": \"{{memberEmail}}\",\n  \"amountSpent\": 500,\n  \"reason\": \"Cafe POS transaction completed\",\n  \"productCode\": \"LATTE-REG\",\n  \"productCategory\": \"Beverage\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/events/transaction-completed"
+            "url": "{{gatewayUrl}}/events/transaction-completed"
           },
           "event": [
             {
@@ -142,7 +272,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/members/{{memberId}}/points?email={{memberEmail}}"
+            "url": "{{gatewayUrl}}/members/{{memberId}}/points?email={{memberEmail}}"
           }
         },
         {
@@ -150,7 +280,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/members/{{memberId}}/points-history?email={{memberEmail}}"
+            "url": "{{gatewayUrl}}/members/{{memberId}}/points-history?email={{memberEmail}}"
           }
         },
         {
@@ -158,7 +288,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/members/{{memberId}}/tier?email={{memberEmail}}"
+            "url": "{{gatewayUrl}}/members/{{memberId}}/tier?email={{memberEmail}}"
           }
         },
         {
@@ -166,7 +296,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/members/{{memberId}}?email={{memberEmail}}"
+            "url": "{{gatewayUrl}}/members/{{memberId}}?email={{memberEmail}}"
           }
         },
         {
@@ -174,7 +304,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/members/{{memberId}}/notifications?email={{memberEmail}}&limit=20"
+            "url": "{{gatewayUrl}}/members/{{memberId}}/notifications?email={{memberEmail}}&limit=20"
           }
         },
         {
@@ -196,7 +326,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/members/{{memberId}}/preferences?email={{memberEmail}}"
+            "url": "{{gatewayUrl}}/members/{{memberId}}/preferences?email={{memberEmail}}"
           }
         }
       ]
@@ -212,31 +342,24 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "x-role",
+                "value": "admin"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"id\": \"{{campaignId}}\",\n  \"campaignCode\": \"{{campaignCode}}\",\n  \"campaignName\": \"Bonus Points Campaign\",\n  \"description\": \"Campaign created for local API testing.\",\n  \"campaignType\": \"bonus_points\",\n  \"status\": \"draft\",\n  \"multiplier\": 1,\n  \"minimumPurchaseAmount\": 300,\n  \"bonusPoints\": 100,\n  \"productScope\": [\"Beverage\"],\n  \"eligibleTiers\": [\"Bronze\", \"Silver\", \"Gold\"],\n  \"startsAt\": \"2026-04-20T00:00:00.000Z\",\n  \"endsAt\": \"2026-12-31T23:59:59.000Z\",\n  \"budgetLimit\": 10000,\n  \"pushNotificationEnabled\": true\n}",
+              "raw": "{\n  \"campaignName\": \"Weekend Coffee Bonus\",\n  \"description\": \"Bonus points for beverage purchases during the weekend promo window.\",\n  \"campaignType\": \"bonus_points\",\n  \"status\": \"draft\",\n  \"multiplier\": 1,\n  \"minimumPurchaseAmount\": 300,\n  \"bonusPoints\": 100,\n  \"productScope\": [\"Beverage\"],\n  \"eligibleTiers\": [\"Bronze\", \"Silver\", \"Gold\"],\n  \"startsAt\": \"2026-04-20T00:00:00.000Z\",\n  \"endsAt\": \"2026-12-31T23:59:59.000Z\",\n  \"budgetLimit\": 10000,\n  \"pushNotificationEnabled\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/campaigns"
+            "url": "{{gatewayUrl}}/campaigns"
           },
           "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const stamp = Date.now();",
-                  "pm.environment.set(\"campaignId\", `CAMP-${stamp}`);",
-                  "pm.environment.set(\"campaignCode\", `LOCAL-CAMP-${stamp}`);"
-                ]
-              }
-            },
             {
               "listen": "test",
               "script": {
@@ -260,6 +383,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "x-role",
+                "value": "admin"
               }
             ],
             "body": {
@@ -271,7 +398,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/campaigns/{{campaignId}}/publish"
+            "url": "{{gatewayUrl}}/campaigns/{{campaignId}}/publish"
           },
           "event": [
             {
@@ -293,7 +420,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/campaigns/{{campaignId}}"
+            "url": "{{gatewayUrl}}/campaigns/{{campaignId}}"
           }
         },
         {
@@ -301,7 +428,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/campaigns/{{campaignId}}/budget-status"
+            "url": "{{gatewayUrl}}/campaigns/{{campaignId}}/budget-status"
           }
         },
         {
@@ -323,7 +450,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/segments"
+            "url": "{{gatewayUrl}}/segments"
           }
         },
         {
@@ -345,7 +472,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/segments/preview"
+            "url": "{{gatewayUrl}}/segments/preview"
           }
         }
       ]
@@ -365,14 +492,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"email\": \"{{memberEmail}}\",\n  \"subject\": \"Scheduled Email Test\",\n  \"message\": \"This is a scheduled email communication test.\"\n}",
+              "raw": "{\n  \"memberId\": \"{{memberId}}\",\n  \"email\": \"{{memberEmail}}\",\n  \"subject\": \"Weekend Rewards Update\",\n  \"message\": \"Your weekend rewards update is ready. Check the member portal for available coffee perks.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/communications/email"
+            "url": "{{gatewayUrl}}/communications/email"
           }
         },
         {
@@ -394,7 +521,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/notifications/sms"
+            "url": "{{gatewayUrl}}/notifications/sms"
           }
         },
         {
@@ -402,7 +529,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/communications/analytics"
+            "url": "{{gatewayUrl}}/communications/analytics"
           }
         },
         {
@@ -424,13 +551,66 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/unsubscribe"
+            "url": "{{gatewayUrl}}/unsubscribe"
           }
         }
       ]
     },
     {
-      "name": "05 Partner Service",
+      "name": "05 Rewards",
+      "item": [
+        {
+          "name": "Get Rewards Catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/rewards?category={{rewardCategory}}&search={{rewardSearch}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "rewards"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "{{rewardCategory}}"
+                },
+                {
+                  "key": "search",
+                  "value": "{{rewardSearch}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Partner Rewards Only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/rewards?partnerOnly=true",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "rewards"
+              ],
+              "query": [
+                {
+                  "key": "partnerOnly",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Partner Service",
       "item": [
         {
           "name": "Create Partner Transaction",
@@ -444,14 +624,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"partnerId\": \"{{partnerId}}\",\n  \"partnerCode\": \"P001\",\n  \"partnerName\": \"Local Rewards Partner\",\n  \"memberId\": \"{{memberId}}\",\n  \"memberEmail\": \"{{memberEmail}}\",\n  \"orderId\": \"{{partnerOrderId}}\",\n  \"points\": 250,\n  \"grossAmount\": 1500,\n  \"note\": \"Partner earn/burn transaction test\"\n}",
+              "raw": "{\n  \"partnerId\": \"{{partnerId}}\",\n  \"partnerCode\": \"P001\",\n  \"partnerName\": \"Local Rewards Partner\",\n  \"memberId\": \"{{memberId}}\",\n  \"memberEmail\": \"{{memberEmail}}\",\n  \"orderId\": \"{{partnerOrderId}}\",\n  \"points\": 250,\n  \"grossAmount\": 1500,\n  \"note\": \"Partner reward redemption settlement\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/partners/transactions"
+            "url": "{{gatewayUrl}}/partners/transactions"
           },
           "event": [
             {
@@ -470,7 +650,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/partners/dashboard"
+            "url": "{{gatewayUrl}}/partners/dashboard"
           }
         },
         {
@@ -478,7 +658,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/partners/{{partnerId}}/dashboard"
+            "url": "{{gatewayUrl}}/partners/{{partnerId}}/dashboard"
           }
         },
         {
@@ -500,7 +680,7 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement"
+            "url": "{{gatewayUrl}}/partners/{{partnerId}}/settlement"
           }
         },
         {
@@ -508,7 +688,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement/{{month}}/pdf"
+            "url": "{{gatewayUrl}}/partners/{{partnerId}}/settlement/{{month}}/pdf"
           }
         },
         {
@@ -530,7 +710,84 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/partners/{{partnerId}}/settlement/{{month}}/paid"
+            "url": "{{gatewayUrl}}/partners/{{partnerId}}/settlement/{{month}}/paid"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Analytics",
+      "item": [
+        {
+          "name": "Get Program Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/analytics/program-health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Referrals",
+      "item": [
+        {
+          "name": "Create Referral Invite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{gatewayUrl}}/referrals",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"referrerMemberId\": \"{{memberId}}\",\n  \"refereeEmail\": \"{{refereeEmail}}\",\n  \"notify\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('refereeEmail', `friend+${Date.now()}@example.com`);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Member Referrals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{gatewayUrl}}/referrals?memberId={{memberId}}"
+          }
+        },
+        {
+          "name": "Referral Invite Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{notificationServiceUrl}}/notifications?channel=email&limit=20"
           }
         }
       ]

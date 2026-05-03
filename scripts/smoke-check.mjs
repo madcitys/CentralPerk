@@ -1,4 +1,4 @@
-const baseUrl = (process.env.SMOKE_BASE_URL || "http://localhost:4000").replace(/\/+$/, "");
+const baseUrl = (process.env.SMOKE_BASE_URL || "http://127.0.0.1:4000").replace(/\/+$/, "");
 
 const endpoints = [
   "/health",
@@ -62,11 +62,11 @@ for (const endpoint of endpoints) {
 }
 
 if (failures.length > 0) {
-  console.error("Smoke checks failed:");
+  console.error("Local API checks failed:");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("Smoke checks passed.");
+console.log("Local API checks passed.");

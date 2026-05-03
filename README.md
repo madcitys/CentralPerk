@@ -5,47 +5,48 @@ Local loyalty platform for System 3.
 ## Layout
 
 ```text
+centralperk-frontend/
+  src/
+  public/
+  package.json
+  Dockerfile
+centralperk-backend/
+  src/
+  gateway/
+  member-service/
+  points-engine/
+  campaign-service/
+  segment-service/
+  notification-service/
+  reward-service/
 postman/
-supabase/
-  migrations/
-  seeds/
-  queries/
-src/
-  frontend/
-  backend/
-    src/
-    gateway/
-    member-service/
-    points-engine/
-    campaign-service/
-    segment-service/
-    notification-service/
-    reward-service/
+scripts/
 docs/
-  archive/
-    legacy-frontend/
-    legacy-services/
+.github/workflows/
+  backend-ci.yml
+  frontend-ci.yml
+  loyalty-load-nightly.yml
+  points-expiry-nightly.yml
 ```
 
-Explorer tip: `.github`, `.runtime`, `.vscode`, `docs`, `scripts`, and dependency folders are hidden in the shared VS Code workspace settings so the root view stays close to the cleaner Carlos-style layout.
+Explorer tip: dependency folders and generated build outputs are ignored so the root view stays focused on the deployable frontend, backend, Postman, docs, and scripts.
 
 ## Docker Stack
 
-The Docker stack runs the frontend on `http://localhost:3000` and the gateway on `http://localhost:4000`.
+The Docker stack runs the frontend on `http://127.0.0.1:3000` and the gateway on `http://127.0.0.1:4000`.
 
 Use:
 
 ```powershell
-npm run setup:backend
+npm run setup:local
 npm run compose:config
-npm run compose:up
+docker compose up --build -d
 ```
 
 Key microservice containers:
 
 ```text
 gateway            -> 4000
-backend-api        -> internal 4000 (legacy Nest support for UI-only routes)
 points-engine      -> internal 4001
 campaign-service   -> internal 4002
 member-service     -> internal 4003
@@ -57,30 +58,40 @@ reward-service     -> internal 4006
 ## Frontend Handoff
 
 ```powershell
-npm run verify:loyalty-frontend
 npm run test:contracts
 npm run build:frontend
 ```
 
-`src/frontend` is prepared for FE-only push and contains:
+`centralperk-frontend` is prepared for FE-only push and contains:
 
 ```text
-README.md
 .env.example
-.github/workflows/master-pipeline-fe.yml
-.github/workflows/frontend-handoff.yml
 tests/contracts
-tests/performance
+src/
+public/
 ```
+
+## CI/CD
+
+- `.github/workflows/frontend-ci.yml` runs the frontend build and Pact consumer tests for `centralperk-frontend/**`, then publishes Pact files when the broker secrets are configured.
+- `.github/workflows/backend-ci.yml` runs service builds, coverage, provider verification, Docker validation, and gateway API checks for backend and shared stack changes.
+- `.github/workflows/loyalty-load-nightly.yml` runs the Sprint 5 k6 baseline nightly and can forward metrics to Grafana Prometheus Remote Write when the Grafana secrets are set.
 
 ## Project Buckets
 
 - `postman/` keeps the API inventory and local environments together.
 - `supabase/` keeps database-side work together: migrations, seeds, and query references.
-- `src/` keeps the active frontend and backend code together.
+- `centralperk-frontend/` keeps the member/admin portal code.
+- `centralperk-backend/` keeps the NestJS API plus Loyalty microservices.
 - `docs/` is reference-only and not part of the running Docker stack.
 
 ## Local Dev
+
+Bootstrap everything:
+
+```powershell
+npm run setup:local
+```
 
 Frontend:
 ```powershell
@@ -92,13 +103,20 @@ Legacy Nest backend:
 npm run dev:backend
 ```
 
-Smoke checks:
+Unified local stack:
+
 ```powershell
-Invoke-RestMethod http://localhost:4000/health
-Invoke-RestMethod http://localhost:4000/members
-Invoke-RestMethod http://localhost:4000/campaigns
-Invoke-RestMethod http://localhost:4000/segments
-Invoke-RestMethod http://localhost:4000/notifications?limit=20
-Invoke-RestMethod http://localhost:4000/tiers/rules
-Invoke-RestMethod http://localhost:4000/rewards
+docker compose up --build -d
+```
+
+Local API checks:
+```powershell
+Invoke-RestMethod http://127.0.0.1:4000/health
+Invoke-RestMethod http://127.0.0.1:4000/members
+Invoke-RestMethod http://127.0.0.1:4000/campaigns
+Invoke-RestMethod http://127.0.0.1:4000/segments
+Invoke-RestMethod http://127.0.0.1:4000/notifications?limit=20
+Invoke-RestMethod http://127.0.0.1:4000/tiers/rules
+Invoke-RestMethod http://127.0.0.1:4000/rewards
+Invoke-RestMethod http://127.0.0.1:4000/analytics/program-health
 ```

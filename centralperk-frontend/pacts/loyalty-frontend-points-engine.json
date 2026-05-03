@@ -1,0 +1,424 @@
+{
+  "consumer": {
+    "name": "loyalty-frontend"
+  },
+  "interactions": [
+    {
+      "description": "a tier lookup request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "points tiers are available"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/points/tiers"
+      },
+      "response": {
+        "body": {
+          "ok": true,
+          "tiers": [
+            {
+              "is_active": true,
+              "min_points": 750,
+              "tier_label": "Gold"
+            },
+            {
+              "is_active": true,
+              "min_points": 250,
+              "tier_label": "Silver"
+            },
+            {
+              "is_active": true,
+              "min_points": 0,
+              "tier_label": "Bronze"
+            }
+          ]
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.tiers[0].min_points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.tiers[0].tier_label": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.tiers[1].min_points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.tiers[1].tier_label": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.tiers[2].min_points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.tiers[2].tier_label": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a member points lookup request",
+      "providerStates": [
+        {
+          "name": "member points can be queried from the loyalty frontend"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/members/MEM-000001/points",
+        "query": {
+          "email": [
+            "john@example.com"
+          ]
+        }
+      },
+      "response": {
+        "body": {
+          "balance": {
+            "member_id": "MEM-000001",
+            "points_balance": 420,
+            "tier": "Silver"
+          },
+          "memberId": "MEM-000001",
+          "ok": true,
+          "points": 420
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.balance.member_id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.balance.points_balance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.balance.tier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.memberId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.points": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a member tier lookup request",
+      "providerStates": [
+        {
+          "name": "member tiers can be queried from the loyalty frontend"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/members/MEM-000001/tier",
+        "query": {
+          "email": [
+            "john@example.com"
+          ]
+        }
+      },
+      "response": {
+        "body": {
+          "memberId": "MEM-000001",
+          "ok": true,
+          "tier": "Silver"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.memberId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.tier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "an award points request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "a member can receive awarded points"
+        }
+      ],
+      "request": {
+        "body": {
+          "fallbackEmail": "award@example.com",
+          "memberIdentifier": "PACT-AWARD",
+          "points": 100,
+          "reason": "Pact award",
+          "transactionType": "MANUAL_AWARD"
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "pact-award-1"
+        },
+        "method": "POST",
+        "path": "/points/award"
+      },
+      "response": {
+        "body": {
+          "ok": true,
+          "result": {
+            "ledgerEntry": {
+              "change_type": "MANUAL_AWARD",
+              "member_id": 1,
+              "points_delta": 100
+            },
+            "newBalance": 100,
+            "newTier": "Bronze",
+            "pointsAdded": 100
+          }
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.result.ledgerEntry.change_type": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.result.ledgerEntry.member_id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.ledgerEntry.points_delta": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.newBalance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.newTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.result.pointsAdded": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    },
+    {
+      "description": "a redeem points request from the loyalty frontend",
+      "providerStates": [
+        {
+          "name": "a member has redeemable points"
+        }
+      ],
+      "request": {
+        "body": {
+          "fallbackEmail": "redeem@example.com",
+          "memberIdentifier": "PACT-REDEEM",
+          "points": 100,
+          "reason": "Reward redemption"
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "pact-redeem-1"
+        },
+        "method": "POST",
+        "path": "/points/redeem"
+      },
+      "response": {
+        "body": {
+          "ok": true,
+          "result": {
+            "ledgerEntry": {
+              "change_type": "REDEEM",
+              "member_id": 1,
+              "points_delta": -100
+            },
+            "newBalance": 500,
+            "newTier": "Silver",
+            "pointsDeducted": 100
+          }
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.result.ledgerEntry.change_type": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.result.ledgerEntry.member_id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.ledgerEntry.points_delta": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.newBalance": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.result.newTier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.result.pointsDeducted": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "16.3.0"
+    },
+    "pactRust": {
+      "ffi": "0.5.3",
+      "models": "1.3.9"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "points-engine"
+  }
+}

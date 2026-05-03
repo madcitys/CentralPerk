@@ -1,0 +1,109 @@
+name: loyalty-load-nightly
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            centralperk-frontend/package-lock.json
+            centralperk-backend/gateway/package-lock.json
+            centralperk-backend/points-engine/package-lock.json
+            centralperk-backend/campaign-service/package-lock.json
+            centralperk-backend/member-service/package-lock.json
+            centralperk-backend/segment-service/package-lock.json
+            centralperk-backend/notification-service/package-lock.json
+            centralperk-backend/reward-service/package-lock.json
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Create load-test env files
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_SUPABASE_PROJECT_ID }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CAMPAIGN_WRITE_TOKEN: ${{ secrets.CAMPAIGN_WRITE_TOKEN }}
+        run: |
+          : "${NEXT_PUBLIC_SUPABASE_URL:=http://127.0.0.1:54321}"
+          : "${NEXT_PUBLIC_SUPABASE_PROJECT_ID:=local-ci}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:=local-ci-publishable-key}"
+          : "${SUPABASE_SERVICE_ROLE_KEY:=local-ci-service-role-key}"
+          : "${CAMPAIGN_WRITE_TOKEN:=change_me_for_internal_gateway_writes}"
+
+          cat > .env <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+          NEXT_PUBLIC_SUPABASE_PROJECT_ID=${NEXT_PUBLIC_SUPABASE_PROJECT_ID}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+          NEXT_PUBLIC_ENABLE_DEMO_AUTH=true
+          NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH=false
+          USE_REMOTE_LOYALTY_API=true
+          USE_LOCAL_LOYALTY_API=false
+          NEXT_PUBLIC_USE_REMOTE_LOYALTY_API=true
+          NEXT_PUBLIC_USE_LOCAL_LOYALTY_API=false
+          POINTS_SERVICE_TIMEOUT_MS=5000
+          SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+          SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+          MEMBER_SERVICE_URL=http://127.0.0.1:4003
+          SEGMENT_SERVICE_URL=http://127.0.0.1:4004
+          NOTIFICATION_SERVICE_URL=http://127.0.0.1:4005
+          REWARD_SERVICE_URL=http://127.0.0.1:4006
+          GATEWAY_URL=http://127.0.0.1:4000
+          NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:4000
+          CAMPAIGN_WRITE_TOKEN=${CAMPAIGN_WRITE_TOKEN}
+          EOF
+
+          cp .env centralperk-frontend/.env
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix centralperk-frontend
+          npm run setup:backend
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Start Docker stack
+        run: docker compose up --build -d
+
+      - name: Run k6 baseline
+        env:
+          K6_SUMMARY_DIR: centralperk-backend/gateway/load-test/results
+          K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.GRAFANA_PROMETHEUS_RW_URL }}
+          K6_PROMETHEUS_RW_USERNAME: ${{ secrets.GRAFANA_PROMETHEUS_RW_USERNAME }}
+          K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.GRAFANA_PROMETHEUS_RW_PASSWORD }}
+          K6_PROMETHEUS_RW_TREND_STATS: p(95),p(99),avg,min,max
+        shell: bash
+        run: |
+          if [ -n "${K6_PROMETHEUS_RW_SERVER_URL}" ]; then
+            export K6_OUT=experimental-prometheus-rw
+          fi
+          npm run loadtest:baseline
+
+      - name: Upload k6 summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loyalty-load-results
+          path: centralperk-backend/gateway/load-test/results/*
+
+      - name: Stop Docker stack
+        if: always()
+        run: docker compose down --volumes
