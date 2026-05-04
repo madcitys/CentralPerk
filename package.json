@@ -33,7 +33,9 @@
     "compose:up": "docker compose up --build",
     "compose:down": "docker compose down --volumes",
     "smoke": "node scripts/smoke-check.mjs",
-    "test": "node scripts/smoke-check.mjs"
+    "test": "node scripts/smoke-check.mjs",
+    "dev:mobile": "npm --prefix loyalty-mobile run start",
+    "start:mobile": "npm --prefix loyalty-mobile run start"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

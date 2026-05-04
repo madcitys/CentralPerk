@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-export function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const url = request.nextUrl.clone();
   const cleanedPathname = url.pathname.replace(/(?:%0A|%0D|\n|\r)+/gi, "");
 

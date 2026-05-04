@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
     workerThreads: false,
     webpackBuildWorker: false,
   },
+  typescript: {
+    tsconfigPath: './tsconfig.json',
+  },
 };
 
 export default nextConfig;
