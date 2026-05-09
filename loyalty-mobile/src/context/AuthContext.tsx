@@ -68,9 +68,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const register = async (name: string, email: string, password: string) => {
     const result = await AuthService.register(name, email, password);
-    if (result.success && result.user) {
-      setUser(result.user);
-      return { success: true };
+    if (result.success) {
+      // Don't auto-login after registration — user should go back to Login screen
+      return { success: true, error: result.error };
     }
     return { success: false, error: result.error };
   };

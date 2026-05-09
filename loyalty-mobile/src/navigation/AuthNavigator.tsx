@@ -21,10 +21,10 @@ export const AuthNavigator = () => {
     <Stack.Navigator
       initialRouteName="Login"
       screenOptions={{
-        headerStyle: { backgroundColor: '#1a1a2e' },
-        headerTintColor: '#e94560',
+        headerStyle: { backgroundColor: '#0f172a' },
+        headerTintColor: '#1bb9d3',
         headerTitleStyle: { fontWeight: '700' },
-        contentStyle: { backgroundColor: '#16213e' },
+        contentStyle: { backgroundColor: '#0f172a' },
       }}
     >
       <Stack.Screen

@@ -4,9 +4,10 @@
  */
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import { getToken } from './AuthService';
 
-const API_BASE_URL = 'http://localhost:4000';
-const JWT_KEY = 'loyalty_jwt_token';
+const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://localhost:4000';
 
 interface ApiResponse<T = any> {
   data: T;
@@ -15,12 +16,7 @@ interface ApiResponse<T = any> {
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  let token: string | null = null;
-  if (Platform.OS === 'web') {
-    try { token = localStorage.getItem(JWT_KEY); } catch (e) { console.error(e); }
-  } else {
-    token = await SecureStore.getItemAsync(JWT_KEY);
-  }
+  const token = await getToken();
   
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

@@ -1,6 +1,6 @@
 /**
  * Login Screen
- * Email/password form wired to AuthContext
+ * Redesigned to match the web application's login styling exactly.
  */
 import React, { useState } from 'react';
 import {
@@ -13,6 +13,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -24,40 +25,40 @@ type LoginScreenProps = {
 };
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
+  const [loginRole, setLoginRole] = useState<'customer' | 'admin'>('customer');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [error, setError] = useState<string | null>(null);
+  
   const { login } = useAuth();
 
-  const validate = (): boolean => {
-    const newErrors: { email?: string; password?: string } = {};
-    if (!email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Enter a valid email';
-    }
-    if (!password.trim()) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
   const handleLogin = async () => {
-    if (!validate()) return;
+    if (!email.trim() || !password.trim()) {
+      setError('Please fill in all fields');
+      return;
+    }
+    if (loginRole === 'customer' && !/\S+@\S+\.\S+/.test(email)) {
+      setError('Enter a valid email');
+      return;
+    }
 
+    setError(null);
     setIsSubmitting(true);
+    
     try {
-      const result = await login(email, password);
+      // The web app appends @admin.loyaltyhub.com to the Admin ID for Supabase Auth
+      const authEmail = loginRole === 'admin' 
+        ? (email.includes('@') ? email.trim() : `${email.trim()}@admin.loyaltyhub.com`)
+        : email.trim().toLowerCase();
+      
+      const result = await login(authEmail, password);
       if (!result.success) {
-        Alert.alert('Login Failed', result.error || 'Invalid credentials');
+        setError(result.error || 'Invalid credentials');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } catch (err) {
+      setError('Something went wrong. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -66,93 +67,138 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.header}>
-        <Ionicons name="diamond" size={48} color="#e94560" />
-        <Text style={styles.title}>Loyalty Mobile</Text>
-        <Text style={styles.subtitle}>Sign in to your account</Text>
-      </View>
-
-      <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email</Text>
-          <View style={[styles.inputWrapper, errors.email ? styles.inputError : null]}>
-            <Ionicons name="mail-outline" size={20} color="#8892b0" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#5a6380"
-              value={email}
-              onChangeText={(text) => { setEmail(text); setErrors(prev => ({ ...prev, email: undefined })); }}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-            />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.card}>
+          
+          {/* Top Section (Gradient-like Dark Blue) */}
+          <View style={styles.topSection}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="lock-closed-outline" size={28} color="#fff" />
+            </View>
+            <Text style={styles.welcomeText}>Welcome Back</Text>
+            <Text style={styles.welcomeSubtext}>
+              {loginRole === 'admin'
+                ? 'Sign in to manage members, points, and reports.'
+                : 'Sign in to access your loyalty program account and manage your rewards.'}
+            </Text>
+            
+            <View style={styles.benefitsList}>
+              <View style={styles.benefitItem}>
+                <View style={styles.benefitDot} />
+                <Text style={styles.benefitText}>Track your points</Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <View style={styles.benefitDot} />
+                <Text style={styles.benefitText}>Exclusive member benefits</Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <View style={styles.benefitDot} />
+                <Text style={styles.benefitText}>Redeem rewards</Text>
+              </View>
+            </View>
           </View>
-          {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-        </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Password</Text>
-          <View style={[styles.inputWrapper, errors.password ? styles.inputError : null]}>
-            <Ionicons name="lock-closed-outline" size={20} color="#8892b0" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor="#5a6380"
-              value={password}
-              onChangeText={(text) => { setPassword(text); setErrors(prev => ({ ...prev, password: undefined })); }}
-              secureTextEntry={!showPassword}
-              autoComplete="password"
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <Ionicons
-                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-                color="#8892b0"
+          {/* Bottom Section (White Form) */}
+          <View style={styles.bottomSection}>
+            <Text style={styles.loginTitle}>Log In</Text>
+            <Text style={styles.loginSubtitle}>Enter your credentials to continue</Text>
+
+            {error && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorBoxText}>{error}</Text>
+              </View>
+            )}
+
+            {/* Role Switcher */}
+            <Text style={styles.label}>Login As</Text>
+            <View style={styles.roleSwitcher}>
+              <TouchableOpacity
+                style={[styles.roleButton, loginRole === 'customer' && styles.roleButtonActive]}
+                onPress={() => { setLoginRole('customer'); setError(null); }}
+              >
+                <Ionicons name="person-outline" size={18} color={loginRole === 'customer' ? '#1f2937' : '#4b5563'} style={styles.roleIcon} />
+                <Text style={[styles.roleButtonText, loginRole === 'customer' && styles.roleButtonTextActive]}>
+                  Customer
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.roleButton, loginRole === 'admin' && styles.roleButtonActive]}
+                onPress={() => { setLoginRole('admin'); setError(null); }}
+              >
+                <Ionicons name="settings-outline" size={18} color={loginRole === 'admin' ? '#1f2937' : '#4b5563'} style={styles.roleIcon} />
+                <Text style={[styles.roleButtonText, loginRole === 'admin' && styles.roleButtonTextActive]}>
+                  Admin
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Inputs */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>{loginRole === 'admin' ? 'Admin ID' : 'Email'}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={loginRole === 'admin' ? 'e.g., ADMIN0001' : 'your.email@example.com'}
+                placeholderTextColor="#9ca3af"
+                value={email}
+                onChangeText={(text) => { setEmail(text); setError(null); }}
+                autoCapitalize="none"
+                keyboardType={loginRole === 'admin' ? 'default' : 'email-address'}
               />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordWrapper}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9ca3af"
+                  value={password}
+                  onChangeText={(text) => { setPassword(text); setError(null); }}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Forgot Password Link */}
+            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} style={styles.forgotPassContainer}>
+              <Text style={styles.forgotPassText}>Forgot Password?</Text>
             </TouchableOpacity>
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+              onPress={handleLogin}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {loginRole === 'admin' ? 'Log In as Admin' : 'Log In'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Register Link */}
+            {loginRole === 'customer' && (
+              <View style={styles.registerContainer}>
+                <Text style={styles.registerText}>Don't have an account? </Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                  <Text style={styles.registerLink}>Register here</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
           </View>
-          {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
         </View>
-
-        <TouchableOpacity
-          style={[styles.loginButton, isSubmitting && styles.loginButtonDisabled]}
-          onPress={handleLogin}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.loginButtonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.forgotButton}
-          onPress={() => navigation.navigate('ForgotPassword')}
-        >
-          <Text style={styles.forgotText}>Forgot Password?</Text>
-        </TouchableOpacity>
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OR</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <TouchableOpacity
-          style={styles.registerButton}
-          onPress={() => navigation.navigate('Register')}
-        >
-          <Text style={styles.registerButtonText}>Create New Account</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.hint}>
-        💡 Tip: Use "admin@test.com" to login as program_manager
-      </Text>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 };
@@ -160,124 +206,202 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#16213e',
+    backgroundColor: '#0f172a',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
+    paddingVertical: 40,
   },
-  header: {
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  topSection: {
+    backgroundColor: '#1e293b',
+    padding: 32,
+    paddingTop: 40,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    backgroundColor: '#1bb9d3',
+    borderRadius: 14,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 24,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#e2e8f0',
-    marginTop: 12,
+  welcomeText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 12,
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#8892b0',
-    marginTop: 6,
+  welcomeSubtext: {
+    fontSize: 16,
+    color: '#cbd5e1',
+    lineHeight: 24,
+    marginBottom: 24,
   },
-  form: {
-    gap: 16,
+  benefitsList: {
+    gap: 12,
   },
-  inputGroup: {
+  benefitItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  benefitDot: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#1bb9d3',
+    borderRadius: 4,
+  },
+  benefitText: {
+    fontSize: 14,
+    color: '#cbd5e1',
+  },
+  bottomSection: {
+    padding: 32,
+  },
+  loginTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1f2937',
     marginBottom: 4,
   },
+  loginSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 24,
+  },
+  errorBox: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+  },
+  errorBoxText: {
+    color: '#991b1b',
+    fontSize: 14,
+  },
   label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#a8b2d1',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#2a2a4a',
-    paddingHorizontal: 14,
-    height: 50,
-  },
-  inputError: {
-    borderColor: '#e94560',
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    color: '#e2e8f0',
-    fontSize: 15,
-  },
-  errorText: {
-    color: '#e94560',
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 4,
-  },
-  loginButton: {
-    backgroundColor: '#e94560',
-    borderRadius: 12,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  loginButtonDisabled: {
-    opacity: 0.7,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  forgotButton: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  forgotText: {
-    color: '#e94560',
     fontSize: 14,
     fontWeight: '500',
+    color: '#374151',
+    marginBottom: 8,
   },
-  divider: {
+  roleSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 24,
+  },
+  roleButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 8,
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#2a2a4a',
+  roleButtonActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  dividerText: {
-    color: '#5a6380',
-    marginHorizontal: 12,
-    fontSize: 12,
+  roleIcon: {
+    marginRight: 6,
+  },
+  roleButtonText: {
+    fontSize: 14,
     fontWeight: '600',
+    color: '#4b5563',
   },
-  registerButton: {
+  roleButtonTextActive: {
+    color: '#1f2937',
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  input: {
+    backgroundColor: '#dbe4f2',
     borderRadius: 12,
-    height: 50,
+    paddingHorizontal: 16,
+    height: 48,
+    fontSize: 15,
+    color: '#1f2937',
+  },
+  passwordWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#dbe4f2',
+    borderRadius: 12,
+    height: 48,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: '#1f2937',
+  },
+  eyeIcon: {
+    padding: 12,
+  },
+  forgotPassContainer: {
+    alignSelf: 'flex-end',
+    marginBottom: 24,
+  },
+  forgotPassText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#1bb9d3',
+  },
+  submitButton: {
+    backgroundColor: '#1bb9d3',
+    height: 52,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#e94560',
+    shadowColor: '#1bb9d3',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  registerButtonText: {
-    color: '#e94560',
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
   },
-  hint: {
-    color: '#5a6380',
-    fontSize: 12,
-    textAlign: 'center',
+  registerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     marginTop: 24,
+  },
+  registerText: {
+    fontSize: 14,
+    color: '#4b5563',
+  },
+  registerLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1bb9d3',
   },
 });
