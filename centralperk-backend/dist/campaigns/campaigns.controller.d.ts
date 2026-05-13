@@ -1,0 +1,150 @@
+import { CampaignsService } from "./campaigns.service";
+export declare class CampaignsController {
+    private readonly campaigns;
+    constructor(campaigns: CampaignsService);
+    create(body: Record<string, unknown>, query: Record<string, unknown>): Promise<{
+        ok: boolean;
+        campaign: {
+            id: string;
+            campaignCode: string;
+            campaignName: string;
+            campaignType: string;
+            status: string;
+            multiplier: number;
+            minimumPurchaseAmount: number;
+            bonusPoints: number;
+            productScope: unknown;
+            eligibleTiers: unknown;
+            rewardId: string | null;
+            startsAt: string;
+            endsAt: string;
+            bannerTitle: {} | null;
+            bannerMessage: {} | null;
+            bannerColor: string;
+            countdownLabel: {} | null;
+            pushNotificationEnabled: boolean;
+            budgetLimit: number | null;
+            budgetSpent: number;
+            flashSaleQuantityLimit: number | null;
+            flashSaleClaimedCount: number;
+            autoPause: boolean;
+            createdAt: string;
+            publishedAt: {} | null;
+        };
+        campaignId: string;
+    }>;
+    list(): Promise<{
+        ok: boolean;
+        campaigns: Record<string, unknown>[];
+        source: string;
+    }>;
+    active(tier?: string): Promise<{
+        ok: boolean;
+        campaigns: Record<string, unknown>[];
+    }>;
+    performance(): Promise<{
+        ok: boolean;
+        performance: {
+            campaign_id: unknown;
+            campaign_code: unknown;
+            campaign_name: unknown;
+            campaign_type: unknown;
+            status: unknown;
+            starts_at: unknown;
+            ends_at: unknown;
+            notifications_sent: number;
+            tracked_transactions: number;
+            points_awarded: number;
+            redemption_count: number;
+            quantity_limit: {} | null;
+            quantity_claimed: number;
+            sell_through: null;
+            redemption_speed_per_hour: number;
+        }[];
+        source: string;
+    }>;
+    get(id: string): Promise<{
+        ok: boolean;
+        campaign: {
+            id: string;
+            campaignCode: string;
+            campaignName: string;
+            campaignType: string;
+            status: string;
+            multiplier: number;
+            minimumPurchaseAmount: number;
+            bonusPoints: number;
+            productScope: unknown;
+            eligibleTiers: unknown;
+            rewardId: string | null;
+            startsAt: string;
+            endsAt: string;
+            bannerTitle: {} | null;
+            bannerMessage: {} | null;
+            bannerColor: string;
+            countdownLabel: {} | null;
+            pushNotificationEnabled: boolean;
+            budgetLimit: number | null;
+            budgetSpent: number;
+            flashSaleQuantityLimit: number | null;
+            flashSaleClaimedCount: number;
+            autoPause: boolean;
+            createdAt: string;
+            publishedAt: {} | null;
+        };
+        campaignId: string;
+    }>;
+    publish(id: string): Promise<{
+        ok: boolean;
+        campaign: {
+            id: string;
+            campaignCode: string;
+            campaignName: string;
+            campaignType: string;
+            status: string;
+            multiplier: number;
+            minimumPurchaseAmount: number;
+            bonusPoints: number;
+            productScope: unknown;
+            eligibleTiers: unknown;
+            rewardId: string | null;
+            startsAt: string;
+            endsAt: string;
+            bannerTitle: {} | null;
+            bannerMessage: {} | null;
+            bannerColor: string;
+            countdownLabel: {} | null;
+            pushNotificationEnabled: boolean;
+            budgetLimit: number | null;
+            budgetSpent: number;
+            flashSaleQuantityLimit: number | null;
+            flashSaleClaimedCount: number;
+            autoPause: boolean;
+            createdAt: string;
+            publishedAt: {} | null;
+        };
+        campaignId: string;
+        notificationsQueued: number;
+    }>;
+    budget(id: string): Promise<{
+        ok: boolean;
+        budgetStatus: {
+            campaignId: string;
+            campaignName: string;
+            status: string;
+            active: boolean;
+            budgetLimit: number | null;
+            budgetSpent: number;
+            budgetRemaining: number | null;
+            utilizationPercent: number;
+            trackedTransactions: number;
+            pointsAwarded: number;
+            notificationsSent: number;
+            redemptionCount: number;
+            quantityLimit: number | null;
+            quantityClaimed: number;
+            sellThrough: null;
+        };
+        campaignId: string;
+    }>;
+}

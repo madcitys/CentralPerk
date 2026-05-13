@@ -1,0 +1,162 @@
+{
+  "..\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app": {
+    "id": 45139,
+    "files": [
+      "static/chunks/139.8d54880d25bc452f.js"
+    ]
+  },
+  "..\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error": {
+    "id": 31646,
+    "files": [
+      "static/chunks/646.c2c67a3e35c59670.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/activity": {
+    "id": 14492,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/318.96f9c56597aa46b8.js",
+      "static/chunks/898.f01add1d99e59e79.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/492.faf7f08ceb79e7df.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/analytics": {
+    "id": 7126,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/318.96f9c56597aa46b8.js",
+      "static/chunks/898.f01add1d99e59e79.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/331.08c2e741543c886e.js",
+      "static/chunks/126.1b4bb245e9f47b80.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/dashboard": {
+    "id": 19749,
+    "files": [
+      "static/chunks/318.96f9c56597aa46b8.js",
+      "static/chunks/898.f01add1d99e59e79.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/749.30061c367447fb0c.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/engagement": {
+    "id": 69877,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/331.08c2e741543c886e.js",
+      "static/chunks/877.5b3e17ba5bb49c9c.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/members": {
+    "id": 29443,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/318.96f9c56597aa46b8.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/443.045b1645d90c331c.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/rewards": {
+    "id": 68688,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/318.96f9c56597aa46b8.js",
+      "static/chunks/898.f01add1d99e59e79.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/114.9c720c3791e2b0f4.js",
+      "static/chunks/688.35c27f47ba4ff240.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/pages/settings": {
+    "id": 20907,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/907.cffff922c7dd3b02.js"
+    ]
+  },
+  "app\\routes.tsx -> ./admin-panel/root": {
+    "id": 73933,
+    "files": [
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/933.4b8b314022178989.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/dashboard": {
+    "id": 83182,
+    "files": [
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/182.6fba07e820d28fd0.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/earn-points": {
+    "id": 77088,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/610.ae4c433e52993e9a.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/88.fa5a22b577fb04d9.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/engagement": {
+    "id": 22987,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/411.10e9ddb5772a4eba.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/331.08c2e741543c886e.js",
+      "static/chunks/987.9238000cf7f5b4e4.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/points-activity": {
+    "id": 4392,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/853.abea32da6992bf64.js",
+      "static/chunks/392.4c531683ed6d9db9.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/profile": {
+    "id": 76739,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/621.fa40f98f04e0f251.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/739.7a2590458f82add1.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/pages/rewards": {
+    "id": 41686,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/149.379c9576204fcac1.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/686.ec76437a19e9351a.js"
+    ]
+  },
+  "app\\routes.tsx -> ./customer-panel/root": {
+    "id": 77398,
+    "files": [
+      "static/chunks/307.cc1fcbcd258711c0.js",
+      "static/chunks/793.dd418419fedfce9f.js",
+      "static/chunks/398.bbb38034ad937ec7.js"
+    ]
+  },
+  "pages\\[[...slug]].tsx -> ../next/LegacySpaApp": {
+    "id": 48990,
+    "files": [
+      "static/chunks/4164885f.b2fb31ce7bc9be55.js",
+      "static/chunks/dc553f02.d5608bb6ef40c146.js",
+      "static/chunks/977.852260bbfdb02913.js",
+      "static/chunks/990.8f01007f7f579643.js"
+    ]
+  }
+}
