@@ -26,7 +26,49 @@ type RawMemberRow = {
   tier?: string | null;
   points_balance?: number | null;
   last_activity_at?: string | null;
+  effective_segment?: string | null;
 };
+
+type MemberSegmentRow = {
+  member_id?: string | number | null;
+  member_number?: string | null;
+  effective_segment?: string | null;
+  last_activity_at?: string | null;
+};
+
+async function fetchMemberRows() {
+  const supabase = createServerSupabaseClient();
+  const membersResult = await supabase
+    .from("loyalty_members")
+    .select("id,member_number,first_name,last_name,email,tier,points_balance")
+    .limit(1000);
+
+  if (membersResult.error) throw membersResult.error;
+
+  const segmentsResult = await supabase.rpc("loyalty_member_segments");
+  if (segmentsResult.error) throw segmentsResult.error;
+
+  const segmentById = new Map<string, MemberSegmentRow>();
+  const segmentByNumber = new Map<string, MemberSegmentRow>();
+  for (const row of (segmentsResult.data || []) as MemberSegmentRow[]) {
+    const memberId = String(row.member_id ?? "").trim();
+    const memberNumber = String(row.member_number ?? "").trim();
+    if (memberId) segmentById.set(memberId, row);
+    if (memberNumber) segmentByNumber.set(memberNumber, row);
+  }
+
+  return ((membersResult.data || []) as RawMemberRow[]).map((row) => {
+    const segmentRow =
+      segmentById.get(String(row.id ?? "").trim()) ||
+      segmentByNumber.get(String(row.member_number ?? "").trim());
+
+    return {
+      ...row,
+      last_activity_at: segmentRow?.last_activity_at ?? null,
+      effective_segment: segmentRow?.effective_segment ?? null,
+    };
+  });
+}
 
 function daysSince(value?: string | null) {
   if (!value) return Number.POSITIVE_INFINITY;
@@ -68,15 +110,7 @@ export async function previewSegmentAudience(input: {
   logicMode: "AND" | "OR";
   conditions: SegmentPreviewCondition[];
 }) {
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("loyalty_members")
-    .select("id,member_number,first_name,last_name,email,tier,points_balance,last_activity_at")
-    .limit(1000);
-
-  if (error) throw error;
-
-  const rows = ((data || []) as RawMemberRow[]).filter((row) => row.id !== undefined && row.member_number);
+  const rows = (await fetchMemberRows()).filter((row) => row.id !== undefined && row.member_number);
   const filtered = rows.filter((member) => {
     const results = input.conditions.map((condition) => matchesCondition(member, condition));
     return input.logicMode === "AND" ? results.every(Boolean) : results.some(Boolean);
@@ -104,21 +138,13 @@ export async function resolveAudienceMembers(input: {
   memberId?: string;
   email?: string;
 }) {
-  const supabase = createServerSupabaseClient();
-  let query = supabase
-    .from("loyalty_members")
-    .select("id,member_number,email,first_name,last_name,tier,points_balance,last_activity_at");
-
+  let rows = (await fetchMemberRows()).filter((row) => row.member_number);
   if (input.memberId) {
-    query = query.eq("member_number", input.memberId.trim());
+    rows = rows.filter((row) => String(row.member_number || "").trim() === input.memberId?.trim());
   } else if (input.email) {
-    query = query.ilike("email", input.email.trim());
+    const expectedEmail = input.email.trim().toLowerCase();
+    rows = rows.filter((row) => String(row.email || "").trim().toLowerCase() === expectedEmail);
   }
-
-  const { data, error } = await query.limit(1000);
-  if (error) throw error;
-
-  let rows = ((data || []) as RawMemberRow[]).filter((row) => row.member_number);
   const normalizedSegment = String(input.segment || "").trim().toLowerCase();
 
   if (normalizedSegment && !input.memberId && !input.email) {
@@ -126,6 +152,9 @@ export async function resolveAudienceMembers(input: {
       if (normalizedSegment === "all members") return true;
       if (normalizedSegment === "inactive 60+ days") return daysSince(row.last_activity_at) >= 60;
       if (normalizedSegment === "high value") return Number(row.points_balance || 0) >= 1000;
+      if (normalizedSegment === "active" || normalizedSegment === "at risk" || normalizedSegment === "inactive") {
+        return String(row.effective_segment || "").trim().toLowerCase() === normalizedSegment;
+      }
       return String(row.tier || "Bronze").trim().toLowerCase() === normalizedSegment;
     });
   }

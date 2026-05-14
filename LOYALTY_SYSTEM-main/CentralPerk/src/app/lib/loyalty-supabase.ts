@@ -435,7 +435,10 @@ async function processMemberExpiredPoints(memberPk: { key: string; value: any })
 export async function processAllMemberExpiredPoints() {
   const serviceResponse = await runExpiryViaService().catch(() => null);
   if (serviceResponse?.ok) return serviceResponse.result;
-  /* fallback to legacy flow */
+  return processAllMemberExpiredPointsDirect();
+}
+
+export async function processAllMemberExpiredPointsDirect() {
   const { data, error } = await supabase.from("loyalty_members").select("id,member_id");
   if (error) throw error;
   const members = (data || []) as AnyRecord[];

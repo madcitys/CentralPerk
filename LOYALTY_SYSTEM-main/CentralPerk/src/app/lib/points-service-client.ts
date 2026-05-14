@@ -1,12 +1,29 @@
-const BASE_URL =
-  process.env.GATEWAY_URL ||
-  process.env.NEXT_PUBLIC_GATEWAY_URL ||
-  process.env.POINTS_ENGINE_URL ||
-  process.env.NEXT_PUBLIC_POINTS_ENGINE_URL ||
-  "http://localhost:4001";
+function isBrowser() {
+  return typeof window !== "undefined";
+}
+
+function resolveServerBaseUrl() {
+  const configuredBaseUrl =
+    process.env.GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    process.env.POINTS_ENGINE_URL ||
+    process.env.NEXT_PUBLIC_POINTS_ENGINE_URL;
+
+  if (!configuredBaseUrl) {
+    throw new Error("Missing points service configuration. Set GATEWAY_URL or POINTS_ENGINE_URL.");
+  }
+
+  return configuredBaseUrl;
+}
 
 function fullUrl(path: string) {
-  return `${BASE_URL.replace(/\/+$/, "")}${path}`;
+  if (isBrowser()) {
+    if (path === "/points/award") return "/api/points/award";
+    if (path === "/points/redeem") return "/api/points/redeem";
+    if (path === "/points/tiers") return "/api/points/tiers";
+    if (path === "/points/expiry/run") return "/api/points/expiry/run";
+  }
+  return `${resolveServerBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {

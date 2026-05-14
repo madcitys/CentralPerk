@@ -1,16 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { publicAnonKey, supabaseUrl } from "../../utils/supabase/info";
 
-// Prefer the service-role key on the server. If it is not configured yet,
-// the API falls back to the public key so local development can still run.
 export function createServerSupabaseClient() {
-  const serverKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    publicAnonKey ||
-    "";
+  const serverUrl = supabaseUrl?.trim();
+  const serverKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!serverUrl) {
+    throw new Error("Missing Supabase URL. Set NEXT_PUBLIC_SUPABASE_URL.");
+  }
+
+  if (!serverKey) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY for server-side API access.");
+  }
 
   return createClient(
-    supabaseUrl || "https://example.supabase.co",
+    serverUrl,
     serverKey,
     {
       auth: {
