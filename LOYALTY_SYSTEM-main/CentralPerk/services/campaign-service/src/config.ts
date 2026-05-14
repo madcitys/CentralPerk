@@ -1,12 +1,77 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+const serviceName = "campaign-service";
+const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+
+function readEnv(name: string) {
+  return process.env[name]?.trim() || "";
+}
+
+function fail(message: string): never {
+  throw new Error(`[${serviceName}] ${message}`);
+}
+
+function requireEnv(name: string) {
+  const value = readEnv(name);
+  if (!value) fail(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+function requireHttpUrl(name: string) {
+  const value = requireEnv(name);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail(`Invalid URL in environment variable: ${name}`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    fail(`Invalid URL protocol in environment variable: ${name}`);
+  }
+  return value;
+}
+
+function requirePostgresUrl(name: string) {
+  const value = requireEnv(name);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail(`Invalid PostgreSQL URL in environment variable: ${name}`);
+  }
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol)) {
+    fail(`Invalid PostgreSQL URL protocol in environment variable: ${name}`);
+  }
+  return value;
+}
+
+function parsePort() {
+  const raw = readEnv("PORT");
+  if (!raw) return 4002;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    fail("Invalid port in environment variable: PORT");
+  }
+  return port;
+}
+
+const legacySupabaseUrl = readEnv("SUPABASE_URL");
+const legacySupabaseServiceKey = readEnv("SUPABASE_SERVICE_ROLE_KEY") || readEnv("SUPABASE_ANON_KEY");
+
 export const config = {
-  port: Number(process.env.PORT || 4002),
-  supabaseUrl: process.env.SUPABASE_URL || "",
-  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "",
+  serviceName,
+  dbMode: splitMode ? "split" : "shared",
+  splitMode,
+  port: parsePort(),
+  schema: splitMode ? requireEnv("CAMPAIGN_DB_SCHEMA") : readEnv("CAMPAIGN_DB_SCHEMA") || "public",
+  databaseUrl: splitMode ? requirePostgresUrl("CAMPAIGN_DATABASE_URL") : readEnv("CAMPAIGN_DATABASE_URL") || readEnv("DATABASE_URL"),
+  supabaseUrl: splitMode ? requireHttpUrl("CAMPAIGN_SUPABASE_URL") : legacySupabaseUrl,
+  supabaseServiceKey: splitMode ? requireEnv("CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY") : legacySupabaseServiceKey,
+  memberServiceUrl: splitMode ? requireHttpUrl("MEMBER_SERVICE_URL") : readEnv("MEMBER_SERVICE_URL") || "http://localhost:4003",
+  hasSupabaseConfig: false,
 };
 
-if (!config.supabaseUrl || !config.supabaseServiceKey) {
-  console.warn("[campaign-service] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY; service calls will fail.");
-}
+config.hasSupabaseConfig = Boolean(config.supabaseUrl && config.supabaseServiceKey);
+
+export type ServiceConfig = typeof config;

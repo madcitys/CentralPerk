@@ -1,6 +1,8 @@
 import { supabase } from "./supabase-client.js";
 import { config } from "./config.js";
-const useMemory = !config.supabaseUrl || config.supabaseUrl.startsWith("http://localhost");
+import { findMemberIdViaMemberService } from "./member-client.js";
+
+const useMemory = !config.splitMode && !config.hasSupabaseConfig;
 
 // In-memory fallback for local/dev when Supabase creds are not set
 const memory = {
@@ -62,6 +64,35 @@ function mapCampaign(row: any): Campaign {
     budgetSpent: Number(row.budget_spent ?? 0),
     autoPause: Boolean(row.auto_pause ?? true),
   };
+}
+
+function isMissingRpcError(error: unknown, functionName: string) {
+  const message = String(
+    (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
+      (error as { details?: unknown })?.details ??
+      (error as { hint?: unknown })?.hint ??
+      ""
+  ).toLowerCase();
+
+  return message.includes(functionName.toLowerCase()) && (
+    message.includes("could not find the function") ||
+    message.includes("does not exist") ||
+    message.includes("schema cache")
+  );
+}
+
+function isCampaignCurrentlyActive(campaign: Campaign) {
+  const now = Date.now();
+  const startsAt = new Date(campaign.startsAt).getTime();
+  const endsAt = new Date(campaign.endsAt).getTime();
+  return (
+    campaign.status === "active" &&
+    Number.isFinite(startsAt) &&
+    Number.isFinite(endsAt) &&
+    startsAt <= now &&
+    endsAt >= now &&
+    (campaign.budgetLimit === null || campaign.budgetSpent < campaign.budgetLimit)
+  );
 }
 
 export async function upsertCampaign(input: CampaignInput): Promise<Campaign> {
@@ -150,7 +181,12 @@ export async function getActiveCampaigns(): Promise<Campaign[]> {
       .map(mapCampaign);
   }
   const { data, error } = await supabase.rpc("campaign_active_list");
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpcError(error, "campaign_active_list")) {
+      return (await listCampaigns()).filter(isCampaignCurrentlyActive);
+    }
+    throw error;
+  }
   return (data || []).map(mapCampaign);
 }
 
@@ -196,7 +232,34 @@ export async function lookupMultiplier(input: MultiplierLookupInput): Promise<Mu
     p_amount_spent: input.amountSpent,
     p_tier: input.tier ?? null,
   });
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpcError(error, "campaign_active_multiplier")) {
+      const active = (await getActiveCampaigns()).find((campaign) => {
+        const tierAllowed =
+          !input.tier ||
+          campaign.eligibleTiers.length === 0 ||
+          campaign.eligibleTiers.some((tier) => tier.toLowerCase() === String(input.tier).toLowerCase());
+        return (
+          campaign.campaignType === "multiplier_event" &&
+          Number(input.amountSpent || 0) >= Number(campaign.minimumPurchaseAmount || 0) &&
+          tierAllowed
+        );
+      });
+      if (!active) return { active: false, campaignId: null, multiplier: 1, variant: "A", bonusPoints: 0 };
+      const memberId = await findMemberId(input.memberIdentifier, input.fallbackEmail);
+      const variant = memberId ? (await assignVariant(active.id, memberId)).variant : "A";
+      const multiplier = active.multiplier ?? 1;
+      const basePoints = Math.floor(Math.max(0, input.amountSpent));
+      return {
+        active: true,
+        campaignId: active.id,
+        multiplier,
+        variant,
+        bonusPoints: Math.floor(basePoints * Math.max(0, multiplier - 1)),
+      };
+    }
+    throw error;
+  }
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     return { active: false, campaignId: null, multiplier: 1, variant: "A", bonusPoints: 0 };
@@ -227,6 +290,10 @@ export async function trackBudgetConsumption(campaignId: string, bonusPoints: nu
 }
 
 export async function findMemberId(memberIdentifier: string, fallbackEmail?: string): Promise<number | null> {
+  if (config.splitMode) {
+    return findMemberIdViaMemberService(memberIdentifier, fallbackEmail);
+  }
+
   if (useMemory) return 1;
   const trimmed = memberIdentifier.trim();
   const byNumber = await supabase
@@ -253,7 +320,10 @@ export async function findMemberId(memberIdentifier: string, fallbackEmail?: str
 export async function loadCampaignPerformance() {
   if (useMemory) return [];
   const { data, error } = await supabase.rpc("loyalty_campaign_performance");
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpcError(error, "loyalty_campaign_performance")) return [];
+    throw error;
+  }
   return data;
 }
 
@@ -262,6 +332,9 @@ export async function queueCampaignNotifications(campaignId: string) {
   const { data, error } = await supabase.rpc("loyalty_queue_campaign_notifications", {
     p_campaign_id: campaignId,
   });
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpcError(error, "loyalty_queue_campaign_notifications")) return 0;
+    throw error;
+  }
   return Number(data || 0);
 }

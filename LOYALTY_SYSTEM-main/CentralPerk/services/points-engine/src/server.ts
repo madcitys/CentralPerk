@@ -83,7 +83,35 @@ fastify.get("/points/tiers", async () => {
   return { ok: true, tiers: rules };
 });
 
-fastify.get("/health", async () => ({ ok: true }));
+fastify.get("/health", async () => ({
+  status: "ok",
+  service: config.serviceName,
+  dbMode: config.dbMode,
+  schema: config.schema,
+}));
+
+fastify.get("/health/db", async (_request, reply) => {
+  const { supabase } = await import("./supabase-client.js");
+  const { error } = await supabase.from("points_ledger").select("id").limit(1);
+  if (error) {
+    reply.code(503).send({
+      status: "error",
+      service: config.serviceName,
+      dbMode: config.dbMode,
+      schema: config.schema,
+      database: { connected: false, check: "points_ledger" },
+    });
+    return;
+  }
+
+  return {
+    status: "ok",
+    service: config.serviceName,
+    dbMode: config.dbMode,
+    schema: config.schema,
+    database: { connected: true, check: "points_ledger" },
+  };
+});
 
 fastify.listen({ host: "0.0.0.0", port: config.port }).catch((err) => {
   fastify.log.error(err);

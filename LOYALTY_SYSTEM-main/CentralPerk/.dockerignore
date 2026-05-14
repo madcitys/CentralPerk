@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.next
+.runtime
+coverage
+logs
+node_modules
+npm-debug.log*
+services/*/coverage
+services/*/dist
+services/*/node_modules
+tests/load/results

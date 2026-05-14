@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-import { supabase } from "../../../utils/supabase/client";
+import { gatewayBaseUrl } from "../../../server/service-proxy";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
@@ -8,36 +8,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: { message: "Method not allowed." } });
   }
 
+  const payload = req.body ?? {};
+
   try {
-    const payload = req.body ?? {};
-    const { data, error } = await supabase.rpc("loyalty_resolve_purchase_campaigns", {
-      p_member_id: Number(payload.memberId || 0),
-      p_purchase_amount: Number(payload.purchaseAmount || 0),
-      p_base_points: Math.max(0, Math.floor(Number(payload.basePoints || 0))),
-      p_member_tier: typeof payload.memberTier === "string" ? payload.memberTier.trim() : null,
-      p_product_scope: typeof payload.productScope === "string" ? payload.productScope.trim() : null,
+    const upstream = await fetch(`${gatewayBaseUrl()}/campaigns/multiplier`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        memberIdentifier: String(payload.memberIdentifier || payload.memberId || "").trim(),
+        fallbackEmail: payload.fallbackEmail,
+        tier: payload.memberTier || payload.tier,
+        amountSpent: Number(payload.purchaseAmount ?? payload.amountSpent ?? 0),
+      }),
     });
+    const data = await upstream.json().catch(() => ({}));
 
-    if (error) throw error;
+    if (!upstream.ok) return res.status(upstream.status).json(data);
 
-    const campaigns = ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-      campaignId: String(row.campaign_id ?? ""),
-      campaignName: String(row.campaign_name ?? ""),
-      campaignType: String(row.campaign_type ?? "bonus_points"),
-      awardedPoints: Number(row.awarded_points ?? 0),
-      appliedMultiplier: Number(row.applied_multiplier ?? 1),
-      minimumPurchaseAmount: Number(row.minimum_purchase_amount ?? 0),
-      startsAt: new Date().toISOString(),
-      endsAt: new Date().toISOString(),
-    }));
+    const result = data?.result ?? {};
+    const campaign =
+      result.active && result.campaignId
+        ? [
+            {
+              campaignId: String(result.campaignId),
+              campaignName: "Active campaign",
+              campaignType: "multiplier_event",
+              awardedPoints: Number(result.bonusPoints ?? 0),
+              appliedMultiplier: Number(result.multiplier ?? 1),
+              minimumPurchaseAmount: 0,
+              startsAt: new Date().toISOString(),
+              endsAt: new Date().toISOString(),
+            },
+          ]
+        : [];
 
     return res.status(200).json({
-      campaignCount: campaigns.length,
-      totalAwardedPoints: campaigns.reduce((sum, row) => sum + row.awardedPoints, 0),
-      campaigns,
+      campaignCount: campaign.length,
+      totalAwardedPoints: campaign.reduce((sum, row) => sum + row.awardedPoints, 0),
+      campaigns: campaign,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to resolve campaigns.";
-    return res.status(500).json({ error: { message } });
+    const message = error instanceof Error ? error.message : "Unable to reach campaign service.";
+    return res.status(503).json({ error: { message: `Campaign service unavailable: ${message}` } });
   }
 }

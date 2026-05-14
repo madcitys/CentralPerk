@@ -1,1 +1,10 @@
-export { activeCampaignsHandler as default } from "../../../server/campaign-api";
+import type { NextApiRequest, NextApiResponse } from "next";
+
+import { proxyToGateway } from "../../../server/service-proxy";
+
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  return proxyToGateway(req, res, {
+    targetPath: "/campaigns/active",
+    methods: ["GET"] as const,
+  });
+}

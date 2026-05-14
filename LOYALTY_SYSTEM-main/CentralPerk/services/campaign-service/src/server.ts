@@ -41,7 +41,35 @@ const multiplierSchema = z.object({
   amountSpent: z.number().min(0).max(10_000_000),
 });
 
-  fastify.get("/health", async () => ({ ok: true }));
+  fastify.get("/health", async () => ({
+    status: "ok",
+    service: config.serviceName,
+    dbMode: config.dbMode,
+    schema: config.schema,
+  }));
+
+  fastify.get("/health/db", async (_request, reply) => {
+    const { supabase } = await import("./supabase-client.js");
+    const { error } = await supabase.from("promotion_campaigns").select("id").limit(1);
+    if (error) {
+      reply.code(503).send({
+        status: "error",
+        service: config.serviceName,
+        dbMode: config.dbMode,
+        schema: config.schema,
+        database: { connected: false, check: "promotion_campaigns" },
+      });
+      return;
+    }
+
+    return {
+      status: "ok",
+      service: config.serviceName,
+      dbMode: config.dbMode,
+      schema: config.schema,
+      database: { connected: true, check: "promotion_campaigns" },
+    };
+  });
 
 fastify.get("/campaigns", async () => {
   const campaigns = await getCampaigns();
@@ -57,6 +85,26 @@ fastify.post("/campaigns", async (request) => {
   const parsed = campaignSchema.parse(request.body);
   const campaign = await saveCampaign(parsed);
   return { ok: true, campaign };
+});
+
+fastify.patch("/campaigns/:id/publish", async (request, reply) => {
+  const campaignId = String((request.params as any).id || "").trim();
+  if (!campaignId) {
+    reply.code(400).send({ ok: false, error: "campaign_id_required" });
+    return;
+  }
+
+  const body = z.object({ queueNotifications: z.boolean().optional() }).parse(request.body ?? {});
+  const campaigns = await getCampaigns();
+  const existing = campaigns.find((campaign) => campaign.id === campaignId);
+  if (!existing) {
+    reply.code(404).send({ ok: false, error: "campaign_not_found" });
+    return;
+  }
+
+  const campaign = await saveCampaign({ ...existing, status: "active" });
+  const notificationsQueued = body.queueNotifications ? await queueCampaignNotifications(campaignId) : 0;
+  return { ok: true, campaign, notificationsQueued };
 });
 
 fastify.post("/campaigns/:id/assign", async (request) => {

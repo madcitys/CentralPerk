@@ -6,6 +6,47 @@ function buildTarget(base: string, path: string) {
   return `${base.replace(/\/+$/, "")}${path}`;
 }
 
+function dependencies() {
+  return [
+    { name: "member-service", url: config.memberUrl },
+    { name: "segment-service", url: config.segmentUrl },
+    { name: "campaign-service", url: config.campaignUrl },
+    { name: "notification-service", url: config.notificationUrl },
+    { name: "reward-service", url: config.rewardUrl },
+    { name: "points-engine", url: config.pointsUrl },
+  ];
+}
+
+async function checkDependency(name: string, baseUrl: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2_500);
+  try {
+    const response = await fetch(buildTarget(baseUrl, "/health/db"), {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    return {
+      name,
+      url: baseUrl,
+      ok: response.ok,
+      statusCode: response.status,
+    };
+  } catch (error) {
+    return {
+      name,
+      url: baseUrl,
+      ok: false,
+      error: error instanceof Error ? error.message : "unreachable",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function checkDependencies() {
+  return Promise.all(dependencies().map((dependency) => checkDependency(dependency.name, dependency.url)));
+}
+
 function isCampaignWrite(url: string, method: string) {
   if (method === "GET") return false;
   return url.startsWith("/campaigns");
@@ -28,21 +69,49 @@ async function proxy(req: any, reply: any, targetBase: string) {
       body = JSON.stringify(req.body);
     }
   }
-  const res = await fetch(url, {
-    method: req.method,
-    headers: { ...req.headers, host: undefined },
-    body,
-  });
-  reply.status(res.status);
-  res.headers.forEach((v, k) => reply.header(k, v));
-  const ab = await res.arrayBuffer();
-  reply.send(Buffer.from(ab));
+  try {
+    const res = await fetch(url, {
+      method: req.method,
+      headers: { ...req.headers, host: undefined },
+      body,
+    });
+    reply.status(res.status);
+    res.headers.forEach((v, k) => reply.header(k, v));
+    const ab = await res.arrayBuffer();
+    reply.send(Buffer.from(ab));
+  } catch (error) {
+    reply.code(503).send({
+      ok: false,
+      error: {
+        message: `Upstream service unavailable: ${targetBase}`,
+        detail: error instanceof Error ? error.message : "fetch failed",
+      },
+    });
+  }
 }
 
 export function createServer() {
   const app = Fastify({ logger: true });
 
-  app.get("/health", async () => ({ ok: true, upstreams: { points: config.pointsUrl, campaign: config.campaignUrl } }));
+  app.get("/health", async (_req, reply) => {
+    const dependencyStatuses = await checkDependencies();
+    const healthy = dependencyStatuses.every((dependency) => dependency.ok);
+    if (!healthy) reply.code(503);
+    return {
+      status: healthy ? "ok" : "degraded",
+      service: config.serviceName,
+      dbMode: config.dbMode,
+      schema: null,
+      dependencies: dependencyStatuses,
+    };
+  });
+
+  app.get("/", async () => ({
+    status: "ok",
+    service: config.serviceName,
+    health: "/health",
+    routes: ["/points/*", "/campaigns/*", "/members/*", "/segments/*", "/notifications/*", "/rewards/*"],
+  }));
 
   app.all("/points/*", async (req, reply) => {
     if (req.url.startsWith("/points/award")) {
@@ -64,6 +133,14 @@ export function createServer() {
 
   app.all("/campaigns", async (req, reply) => proxy(req, reply, config.campaignUrl));
   app.all("/campaigns/*", async (req, reply) => proxy(req, reply, config.campaignUrl));
+  app.all("/members", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/members/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/segments", async (req, reply) => proxy(req, reply, config.segmentUrl));
+  app.all("/segments/*", async (req, reply) => proxy(req, reply, config.segmentUrl));
+  app.all("/notifications", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/notifications/*", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/rewards", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/rewards/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
 
   return app;
 }

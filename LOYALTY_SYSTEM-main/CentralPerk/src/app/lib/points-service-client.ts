@@ -1,12 +1,17 @@
-const BASE_URL =
-  process.env.GATEWAY_URL ||
-  process.env.NEXT_PUBLIC_GATEWAY_URL ||
-  process.env.POINTS_ENGINE_URL ||
-  process.env.NEXT_PUBLIC_POINTS_ENGINE_URL ||
-  "http://localhost:4001";
+function resolveBaseUrl() {
+  if (typeof window !== "undefined") return "/api";
+
+  return (
+    process.env.GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    process.env.POINTS_ENGINE_URL ||
+    process.env.NEXT_PUBLIC_POINTS_ENGINE_URL ||
+    "http://localhost:4001"
+  );
+}
 
 function fullUrl(path: string) {
-  return `${BASE_URL.replace(/\/+$/, "")}${path}`;
+  return `${resolveBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {

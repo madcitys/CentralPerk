@@ -1,12 +1,17 @@
-const BASE_URL =
-  process.env.GATEWAY_URL ||
-  process.env.NEXT_PUBLIC_GATEWAY_URL ||
-  process.env.CAMPAIGN_SERVICE_URL ||
-  process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL ||
-  "http://localhost:4002";
+function resolveBaseUrl() {
+  if (typeof window !== "undefined") return "/api";
+
+  return (
+    process.env.GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    process.env.CAMPAIGN_SERVICE_URL ||
+    process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL ||
+    "http://localhost:4002"
+  );
+}
 
 function fullUrl(path: string) {
-  return `${BASE_URL.replace(/\/+$/, "")}${path}`;
+  return `${resolveBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {

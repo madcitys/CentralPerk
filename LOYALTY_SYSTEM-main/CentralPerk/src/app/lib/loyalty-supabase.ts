@@ -72,6 +72,8 @@ function getTransactionNote(row: AnyRecord): string {
 }
 
 function shouldFallbackFromServiceError(error: unknown): boolean {
+  if (usesStrictMicroservices()) return false;
+
   const message = String(
     (error as { message?: unknown })?.message ??
       (error as { cause?: { message?: unknown } })?.cause?.message ??
@@ -87,6 +89,14 @@ function shouldFallbackFromServiceError(error: unknown): boolean {
     message.includes("network") ||
     causeCode === "econnrefused" ||
     causeCode === "enotfound"
+  );
+}
+
+function usesStrictMicroservices(): boolean {
+  return (
+    process.env.USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.USE_REMOTE_LOYALTY_API === "true" ||
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API === "true"
   );
 }
 
@@ -433,8 +443,12 @@ async function processMemberExpiredPoints(memberPk: { key: string; value: any })
 }
 
 export async function processAllMemberExpiredPoints() {
-  const serviceResponse = await runExpiryViaService().catch(() => null);
-  if (serviceResponse?.ok) return serviceResponse.result;
+  try {
+    const serviceResponse = await runExpiryViaService();
+    if (serviceResponse?.ok) return serviceResponse.result;
+  } catch (error) {
+    if (usesStrictMicroservices()) throw error;
+  }
   /* fallback to legacy flow */
   const { data, error } = await supabase.from("loyalty_members").select("id,member_id");
   if (error) throw error;
@@ -448,9 +462,13 @@ export async function processAllMemberExpiredPoints() {
 }
 
 export async function fetchTierRules(): Promise<TierRule[]> {
-  const response = await fetchTierRulesViaService().catch(() => null);
-  if (response?.ok && Array.isArray(response.tiers)) {
-    return normalizeTierRules(response.tiers as TierRule[]);
+  try {
+    const response = await fetchTierRulesViaService();
+    if (response?.ok && Array.isArray(response.tiers)) {
+      return normalizeTierRules(response.tiers as TierRule[]);
+    }
+  } catch (error) {
+    if (usesStrictMicroservices()) throw error;
   }
   return DEFAULT_TIER_RULES;
 }
