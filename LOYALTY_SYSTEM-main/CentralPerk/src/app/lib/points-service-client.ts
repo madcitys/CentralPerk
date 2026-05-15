@@ -46,6 +46,33 @@ export async function fetchTiers() {
   return call<{ ok: boolean; tiers: any[] }>("/points/tiers", { method: "GET" });
 }
 
+export async function fetchPointsActivity(memberIdentifier: string, fallbackEmail?: string) {
+  const params = new URLSearchParams({ memberIdentifier });
+  if (fallbackEmail) params.set("fallbackEmail", fallbackEmail);
+
+  return call<{
+    ok: boolean;
+    balance: {
+      member_id: string;
+      points_balance: number;
+      tier: string;
+    };
+    history: Array<{
+      id?: string | number;
+      member_id?: string | number;
+      transaction_id?: string | number;
+      transaction_type: string;
+      points: number;
+      balance?: number | null;
+      transaction_date?: string;
+      expiry_date?: string | null;
+      reason?: string | null;
+      reward_catalog_id?: string | number | null;
+      promotion_campaign_id?: string | null;
+    }>;
+  }>(`/points/activity?${params.toString()}`, { method: "GET" });
+}
+
 export async function awardPointsViaService(payload: any, idempotencyKey?: string) {
   return awardPoints(payload, idempotencyKey);
 }
@@ -56,6 +83,10 @@ export async function redeemPointsViaService(payload: any, idempotencyKey?: stri
 
 export async function fetchTierRulesViaService() {
   return fetchTiers();
+}
+
+export async function fetchPointsActivityViaService(memberIdentifier: string, fallbackEmail?: string) {
+  return fetchPointsActivity(memberIdentifier, fallbackEmail);
 }
 
 export async function runExpiryViaService() {

@@ -21,6 +21,7 @@ import {
   processAllMemberExpiredPoints,
   type EarningRule,
 } from "../../lib/loyalty-supabase";
+import { loadPointsLedgerViaApi } from "../../lib/api";
 import { resolveTier, type TierRule } from "../../lib/loyalty-engine";
 import { buildAdvancedAnalyticsDatasets } from "../lib/advanced-insights";
 
@@ -68,9 +69,18 @@ function parseDate(value?: string | null) {
 
 function txType(value: string) {
   const normalized = String(value || "").toUpperCase();
-  if (normalized.includes("REDEEM")) return "redeemed";
+  if (normalized.includes("REDEEM") || normalized.includes("GIFT")) return "redeemed";
   if (normalized.includes("EXPIRY")) return "expired";
   return "earned";
+}
+
+function usesStrictMicroservices() {
+  return (
+    process.env.USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.USE_REMOTE_LOYALTY_API === "true" ||
+    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API === "true"
+  );
 }
 
 function isMissingRelationError(error: unknown, table: string) {
@@ -123,6 +133,7 @@ export function useAdminData() {
         memberSegmentsRes,
         redemptionsRes,
         transactionsRes,
+        pointsLedgerRes,
         tierHistoryRes,
         pointsLotsRes,
         rewardsCatalogRes,
@@ -139,6 +150,7 @@ export function useAdminData() {
           .from("loyalty_transactions")
           .select("*, loyalty_members(first_name, last_name, member_number)")
           .order("transaction_date", { ascending: false }),
+        loadPointsLedgerViaApi(5000).catch((ledgerError) => ({ ok: false as const, error: ledgerError })),
         supabase.from("tier_history").select("old_tier,new_tier,changed_at").order("changed_at", { ascending: false }).limit(500),
         supabase.from("points_lots").select("*").order("expiry_date", { ascending: true }),
         supabase.from("rewards_catalog").select("*").order("points_cost", { ascending: true }),
@@ -157,7 +169,11 @@ export function useAdminData() {
 
       if (membersRes.error) throw membersRes.error;
       if (memberSegmentsRes.error) throw memberSegmentsRes.error;
-      if (transactionsRes.error) throw transactionsRes.error;
+      if (transactionsRes.error && !usesStrictMicroservices()) throw transactionsRes.error;
+      if (!pointsLedgerRes.ok && usesStrictMicroservices()) {
+        const ledgerError = pointsLedgerRes.error;
+        throw ledgerError instanceof Error ? ledgerError : new Error("Failed to load points ledger.");
+      }
       if (pointsLotsRes.error && !isMissingRelationError(pointsLotsRes.error, "points_lots")) throw pointsLotsRes.error;
       if (rewardsCatalogRes.error && !isMissingRelationError(rewardsCatalogRes.error, "rewards_catalog")) throw rewardsCatalogRes.error;
       if (loginActivityRes.error && !isMissingRelationError(loginActivityRes.error, "member_login_activity")) throw loginActivityRes.error;
@@ -189,9 +205,42 @@ export function useAdminData() {
         };
       });
 
+      const memberByDatabaseId = new Map<string, Member>();
+      for (const member of membersWithSegments) {
+        const databaseId = String(member.id ?? member.member_id ?? "");
+        if (databaseId) memberByDatabaseId.set(databaseId, member);
+      }
+
+      const ledgerTransactions =
+        pointsLedgerRes.ok
+          ? (pointsLedgerRes.transactions || []).map((tx) => {
+              const member = memberByDatabaseId.get(String(tx.member_id));
+              return {
+                ...tx,
+                member_id: String(tx.member_id),
+                transaction_id: tx.transaction_id ? String(tx.transaction_id) : String(tx.id ?? ""),
+                transaction_date: String(tx.transaction_date ?? new Date().toISOString()),
+                points: Number(tx.points || 0),
+                reason: tx.reason ?? undefined,
+                loyalty_members: member
+                  ? {
+                      first_name: member.first_name,
+                      last_name: member.last_name,
+                      member_number: member.member_number,
+                    }
+                  : undefined,
+              } satisfies LoyaltyTransaction;
+            })
+          : [];
+      const transactionRows =
+        ledgerTransactions.length > 0 || usesStrictMicroservices()
+          ? ledgerTransactions
+          : ((transactionsRes.data || []) as LoyaltyTransaction[]);
+      const redemptionRows = transactionRows.filter((tx) => txType(tx.transaction_type) === "redeemed");
+
       setMembers(membersWithSegments);
-      setRedemptions(redemptionsRes.error ? [] : ((redemptionsRes.data || []) as LoyaltyTransaction[]));
-      setTransactions((transactionsRes.data || []) as LoyaltyTransaction[]);
+      setRedemptions(redemptionsRes.error || usesStrictMicroservices() ? redemptionRows : ((redemptionsRes.data || []) as LoyaltyTransaction[]));
+      setTransactions(transactionRows);
       setTierHistory((tierHistoryRes.error ? [] : tierHistoryRes.data || []) as TierHistoryRow[]);
       setPointsLots(
         pointsLotsRes.error

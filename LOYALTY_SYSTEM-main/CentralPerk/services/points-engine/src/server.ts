@@ -4,6 +4,7 @@ import { awardPoints, redeemPoints, runExpiry } from "./core/engine.js";
 import { supabaseRepo } from "./supabase-repo.js";
 import { checkIdempotency, storeIdempotency } from "./idempotency.js";
 import { config } from "./config.js";
+import { supabase } from "./supabase-client.js";
 
 const fastify = Fastify({
   logger: true,
@@ -33,6 +34,32 @@ const redeemSchema = z.object({
     .transform((v) => (v === null ? undefined : v)),
   promotionCampaignId: z.string().trim().max(80).nullable().optional(),
 });
+
+const activityQuerySchema = z.object({
+  memberIdentifier: z.string().trim().min(1).max(120),
+  fallbackEmail: z.string().trim().email().optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(500),
+});
+
+const ledgerQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(5000).default(1000),
+});
+
+function mapLedgerRow(row: Record<string, any>) {
+  return {
+    id: row.id,
+    member_id: row.member_id,
+    transaction_id: row.id,
+    transaction_type: row.change_type,
+    points: Number(row.points_delta || 0),
+    balance: row.balance_after === null || row.balance_after === undefined ? null : Number(row.balance_after),
+    transaction_date: row.created_at,
+    expiry_date: row.expiry_date ?? null,
+    reason: row.reason ?? "",
+    reward_catalog_id: row.reward_catalog_id ?? null,
+    promotion_campaign_id: row.promotion_campaign_id ?? null,
+  };
+}
 
 fastify.post("/points/award", async (request, reply) => {
   const parsed = awardSchema.parse(request.body);
@@ -81,6 +108,54 @@ fastify.post("/points/expiry/run", async () => {
 fastify.get("/points/tiers", async () => {
   const rules = await supabaseRepo.fetchTierRules();
   return { ok: true, tiers: rules };
+});
+
+fastify.get("/points/activity", async (request, reply) => {
+  const query = activityQuerySchema.parse(request.query);
+  const member = await supabaseRepo.findMember(query.memberIdentifier, query.fallbackEmail);
+  if (!member) {
+    reply.code(404).send({ ok: false, error: "member_not_found" });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("points_ledger")
+    .select(
+      "id,member_id,change_type,points_delta,balance_after,reason,reward_catalog_id,promotion_campaign_id,expiry_date,created_at",
+    )
+    .eq("member_id", member.id)
+    .order("created_at", { ascending: false })
+    .limit(query.limit);
+
+  if (error) throw error;
+
+  return {
+    ok: true,
+    balance: {
+      member_id: member.member_number ?? query.memberIdentifier,
+      points_balance: member.points_balance,
+      tier: member.tier ?? "Bronze",
+    },
+    history: (data || []).map((row) => mapLedgerRow(row as Record<string, any>)),
+  };
+});
+
+fastify.get("/points/ledger", async (request) => {
+  const query = ledgerQuerySchema.parse(request.query);
+  const { data, error } = await supabase
+    .from("points_ledger")
+    .select(
+      "id,member_id,change_type,points_delta,balance_after,reason,reward_catalog_id,promotion_campaign_id,expiry_date,created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(query.limit);
+
+  if (error) throw error;
+
+  return {
+    ok: true,
+    transactions: (data || []).map((row) => mapLedgerRow(row as Record<string, any>)),
+  };
 });
 
 fastify.get("/health", async () => ({

@@ -15,6 +15,7 @@ import {
 } from "./loyalty-engine";
 import {
   awardPointsViaService,
+  fetchPointsActivityViaService,
   redeemPointsViaService,
   runExpiryViaService,
   fetchTierRulesViaService,
@@ -63,6 +64,21 @@ function getTxDateValue(tx: AnyRecord): string {
   return String(tx.transaction_date ?? tx.created_at ?? new Date().toISOString());
 }
 
+function getTxTypeValue(tx: AnyRecord): string {
+  return String(tx.transaction_type ?? tx.change_type ?? "");
+}
+
+function getTxSignedPoints(tx: AnyRecord): number {
+  return Number(tx.points ?? tx.points_delta ?? 0);
+}
+
+function getTxBalanceValue(tx: AnyRecord): number | null {
+  const rawBalance = tx.balance ?? tx.balance_after;
+  if (rawBalance === null || rawBalance === undefined || rawBalance === "") return null;
+  const parsed = Number(rawBalance);
+  return Number.isFinite(parsed) ? sanitizePointsBalance(parsed) : null;
+}
+
 function sanitizePointsBalance(value: unknown): number {
   return Math.max(0, Math.floor(Number(value) || 0));
 }
@@ -95,9 +111,24 @@ function shouldFallbackFromServiceError(error: unknown): boolean {
 function usesStrictMicroservices(): boolean {
   return (
     process.env.USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES === "true" ||
     process.env.USE_REMOTE_LOYALTY_API === "true" ||
     process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API === "true"
   );
+}
+
+async function loadPointsActivityFromService(memberIdentifier: string, fallbackEmail?: string) {
+  try {
+    const response = await fetchPointsActivityViaService(memberIdentifier, fallbackEmail);
+    if (response?.ok) return response;
+  } catch (error) {
+    if (usesStrictMicroservices()) throw error;
+  }
+  return null;
+}
+
+function shouldUseServiceActivity(activity: Awaited<ReturnType<typeof loadPointsActivityFromService>>) {
+  return Boolean(activity && (usesStrictMicroservices() || (activity.history || []).length > 0));
 }
 
 function nextLoyaltyTransactionId(): number {
@@ -343,6 +374,47 @@ type PurchaseCampaignBonus = {
 };
 
 async function grantWelcomePackageForMember(member: AnyRecord, memberPk: { key: string; value: any }) {
+  if (usesStrictMicroservices()) {
+    const memberIdentifier = String(member.member_number || member.member_id || memberPk.value);
+    const fallbackEmail = member.email ? String(member.email) : undefined;
+    const activity = await loadPointsActivityFromService(memberIdentifier, fallbackEmail);
+    const existingWelcome = (activity?.history || []).some((row: AnyRecord) => getTransactionNote(row) === WELCOME_PACKAGE_REASON);
+    if (existingWelcome) {
+      await ensureWelcomePackageNotification(member, memberPk).catch((error) => {
+        console.warn("Welcome package notification could not be queued:", error);
+      });
+      return {
+        granted: false,
+        pointsAdded: 0,
+        newBalance: sanitizePointsBalance(activity?.balance?.points_balance ?? member.points_balance ?? 0),
+        newTier: normalizeTierLabel(String(activity?.balance?.tier ?? member.tier ?? "Bronze")) as SupportedTier,
+      };
+    }
+
+    const serviceResponse = await awardPointsViaService(
+      {
+        memberIdentifier,
+        fallbackEmail,
+        points: WELCOME_PACKAGE_POINTS,
+        transactionType: "MANUAL_AWARD",
+        reason: WELCOME_PACKAGE_REASON,
+      },
+      `welcome-package-${memberIdentifier}`
+    );
+
+    const result = serviceResponse?.result ?? {};
+    await ensureWelcomePackageNotification(member, memberPk).catch((error) => {
+      console.warn("Welcome package notification could not be queued:", error);
+    });
+
+    return {
+      granted: true,
+      pointsAdded: Number(result.pointsAdded ?? WELCOME_PACKAGE_POINTS),
+      newBalance: sanitizePointsBalance(result.newBalance ?? member.points_balance ?? 0),
+      newTier: normalizeTierLabel(String(result.newTier ?? member.tier ?? "Bronze")) as SupportedTier,
+    };
+  }
+
   const existingWelcomeRes = await supabase
     .from("loyalty_transactions")
     .select("*")
@@ -405,6 +477,8 @@ async function readMemberBalanceSnapshot(
 }
 
 async function processMemberExpiredPoints(memberPk: { key: string; value: any }) {
+  if (usesStrictMicroservices()) return;
+
   const txQuery = await supabase
     .from("loyalty_transactions")
     .select("points,transaction_type,expiry_date")
@@ -937,16 +1011,31 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     .limit(1)
     .maybeSingle();
   const refreshedMember = (refreshedMemberRes.data as AnyRecord | null) ?? member;
-  const currentBalance = sanitizePointsBalance(refreshedMember.points_balance ?? currentUser.points ?? 0);
+  const serviceActivity = await loadPointsActivityFromService(
+    String(refreshedMember.member_number || memberLookupId || currentUser.memberId),
+    String(refreshedMember.email || memberLookupEmail || currentUser.email || "") || undefined
+  );
+  const useServiceActivity = shouldUseServiceActivity(serviceActivity);
+  const currentBalance = sanitizePointsBalance(
+    (useServiceActivity ? serviceActivity?.balance?.points_balance : undefined) ??
+      refreshedMember.points_balance ??
+      currentUser.points ??
+      0
+  );
 
-  const txRes = await supabase
-    .from("loyalty_transactions")
-    .select("*")
-    .eq("member_id", pk.value)
-    .order("transaction_date", { ascending: false })
-    .limit(200);
-
-  const rawTx = (txRes.data || []) as AnyRecord[];
+  let rawTx: AnyRecord[] = [];
+  if (useServiceActivity) {
+    rawTx = (serviceActivity?.history || []) as AnyRecord[];
+  } else {
+    const txRes = await supabase
+      .from("loyalty_transactions")
+      .select("*")
+      .eq("member_id", pk.value)
+      .order("transaction_date", { ascending: false })
+      .limit(200);
+    if (txRes.error) throw txRes.error;
+    rawTx = (txRes.data || []) as AnyRecord[];
+  }
   const completedTaskIds = new Set(
     rawTx
       .map((tx) => String(getTransactionNote(tx) || "").match(/Task completed \(([^)]+)\)/i)?.[1] ?? null)
@@ -955,20 +1044,21 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
 
   let runningBalance = currentBalance;
   const transactions: Transaction[] = rawTx.map((tx, index) => {
-    const signedPoints = Number(tx.points ?? 0);
-    const mappedType = mapTxType(String(tx.transaction_type ?? ""));
+    const signedPoints = getTxSignedPoints(tx);
+    const mappedType = mapTxType(getTxTypeValue(tx));
+    const txBalance = getTxBalanceValue(tx);
     const mapped: Transaction = {
       id: String(tx.transaction_id ?? tx.id ?? `${index}`),
       date: getTxDateValue(tx),
-      description: String(getTransactionNote(tx) || tx.transaction_type || "Transaction"),
+      description: String(getTransactionNote(tx) || getTxTypeValue(tx) || "Transaction"),
       type: mappedType,
       points: Math.abs(signedPoints),
-      balance: runningBalance,
+      balance: txBalance ?? runningBalance,
       category: getTransactionNote(tx) ? "System" : "Purchase",
       receiptId: tx.receipt_id ? String(tx.receipt_id) : undefined,
     };
     if (mappedType !== "pending") {
-      runningBalance -= signedPoints;
+      runningBalance = (txBalance ?? runningBalance) - signedPoints;
     }
     return mapped;
   });
@@ -976,32 +1066,32 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
   const nowMonth = monthKey(new Date());
   const isCurrentMonthTx = (tx: AnyRecord) => monthKey(getTxDateValue(tx)) === nowMonth;
   const pendingPoints = rawTx
-    .filter((tx) => mapTxType(String(tx.transaction_type ?? "")) === "pending" && Number(tx.points || 0) > 0)
-    .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+    .filter((tx) => mapTxType(getTxTypeValue(tx)) === "pending" && getTxSignedPoints(tx) > 0)
+    .reduce((sum, tx) => sum + getTxSignedPoints(tx), 0);
 
   const earnedThisMonth = rawTx
     .filter(
       (tx) =>
-        mapTxType(String(tx.transaction_type ?? "")) === "earned" &&
-        Number(tx.points || 0) > 0 &&
+        mapTxType(getTxTypeValue(tx)) === "earned" &&
+        getTxSignedPoints(tx) > 0 &&
         isCurrentMonthTx(tx)
     )
-    .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+    .reduce((sum, tx) => sum + getTxSignedPoints(tx), 0);
 
   const redeemedThisMonth = rawTx
     .filter(
       (tx) =>
-        mapTxType(String(tx.transaction_type ?? "")) === "redeemed" &&
-        Number(tx.points || 0) !== 0 &&
+        mapTxType(getTxTypeValue(tx)) === "redeemed" &&
+        getTxSignedPoints(tx) !== 0 &&
         isCurrentMonthTx(tx)
     )
-    .reduce((sum, tx) => sum + Math.abs(Number(tx.points || 0)), 0);
+    .reduce((sum, tx) => sum + Math.abs(getTxSignedPoints(tx)), 0);
 
   const rawLifetimePoints = rawTx
     .filter(
-      (tx) => mapTxType(String(tx.transaction_type ?? "")) === "earned" && Number(tx.points || 0) > 0
+      (tx) => mapTxType(getTxTypeValue(tx)) === "earned" && getTxSignedPoints(tx) > 0
     )
-    .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+    .reduce((sum, tx) => sum + getTxSignedPoints(tx), 0);
   const lifetimePoints = rawLifetimePoints;
   const surveysCompleted = Math.max(
     Number(currentUser.surveysCompleted || 0),
@@ -1020,10 +1110,10 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     const expiryDate = new Date(tx.expiry_date);
     const ms = expiryDate.getTime() - Date.now();
     const days = ms / (1000 * 60 * 60 * 24);
-    return Number(tx.points || 0) > 0 && days >= 0 && days <= 30;
+    return getTxSignedPoints(tx) > 0 && days >= 0 && days <= 30;
   });
 
-  const expiringPoints = upcomingExpiring.reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+  const expiringPoints = upcomingExpiring.reduce((sum, tx) => sum + getTxSignedPoints(tx), 0);
   const nearestDays = upcomingExpiring.length
     ? Math.max(
         0,
@@ -1082,6 +1172,29 @@ export async function loadMemberActivity(memberIdentifier: string, fallbackEmail
   if (!pk) throw new Error("Member primary key is missing.");
 
   const rules = await fetchTierRules();
+  const serviceActivity = await loadPointsActivityFromService(
+    String(member.member_number || memberIdentifier),
+    String(member.email || fallbackEmail || "") || undefined
+  );
+  if (shouldUseServiceActivity(serviceActivity)) {
+    const balance = sanitizePointsBalance(serviceActivity?.balance?.points_balance ?? member.points_balance ?? 0);
+    return {
+      balance: {
+        member_id: String(serviceActivity?.balance?.member_id || member.member_number || memberIdentifier),
+        points_balance: balance,
+        tier: normalizeTierLabel(String(serviceActivity?.balance?.tier ?? resolveTier(balance, rules))),
+      },
+      history: ((serviceActivity?.history || []) as AnyRecord[]).map((tx) => ({
+        type: getTxTypeValue(tx),
+        points: getTxSignedPoints(tx),
+        balance: getTxBalanceValue(tx),
+        date: getTxDateValue(tx),
+        expiry_date: tx.expiry_date ? String(tx.expiry_date) : null,
+        reason: getTransactionNote(tx),
+      })),
+    };
+  }
+
   await processMemberExpiredPoints(pk);
 
   const memberRes = await supabase
@@ -1109,8 +1222,9 @@ export async function loadMemberActivity(memberIdentifier: string, fallbackEmail
       tier: resolveTier(Number(refreshed.points_balance || 0), rules),
     },
     history: rawTx.map((tx) => ({
-      type: String(tx.transaction_type || ""),
-      points: Number(tx.points || 0),
+      type: getTxTypeValue(tx),
+      points: getTxSignedPoints(tx),
+      balance: getTxBalanceValue(tx),
       date: getTxDateValue(tx),
       expiry_date: tx.expiry_date ? String(tx.expiry_date) : null,
       reason: getTransactionNote(tx),

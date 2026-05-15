@@ -163,6 +163,26 @@ export async function redeemPointsViaApi(input: {
   };
 }
 
+export async function loadPointsLedgerViaApi(limit = 1000) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return requestJson<{
+    ok: true;
+    transactions: Array<{
+      id?: string | number;
+      member_id: string | number;
+      transaction_id?: string | number;
+      transaction_type: string;
+      points: number;
+      balance?: number | null;
+      transaction_date: string;
+      expiry_date?: string | null;
+      reason?: string | null;
+      reward_catalog_id?: number | string | null;
+      promotion_campaign_id?: string | null;
+    }>;
+  }>(`/api/points/ledger?${params.toString()}`);
+}
+
 export async function saveCampaignViaApi(input: Record<string, unknown>) {
   return requestJson<{ ok: true; campaign: PromotionCampaign }>("/api/campaigns", {
     method: "POST",
