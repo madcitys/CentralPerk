@@ -31,26 +31,11 @@ import { loadVouchersViaApi } from "../../lib/api";
 import { generateVoucherQrDataUrl } from "../../lib/voucher-qr";
 import { normalizeRewardDisplayName, normalizeTransactionDescription } from "../../lib/reward-display";
 
-const VOUCHER_STORAGE_KEY = "centralperk-reward-wallet-v2";
-
 function toLocalInputDate(value: Date): string {
   const year = value.getFullYear();
   const month = `${value.getMonth() + 1}`.padStart(2, "0");
   const day = `${value.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function loadStoredVouchers() {
-  if (typeof window === "undefined") return [] as RedemptionVoucher[];
-
-  try {
-    const raw = window.localStorage.getItem(VOUCHER_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as RedemptionVoucher[]) : [];
-  } catch {
-    return [];
-  }
 }
 
 async function withVoucherQr(voucher: RedemptionVoucher) {
@@ -92,7 +77,7 @@ export default function PointsActivity() {
   const { user, notificationCount = 0, openNotifications } = useOutletContext<AppOutletContext>();
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
-  const [voucherWallet, setVoucherWallet] = useState<RedemptionVoucher[]>(loadStoredVouchers);
+  const [voucherWallet, setVoucherWallet] = useState<RedemptionVoucher[]>([]);
   const [selectedVoucher, setSelectedVoucher] = useState<RedemptionVoucher | null>(null);
   const [transactionsDialogOpen, setTransactionsDialogOpen] = useState(false);
   const [vouchersDialogOpen, setVouchersDialogOpen] = useState(false);
@@ -105,7 +90,6 @@ export default function PointsActivity() {
 
   useEffect(() => {
     let active = true;
-    const seed = loadStoredVouchers();
 
     const loadWallet = async () => {
       try {
@@ -113,12 +97,13 @@ export default function PointsActivity() {
           memberId: user.memberId || undefined,
           email: user.email || undefined,
         });
-        const merged = response.vouchers.length > 0 ? response.vouchers : seed;
-        const hydrated = await Promise.all(merged.map((voucher) => withVoucherQr(voucher)));
+        const hydrated = await Promise.all(response.vouchers.map((voucher) => withVoucherQr(voucher)));
         if (active) setVoucherWallet(hydrated);
-      } catch {
-        const hydrated = await Promise.all(seed.map((voucher) => withVoucherQr(voucher)));
-        if (active) setVoucherWallet(hydrated);
+      } catch (error) {
+        if (!active) return;
+        setVoucherWallet([]);
+        const message = error instanceof Error ? error.message : "Unable to load vouchers.";
+        toast.error(message);
       }
     };
 
@@ -128,11 +113,6 @@ export default function PointsActivity() {
       active = false;
     };
   }, [user.email, user.memberId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(VOUCHER_STORAGE_KEY, JSON.stringify(voucherWallet));
-  }, [voucherWallet]);
 
   const filteredTransactions = useMemo(
     () =>
@@ -158,7 +138,8 @@ export default function PointsActivity() {
   const totalRedeemed = user.transactions
     .filter((transaction) => transaction.type === "redeemed")
     .reduce((sum, transaction) => sum + Math.abs(transaction.points), 0);
-  const visibleVouchers = voucherWallet.slice(0, 4);
+  const readyVouchers = voucherWallet.filter((voucher) => voucher.status !== "validated");
+  const visibleVouchers = readyVouchers.slice(0, 4);
   const visibleTransactions = filteredTransactions.slice(0, 4);
 
   const downloadCsv = async () => {

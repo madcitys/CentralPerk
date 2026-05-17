@@ -826,10 +826,13 @@ async function loadActiveFlashSaleCampaignForReward(rewardCatalogId: string | nu
 export async function loadRewardsCatalog(): Promise<Reward[]> {
   const rewardsResponse = await requestJson<{ ok: true; rewards: AnyRecord[] }>("/api/rewards");
   const rewardRows = (rewardsResponse.rewards || []).filter((row) => Boolean(row.is_active ?? row.available ?? true));
-  const campaignsResponse = await requestJson<{ ok: true; campaigns: AnyRecord[] }>("/api/campaigns/active").catch(() => ({
-    ok: true as const,
-    campaigns: [] as AnyRecord[],
-  }));
+  const campaignsResponse = await requestJson<{ ok: true; campaigns: AnyRecord[] }>("/api/campaigns/active").catch((error) => {
+    if (usesStrictMicroservices()) throw error;
+    return {
+      ok: true as const,
+      campaigns: [] as AnyRecord[],
+    };
+  });
   const flashSaleByReward = new Map<string, AnyRecord>();
   for (const row of campaignsResponse.campaigns || []) {
     const campaignType = String(row.campaignType ?? row.campaign_type ?? "");
@@ -934,55 +937,29 @@ export async function ensureWelcomePackage(memberIdentifier: string, fallbackEma
 }
 
 export async function findMember(memberIdentifier?: string, fallbackEmail?: string) {
-  let lookup: { data: AnyRecord | null; error: any } = { data: null, error: null };
-  const normalizedFallbackEmail = fallbackEmail?.trim();
+  const localSession = getCurrentCustomerSession();
+  const authRes = await supabase.auth.getUser();
+  const authEmail = authRes.data.user?.email?.trim();
+  const candidates = [
+    { identifier: memberIdentifier?.trim(), email: fallbackEmail?.trim() },
+    { identifier: localSession?.memberId?.trim(), email: localSession?.email?.trim() },
+    { identifier: undefined, email: authEmail },
+  ];
 
-  if (memberIdentifier) {
-    lookup = await supabase
-      .from("loyalty_members")
-      .select("*")
-      .eq("member_number", memberIdentifier)
-      .limit(1)
-      .maybeSingle();
-  }
-
-  if (!lookup.data && normalizedFallbackEmail) {
-    lookup = await supabase
-      .from("loyalty_members")
-      .select("*")
-      .ilike("email", normalizedFallbackEmail)
-      .limit(1)
-      .maybeSingle();
-  }
-
-  if (!lookup.data) {
-    const localSession = getCurrentCustomerSession();
-    const localEmail = localSession?.email?.trim();
-    if (localEmail && localEmail.toLowerCase() !== normalizedFallbackEmail?.toLowerCase()) {
-      lookup = await supabase
-        .from("loyalty_members")
-        .select("*")
-        .ilike("email", localEmail)
-        .limit(1)
-        .maybeSingle();
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    if (!candidate.identifier && !candidate.email) continue;
+    try {
+      const member = await resolveMemberViaApi(candidate.identifier, candidate.email);
+      if (member) return member;
+    } catch (error) {
+      lastError = error;
+      if (usesStrictMicroservices()) throw error;
     }
   }
 
-  if (!lookup.data) {
-    const authRes = await supabase.auth.getUser();
-    const authEmail = authRes.data.user?.email?.trim();
-    if (authEmail && authEmail.toLowerCase() !== normalizedFallbackEmail?.toLowerCase()) {
-      lookup = await supabase
-        .from("loyalty_members")
-        .select("*")
-        .ilike("email", authEmail)
-        .limit(1)
-        .maybeSingle();
-    }
-  }
-
-  if (lookup.error) throw lookup.error;
-  return lookup.data as AnyRecord | null;
+  if (lastError && usesStrictMicroservices()) throw lastError;
+  return null;
 }
 
 export async function loadMemberSnapshot(currentUser: MemberData): Promise<Partial<MemberData> | null> {
@@ -1032,13 +1009,9 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     await claimBirthdayReward(String(member.member_number || currentUser.memberId), String(member.email || currentUser.email)).catch(() => undefined);
   }
 
-  const refreshedMemberRes = await supabase
-    .from("loyalty_members")
-    .select("*")
-    .eq(pk.key, pk.value)
-    .limit(1)
-    .maybeSingle();
-  const refreshedMember = (refreshedMemberRes.data as AnyRecord | null) ?? member;
+  const refreshedMember =
+    (await resolveMemberViaApi(String(member.member_number || memberLookupId), String(member.email || memberLookupEmail || "")).catch(() => null)) ??
+    member;
   let serviceActivity: Awaited<ReturnType<typeof loadPointsActivityFromService>> = null;
   try {
     serviceActivity = await loadPointsActivityFromService(

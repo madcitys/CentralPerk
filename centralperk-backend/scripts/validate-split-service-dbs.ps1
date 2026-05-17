@@ -114,6 +114,54 @@ if (Test-Path -LiteralPath $frontendRoot) {
         Add-Failure "Frontend/client-side secret reference found in $relative"
       }
     }
+
+  $splitOwnedTablePatterns = @(
+    '\.from\("loyalty_members"\)',
+    '\.from\("loyalty_transactions"\)',
+    '\.from\("points_ledger"\)',
+    '\.from\("points_tiers"\)',
+    '\.from\("earning_rules"\)',
+    '\.from\("earn_tasks"\)',
+    '\.from\("promotion_campaigns"\)',
+    '\.from\("member_segments"\)',
+    '\.from\("member_segment_assignments"\)',
+    '\.from\("notification_outbox"\)',
+    '\.from\("notification_templates"\)',
+    '\.from\("notification_campaigns"\)',
+    '\.from\("rewards_catalog"\)',
+    '\.from\("reward_partners"\)',
+    '\.from\("reward_redemptions"\)',
+    '\.from\("reward_vouchers"\)'
+  )
+
+  foreach ($scanDir in @("src\pages\api", "src\server")) {
+    $fullScanDir = Join-Path $frontendRoot $scanDir
+    if (-not (Test-Path -LiteralPath $fullScanDir -PathType Container)) {
+      Add-Failure "Missing frontend split-db scan directory: centralperk-frontend\$scanDir"
+      continue
+    }
+
+    Get-ChildItem -LiteralPath $fullScanDir -Recurse -File |
+      Where-Object {
+        $_.Extension -in @(".ts", ".tsx") -and
+        $_.FullName -notmatch "\\node_modules\\" -and
+        $_.FullName -notmatch "\\\.next\\"
+      } |
+      ForEach-Object {
+        $relative = $_.FullName.Substring($workspaceRoot.Path.Length + 1)
+        $text = Get-Content -LiteralPath $_.FullName -Raw
+        foreach ($pattern in $splitOwnedTablePatterns) {
+          if ($text -match $pattern) {
+            Add-Failure "Next API/server module queries split-owned table directly: $relative"
+            break
+          }
+        }
+
+        if ($relative -match "centralperk-frontend\\src\\server\\voucher-service\.ts$" -and $text -match "readApiState|updateApiState") {
+          Add-Failure "Voucher service still uses local runtime storage instead of Reward Service: $relative"
+        }
+      }
+  }
 }
 
 Get-ChildItem -LiteralPath $backendRoot -Recurse -File -Filter ".env.example" |

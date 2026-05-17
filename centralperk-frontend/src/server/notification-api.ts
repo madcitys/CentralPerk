@@ -3,7 +3,7 @@ import { queueMemberNotification } from "../app/lib/notifications";
 import { HttpError } from "./http-error";
 import { createApiHandler } from "./route-utils";
 import { resolveAudienceMembers } from "./segment-preview";
-import { createServerSupabaseClient } from "./supabase-admin";
+import { serviceBaseUrl } from "./service-proxy";
 
 const audienceSchema = z
   .object({
@@ -17,32 +17,26 @@ const audienceSchema = z
 
 const markReadSchema = z.object({}).strict();
 
-async function lookupMemberPk(input: { memberId?: string; email?: string }) {
-  const supabase = createServerSupabaseClient();
-
-  if (input.memberId) {
-    const member = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .eq("member_number", input.memberId)
-      .limit(1)
-      .maybeSingle();
-    if (member.error) throw member.error;
-    if (member.data?.id !== undefined) return Number(member.data.id);
+async function requestNotificationService<T>(path: string, init?: RequestInit) {
+  const response = await fetch(`${serviceBaseUrl("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:4005")}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      typeof payload?.error === "string"
+        ? payload.error
+        : typeof payload?.error?.message === "string"
+          ? payload.error.message
+          : `Notification service failed (${response.status}).`;
+    throw new HttpError(response.status, message);
   }
-
-  if (input.email) {
-    const member = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .ilike("email", input.email)
-      .limit(1)
-      .maybeSingle();
-    if (member.error) throw member.error;
-    if (member.data?.id !== undefined) return Number(member.data.id);
-  }
-
-  return null;
+  return payload as T;
 }
 
 async function queueAudience(channel: "sms" | "email", input: z.infer<typeof audienceSchema>) {
@@ -79,34 +73,10 @@ export const notificationsHandler = createApiHandler({
     const memberId = typeof req.query.memberId === "string" ? req.query.memberId.trim() : undefined;
     const email = typeof req.query.email === "string" ? req.query.email.trim() : undefined;
     const limit = typeof req.query.limit === "string" ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 20;
-    const memberPk = await lookupMemberPk({ memberId, email });
-    const supabase = createServerSupabaseClient();
-
-    let query = supabase
-      .from("notification_outbox")
-      .select("id,subject,message,created_at,status,member_id")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (memberPk !== null) {
-      query = query.eq("member_id", memberPk);
-    } else if (memberId || email) {
-      query = query.is("member_id", null);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    return {
-      ok: true as const,
-      notifications: (data || []).map((row) => ({
-        id: String(row.id ?? ""),
-        subject: String(row.subject ?? "Notification"),
-        message: String(row.message ?? ""),
-        createdAt: String(row.created_at ?? new Date().toISOString()),
-        status: String(row.status ?? "pending"),
-      })),
-    };
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (memberId) params.set("memberId", memberId);
+    if (email) params.set("email", email);
+    return requestNotificationService(`/notifications?${params.toString()}`);
   },
 });
 
@@ -136,13 +106,9 @@ export const markNotificationReadHandler = createApiHandler({
     const id = String(req.query.id || "").trim();
     if (!id) throw new HttpError(400, "Notification ID is required.");
 
-    const supabase = createServerSupabaseClient();
-    const { error } = await supabase
-      .from("notification_outbox")
-      .update({ status: "read" })
-      .eq("id", id);
-    if (error) throw error;
-
-    return { ok: true as const };
+    return requestNotificationService(`/notifications/${encodeURIComponent(id)}/read`, {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    });
   },
 });

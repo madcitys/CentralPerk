@@ -5,6 +5,7 @@ import {
   createServerPublicSupabaseClient,
   createServerSupabaseClient,
 } from "../../../server/supabase-admin";
+import { serviceBaseUrl } from "../../../server/service-proxy";
 
 const repairSchema = z.object({
   email: z.string().trim().email().max(254),
@@ -31,17 +32,29 @@ export default createApiHandler({
     const adminClient = createServerSupabaseClient();
     const publicClient = createServerPublicSupabaseClient();
 
-    const { data: memberProfile, error: memberError } = await adminClient
-      .from("loyalty_members")
-      .select("id,member_number,email,first_name,last_name")
-      .ilike("email", normalizedEmail)
-      .limit(1)
-      .maybeSingle();
-
-    if (memberError) throw memberError;
-    if (!memberProfile) {
+    const memberResponse = await fetch(
+      `${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members/resolve?identifier=${encodeURIComponent(
+        normalizedEmail,
+      )}`,
+      { headers: { accept: "application/json" } },
+    );
+    const memberPayload = await memberResponse.json().catch(() => ({}));
+    if (memberResponse.status === 404) {
       throw new HttpError(404, "No loyalty profile found for that email.");
     }
+    if (!memberResponse.ok) {
+      throw new Error(`Member service lookup failed (${memberResponse.status}).`);
+    }
+    if (!memberPayload?.member) {
+      throw new HttpError(404, "No loyalty profile found for that email.");
+    }
+
+    const memberProfile = memberPayload.member as {
+      firstName?: string | null;
+      lastName?: string | null;
+      memberNumber?: string | null;
+      member_number?: string | null;
+    };
 
     const { data: usersData, error: usersError } = await adminClient.auth.admin.listUsers({
       page: 1,
@@ -61,9 +74,9 @@ export default createApiHandler({
         normalizedEmail,
         {
           data: {
-            first_name: memberProfile.first_name ?? "",
-            last_name: memberProfile.last_name ?? "",
-            member_number: memberProfile.member_number ?? "",
+            first_name: memberProfile.firstName ?? "",
+            last_name: memberProfile.lastName ?? "",
+            member_number: memberProfile.memberNumber ?? memberProfile.member_number ?? "",
           },
           redirectTo,
         },

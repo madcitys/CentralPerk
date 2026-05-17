@@ -31,7 +31,7 @@ function tableMissing(error: unknown, table: string) {
 }
 
 function memberSelect() {
-  return "id,member_id,member_number,first_name,last_name,email,points_balance,tier";
+  return "id,member_id,member_number,first_name,last_name,email,phone,birthdate,points_balance,tier,enrollment_date,address,profile_photo_url,last_activity_at";
 }
 
 function mapMember(row: any) {
@@ -43,6 +43,13 @@ function mapMember(row: any) {
     email: row.email ? String(row.email) : null,
     firstName: row.first_name ? String(row.first_name) : null,
     lastName: row.last_name ? String(row.last_name) : null,
+    first_name: row.first_name ? String(row.first_name) : null,
+    last_name: row.last_name ? String(row.last_name) : null,
+    phone: row.phone ? String(row.phone) : null,
+    birthdate: row.birthdate ? String(row.birthdate) : null,
+    enrollment_date: row.enrollment_date ? String(row.enrollment_date) : null,
+    address: row.address ? String(row.address) : null,
+    profile_photo_url: row.profile_photo_url ? String(row.profile_photo_url) : null,
     pointsBalance: Math.max(0, Math.floor(Number(row.points_balance ?? 0))),
     points_balance: Math.max(0, Math.floor(Number(row.points_balance ?? 0))),
     tier: String(row.tier || "Bronze"),

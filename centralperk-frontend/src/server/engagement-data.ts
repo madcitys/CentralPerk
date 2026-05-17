@@ -1,4 +1,5 @@
 import { createMemberServerSupabaseClient } from "./supabase-admin";
+import { serviceBaseUrl } from "./service-proxy";
 
 type AnyRecord = Record<string, any>;
 
@@ -57,6 +58,17 @@ function formatMemberName(member?: AnyRecord | null, fallbackMemberId?: number |
   if (member?.member_number) return String(member.member_number);
   const fallback = String(member?.member_id || fallbackMemberId || "").trim();
   return fallback ? `Member ${fallback}` : "Member";
+}
+
+async function fetchMembersByIds(memberIds: string[]) {
+  if (memberIds.length === 0) return [];
+  const response = await fetch(`${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members?limit=5000`, {
+    headers: { accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Member service failed (${response.status}).`);
+  const idSet = new Set(memberIds);
+  return ((payload.members || []) as AnyRecord[]).filter((row) => idSet.has(String(row.id ?? row.memberId ?? row.member_id)));
 }
 
 export async function fetchChallengeDefinitions() {
@@ -154,16 +166,8 @@ export async function fetchSurveyDefinitions() {
 
   const responseRows = (responseData || []) as AnyRecord[];
   const responseMemberIds = [...new Set(responseRows.map((row) => String(row.member_id)).filter(Boolean))];
-  const { data: memberRows, error: memberError } = responseMemberIds.length
-    ? await supabase
-        .from("loyalty_members")
-        .select("id,member_id,member_number,first_name,last_name")
-        .in("id", responseMemberIds)
-    : { data: [], error: null };
-
-  if (memberError) throw memberError;
-
-  const memberMap = new Map(((memberRows || []) as AnyRecord[]).map((row) => [String(row.id), row]));
+  const memberRows = await fetchMembersByIds(responseMemberIds);
+  const memberMap = new Map(((memberRows || []) as AnyRecord[]).map((row) => [String(row.id ?? row.memberId ?? row.member_id), row]));
   const questionMap = new Map<string, any[]>();
   ((questionData || []) as AnyRecord[]).forEach((row) => {
     const list = questionMap.get(String(row.survey_id)) ?? [];

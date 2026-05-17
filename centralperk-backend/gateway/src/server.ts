@@ -111,7 +111,19 @@ export function createServer() {
     status: "ok",
     service: config.serviceName,
     health: "/health",
-    routes: ["/points/*", "/campaigns/*", "/members/*", "/segments/*", "/notifications/*", "/rewards/*"],
+    routes: [
+      "/points/*",
+      "/campaigns/*",
+      "/members/*",
+      "/segments/*",
+      "/notifications/*",
+      "/notification-campaigns/*",
+      "/notification-templates",
+      "/rewards/*",
+      "/reward-partners/*",
+      "/vouchers/*",
+      "/winback-campaigns",
+    ],
   }));
 
   app.all("/points/*", async (req, reply) => {
@@ -140,8 +152,16 @@ export function createServer() {
   app.all("/segments/*", async (req, reply) => proxy(req, reply, config.segmentUrl));
   app.all("/notifications", async (req, reply) => proxy(req, reply, config.notificationUrl));
   app.all("/notifications/*", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/notification-campaigns", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/notification-campaigns/*", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/notification-templates", async (req, reply) => proxy(req, reply, config.notificationUrl));
   app.all("/rewards", async (req, reply) => proxy(req, reply, config.rewardUrl));
   app.all("/rewards/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/reward-partners", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/reward-partners/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/vouchers", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/vouchers/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/winback-campaigns", async (req, reply) => proxy(req, reply, config.campaignUrl));
 
   return app;
 }

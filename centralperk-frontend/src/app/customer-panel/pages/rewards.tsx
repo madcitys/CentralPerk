@@ -74,7 +74,6 @@ type RewardCategoryTab = "all" | "flash" | "partner" | "pharmacy" | "wellness" |
 type RewardsWorkspace = "catalog" | "flash" | "checkout" | "wallet" | "history";
 type DeliveryPartner = "grab" | "foodpanda" | "lalamove" | "pickup";
 
-const VOUCHER_STORAGE_KEY = "centralperk-reward-wallet-v2";
 const REWARDS_PAGE_SIZE = 8;
 const HISTORY_PAGE_SIZE = 8;
 
@@ -108,19 +107,6 @@ function formatRewardCategory(value: string, name = "", description = "") {
   if (normalized.includes("food") || normalized.includes("beverage")) return "Voucher";
   if (normalized.includes("partner")) return "Partner";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function loadStoredVouchers() {
-  if (typeof window === "undefined") return [] as RedemptionVoucher[];
-
-  try {
-    const raw = window.localStorage.getItem(VOUCHER_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as RedemptionVoucher[]) : [];
-  } catch {
-    return [];
-  }
 }
 
 function buildVoucherScanUrl(voucherId: string, voucherCode: string) {
@@ -294,7 +280,7 @@ export default function Rewards() {
   const [giftMessage, setGiftMessage] = useState("");
   const [redeemSearch, setRedeemSearch] = useState("");
   const [reservedRewards, setReservedRewards] = useState<string[]>([]);
-  const [voucherWallet, setVoucherWallet] = useState<RedemptionVoucher[]>(loadStoredVouchers);
+  const [voucherWallet, setVoucherWallet] = useState<RedemptionVoucher[]>([]);
   const [selectedVoucherId, setSelectedVoucherId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -306,11 +292,6 @@ export default function Rewards() {
     setDeliveryAddress(user.address || "");
     setContactNumber(user.phone || "");
   }, [user.address, user.phone]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(VOUCHER_STORAGE_KEY, JSON.stringify(voucherWallet));
-  }, [voucherWallet]);
 
   useEffect(() => {
     let active = true;
@@ -345,23 +326,22 @@ export default function Rewards() {
   useEffect(() => {
     let active = true;
 
-    const seed = loadStoredVouchers();
-
     const loadWallet = async () => {
       try {
         const response = await loadVouchersViaApi({
           memberId: user.memberId || undefined,
           email: user.email || undefined,
         });
-        const merged = response.vouchers.length > 0 ? response.vouchers : seed;
-        const hydrated = await withVoucherQrs(merged);
+        const hydrated = await withVoucherQrs(response.vouchers);
         if (!active) return;
         setVoucherWallet(hydrated);
         setSelectedVoucherId((current) => current && hydrated.some((voucher) => voucher.id === current) ? current : hydrated[0]?.id ?? null);
-      } catch {
-        if (!active || seed.length === 0) return;
-        setVoucherWallet(seed);
-        setSelectedVoucherId((current) => current && seed.some((voucher) => voucher.id === current) ? current : seed[0]?.id ?? null);
+      } catch (error) {
+        if (!active) return;
+        setVoucherWallet([]);
+        setSelectedVoucherId(null);
+        const message = error instanceof Error ? error.message : "Unable to load vouchers.";
+        toast.error(message);
       }
     };
 
@@ -449,9 +429,14 @@ export default function Rewards() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [user.transactions, redeemSearch]);
 
+  const readyVoucherWallet = useMemo(
+    () => voucherWallet.filter((voucher) => voucher.status !== "validated"),
+    [voucherWallet]
+  );
+
   const walletSelection = useMemo(
-    () => voucherWallet.find((voucher) => voucher.id === selectedVoucherId) ?? voucherWallet[0] ?? null,
-    [selectedVoucherId, voucherWallet]
+    () => readyVoucherWallet.find((voucher) => voucher.id === selectedVoucherId) ?? readyVoucherWallet[0] ?? null,
+    [selectedVoucherId, readyVoucherWallet]
   );
 
   const visibleRewards = useMemo(() => {
@@ -1191,15 +1176,15 @@ export default function Rewards() {
                 <h3 className="text-lg font-semibold text-gray-900">Voucher Wallet</h3>
                 <p className="mt-1 text-sm text-gray-600">Ready-to-scan reward passes live here after redemption.</p>
               </div>
-              <Badge className={brandNavyBadgeClass}>{voucherWallet.length} saved</Badge>
+              <Badge className={brandNavyBadgeClass}>{readyVoucherWallet.length} ready</Badge>
             </div>
-            {voucherWallet.length === 0 ? (
+            {readyVoucherWallet.length === 0 ? (
               <div className="mt-5 rounded-3xl border border-dashed border-[#d8e4f0] bg-[#fbfdff] p-5 text-sm text-gray-600">
                 Redeem a reward first to generate a server-backed QR voucher.
               </div>
             ) : (
               <div className="mt-5 space-y-3">
-                {voucherWallet.map((voucher) => (
+                {readyVoucherWallet.map((voucher) => (
                   <button
                     key={voucher.id}
                     type="button"
