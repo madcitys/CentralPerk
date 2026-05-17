@@ -4,12 +4,15 @@ $ports = @(3000, 4000, 4001, 4002, 4003, 4004, 4005, 4006)
 $currentPid = $PID
 $pids = @()
 
-foreach ($port in $ports) {
-  $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-  foreach ($listener in $listeners) {
-    if ($listener.OwningProcess -and $listener.OwningProcess -ne $currentPid) {
-      $pids += [int] $listener.OwningProcess
-    }
+foreach ($line in (netstat -ano -p tcp)) {
+  if ($line -notmatch '^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$') {
+    continue
+  }
+
+  $port = [int] $Matches[1]
+  $processId = [int] $Matches[2]
+  if ($ports -contains $port -and $processId -ne $currentPid) {
+    $pids += $processId
   }
 }
 

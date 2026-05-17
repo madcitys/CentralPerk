@@ -7,12 +7,28 @@ function RedirectingRoot() {
   return null;
 }
 
+function HydrateFallback() {
+  return (
+    <div className="min-h-screen bg-white text-slate-900 flex items-center justify-center">
+      <div className="text-center">
+        <p className="text-lg font-semibold">Loading CentralPerk...</p>
+        <p className="mt-2 text-sm text-slate-500">Initializing the app shell.</p>
+      </div>
+    </div>
+  );
+}
+
+const routeFallback = {
+  hydrateFallbackElement: <HydrateFallback />,
+};
+
 export const router = createBrowserRouter([
   // Smart landing
   {
     path: "/",
     loader: roleRedirect,
     Component: RedirectingRoot,
+    ...routeFallback,
   },
 
   // Public routes
@@ -27,12 +43,14 @@ export const router = createBrowserRouter([
   {
     path: "/voucher/:voucherId",
     lazy: () => import("./pages/VoucherPage").then((m) => ({ Component: m.default })),
+    ...routeFallback,
   },
 
   // Customer protected (Member Panel)
   {
     path: "/customer",
     loader: requireRole(["customer"]),
+    ...routeFallback,
     children: [
       {
         lazy: () => import("./customer-panel/root").then((m) => ({ Component: m.default })),
@@ -71,6 +89,7 @@ export const router = createBrowserRouter([
     path: "/admin",
     loader: requireRole(["admin"]),
     lazy: () => import("./admin-panel/root").then((m) => ({ Component: m.default })),
+    ...routeFallback,
     children: [
       {
         index: true,
@@ -104,8 +123,8 @@ export const router = createBrowserRouter([
   },
 
   // Backwards-compat for your old route:
-  { path: "/home", loader: () => redirect("/customer") },
+  { path: "/home", loader: () => redirect("/customer"), ...routeFallback },
 
   // catch-all
-  { path: "*", loader: () => redirect("/") },
+  { path: "*", loader: () => redirect("/"), ...routeFallback },
 ]);
