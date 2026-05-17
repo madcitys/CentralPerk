@@ -55,6 +55,10 @@ function tableMissing(error: unknown, table: string) {
   return message.includes(table.toLowerCase()) && (message.includes("does not exist") || message.includes("schema cache"));
 }
 
+function missingRelation(error: unknown) {
+  return String((error as { code?: unknown })?.code ?? "") === "42P01";
+}
+
 function duplicateRecord(error: unknown) {
   return String((error as { code?: unknown })?.code ?? "") === "23505";
 }
@@ -221,7 +225,13 @@ export function createServer() {
   app.get("/reward-partners/performance", async () => {
     const { data, error } = await supabase.rpc("loyalty_partner_reward_performance");
     if (error) {
-      if (tableMissing(error, "loyalty_partner_reward_performance")) return { ok: true, performance: [] };
+      if (
+        missingRelation(error) ||
+        tableMissing(error, "loyalty_partner_reward_performance") ||
+        tableMissing(error, "loyalty_transactions")
+      ) {
+        return { ok: true, performance: [], warning: "reward_partner_performance_unavailable" };
+      }
       throw error;
     }
     return { ok: true, performance: data || [] };

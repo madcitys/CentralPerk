@@ -5,7 +5,7 @@ import { config } from "./config.js";
 import { supabase } from "./supabase-client.js";
 
 const resolveQuerySchema = z.object({
-  identifier: z.string().trim().min(1).max(120),
+  identifier: z.string().trim().min(1).max(120).optional(),
   fallbackEmail: z.string().trim().email().optional(),
 });
 
@@ -31,7 +31,7 @@ function tableMissing(error: unknown, table: string) {
 }
 
 function memberSelect() {
-  return "id,member_id,member_number,first_name,last_name,email,phone,birthdate,points_balance,tier,enrollment_date,address,profile_photo_url,last_activity_at";
+  return "id,member_id,member_number,first_name,last_name,email,points_balance,tier";
 }
 
 function mapMember(row: any) {
@@ -132,7 +132,12 @@ export function createServer() {
 
   app.get("/members/resolve", async (request, reply) => {
     const query = resolveQuerySchema.parse(request.query);
-    const member = await findMember(query.identifier, query.fallbackEmail);
+    const identifier = query.identifier || query.fallbackEmail || "";
+    if (!identifier) {
+      reply.code(400).send({ ok: false, error: "identifier_required" });
+      return;
+    }
+    const member = await findMember(identifier, query.fallbackEmail);
     if (!member) {
       reply.code(404).send({ ok: false, error: "member_not_found" });
       return;
