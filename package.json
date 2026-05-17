@@ -15,6 +15,9 @@
     "validate:split-dbs": "npm --prefix ./centralperk-backend run validate:split-dbs",
     "start:frontend": "npm --prefix ./centralperk-frontend run start",
     "start:backend": "npm --prefix ./centralperk-backend run start:help",
+    "start:local": "powershell -ExecutionPolicy Bypass -File ./scripts/start-local.ps1",
+    "stop:local": "powershell -ExecutionPolicy Bypass -File ./scripts/stop-local.ps1",
+    "restart:local": "powershell -ExecutionPolicy Bypass -File ./scripts/start-local.ps1 -Build",
     "preview": "npm --prefix ./centralperk-frontend run start",
     "postinstall": "npm run install:frontend && npm run install:backend"
   }
