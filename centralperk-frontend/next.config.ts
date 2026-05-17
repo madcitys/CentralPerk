@@ -1,7 +1,35 @@
 import type { NextConfig } from "next";
+import fs from "node:fs";
+import path from "node:path";
+
+function loadEnvFile(filePath: string) {
+  if (!fs.existsSync(filePath)) return;
+
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+
+    const [, key, rawValue] = match;
+    const value = rawValue.replace(/^["']|["']$/g, "");
+    process.env[key] = value;
+  }
+}
+
+const appDir = process.cwd();
+const repoDir = path.resolve(appDir, "..");
+
+for (const envFile of [
+  path.join(repoDir, ".env"),
+  path.join(appDir, ".env"),
+  path.join(appDir, ".envlocal"),
+  path.join(appDir, ".env.local"),
+]) {
+  loadEnvFile(envFile);
+}
 
 const publicSupabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ??
+  process.env.MEMBER_SUPABASE_URL ??
   process.env.VITE_SUPABASE_URL ??
   "";
 
@@ -20,6 +48,7 @@ const publicSupabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ??
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.MEMBER_SUPABASE_ANON_KEY ??
   process.env.VITE_SUPABASE_ANON_KEY ??
   "";
 

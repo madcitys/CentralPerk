@@ -1,0 +1,103 @@
+
+> centralperk-frontend@0.0.1 dev
+> next dev --hostname 0.0.0.0 --port 3000
+
+   ▲ Next.js 15.5.15
+   - Local:        http://localhost:3000
+   - Network:      http://0.0.0.0:3000
+   - Experiments (use with caution):
+     ⨯ webpackBuildWorker
+
+ ✓ Starting...
+ ✓ Ready in 4.7s
+ ○ Compiling /[[...slug]] ...
+ ✓ Compiled /[[...slug]] in 7.1s (2210 modules)
+ GET / 200 in 8116ms
+ GET / 200 in 134ms
+ GET / 200 in 295ms
+ GET / 200 in 292ms
+ GET / 200 in 280ms
+ GET /favicon.ico 200 in 337ms
+ GET /favicon.ico 200 in 335ms
+ ○ Compiling /api/notifications ...
+ ✓ Compiled /api/notifications in 1134ms (380 modules)
+ ✓ Compiled (382 modules)
+ GET /api/notifications?limit=20 503 in 2212ms
+ POST /api/points/expiry/run 503 in 2216ms
+ POST /api/points/expiry/run 503 in 2229ms
+ GET /api/notifications?limit=20 503 in 38ms
+ ✓ Compiled /api/points/tiers in 318ms (384 modules)
+ ✓ Compiled (390 modules)
+ GET /api/points/earning-rules 503 in 865ms
+ GET /api/admin/members 503 in 869ms
+ GET /api/points/tiers 503 in 872ms
+ GET /api/points/ledger?limit=5000 503 in 878ms
+ GET /api/points/earning-rules 503 in 28ms
+ GET /api/admin/members 503 in 49ms
+ GET /api/points/tiers 503 in 47ms
+ GET /api/points/ledger?limit=5000 503 in 57ms
+ GET /favicon.ico 200 in 372ms
+ GET / 200 in 278ms
+ GET /favicon.ico 200 in 262ms
+ POST /api/points/expiry/run 503 in 45ms
+ POST /api/points/expiry/run 503 in 72ms
+ GET /api/notifications?limit=20 503 in 93ms
+ GET /api/points/tiers 503 in 80ms
+ GET /api/admin/members 503 in 84ms
+ GET /api/points/ledger?limit=5000 503 in 90ms
+ GET /api/points/earning-rules 503 in 140ms
+ GET /api/notifications?limit=20 503 in 140ms
+ GET /api/points/tiers 503 in 86ms
+ GET /api/points/ledger?limit=5000 503 in 80ms
+ GET /api/admin/members 503 in 98ms
+ GET /favicon.ico 200 in 378ms
+ GET /api/points/earning-rules 503 in 137ms
+ GET /api/points/tiers 503 in 50ms
+ GET /api/points/earning-rules 503 in 77ms
+ GET /api/points/tiers 503 in 40ms
+ GET /api/points/earning-rules 503 in 49ms
+ GET /favicon.ico 200 in 362ms
+ POST /api/points/expiry/run 503 in 41ms
+ ○ Compiling /api/engagement/surveys ...
+ ✓ Compiled /api/engagement/surveys in 10.4s (2258 modules)
+ GET /api/communications/analytics 503 in 11328ms
+ GET /api/notification-campaigns 503 in 11331ms
+ GET /api/notification-templates 503 in 11339ms
+ GET /favicon.ico 200 in 11511ms
+ ○ Compiling /api/engagement/challenges/[id]/leaderboard ...
+ ✓ Compiled /api/engagement/challenges/[id]/leaderboard in 553ms (406 modules)
+ GET /api/engagement/challenges 200 in 12328ms
+ GET /api/engagement/surveys 200 in 12264ms
+ ✓ Compiled (410 modules)
+ GET /api/winback-campaigns 503 in 1228ms
+ GET /api/social-share-events 503 in 1225ms
+ POST /api/points/expiry/run 503 in 1226ms
+ GET /api/admin/members 503 in 296ms
+ GET /api/points/ledger?limit=5000 503 in 354ms
+ GET /api/engagement/challenges/challenge-1/leaderboard 200 in 1163ms
+ GET /api/points/tiers 503 in 183ms
+ GET /api/points/earning-rules 503 in 137ms
+ POST /api/points/expiry/run 503 in 136ms
+ POST /api/points/expiry/run 503 in 132ms
+ GET /api/communications/analytics 503 in 103ms
+ GET /api/notification-campaigns 503 in 120ms
+ GET /api/notification-templates 503 in 90ms
+ GET /api/winback-campaigns 503 in 63ms
+ GET /api/social-share-events 503 in 83ms
+ GET /api/admin/members 503 in 74ms
+ GET /api/points/ledger?limit=5000 503 in 42ms
+ GET /api/points/tiers 503 in 45ms
+ GET /api/engagement/challenges 304 in 217ms
+ GET /api/engagement/surveys 304 in 204ms
+ GET /api/points/earning-rules 503 in 46ms
+ GET /api/admin/members 503 in 37ms
+ GET /api/points/ledger?limit=5000 503 in 61ms
+ GET /api/points/tiers 503 in 47ms
+ GET /api/points/earning-rules 503 in 53ms
+ GET /favicon.ico 200 in 370ms
+ GET /api/admin/members 503 in 95ms
+ GET /api/engagement/challenges/challenge-1/leaderboard 304 in 237ms
+ GET /api/points/ledger?limit=5000 503 in 114ms
+ GET /api/points/tiers 503 in 116ms
+ GET /api/points/earning-rules 503 in 138ms
+[?25h

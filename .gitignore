@@ -1,5 +1,7 @@
 ﻿.env
 .env.*
+.envlocal
+*/.envlocal
 !.env.example
 .runtime/
 .logs/

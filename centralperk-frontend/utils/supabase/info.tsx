@@ -17,10 +17,13 @@ const runtimeConfig = readRuntimeConfig();
 const envUrl =
   runtimeConfig?.supabaseUrl?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+  process.env.MEMBER_SUPABASE_URL?.trim() ||
+  process.env.VITE_SUPABASE_URL?.trim() ||
   "";
 const envProjectId =
   runtimeConfig?.projectId?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_PROJECT_ID?.trim() ||
+  process.env.VITE_SUPABASE_PROJECT_ID?.trim() ||
   "";
 
 const derivedProjectId = envUrl
@@ -33,5 +36,9 @@ export const supabaseUrl = envUrl || (projectId ? `https://${projectId}.supabase
 export const publicAnonKey =
   runtimeConfig?.publicAnonKey?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
+  process.env.MEMBER_SUPABASE_ANON_KEY?.trim() ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
   "";
