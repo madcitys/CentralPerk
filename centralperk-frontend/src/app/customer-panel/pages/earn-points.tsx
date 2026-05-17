@@ -1,0 +1,434 @@
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { ArrowRight, Check, Clipboard, FileText, Receipt, ShoppingCart, Share2, Smartphone, Star, User, Users } from "lucide-react";
+import { Card } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
+import { Textarea } from "../../../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../../components/ui/dialog";
+import { toast } from "sonner";
+import { useNavigate, useOutletContext } from "react-router-dom";
+import type { AppOutletContext } from "../../types/app-context";
+import { normalizeTierLabel } from "../../lib/loyalty-engine";
+import { calculateDynamicPurchasePoints, DEFAULT_EARN_TASKS, loadEarnTasks } from "../../lib/loyalty-supabase";
+import { awardPointsViaApi } from "../../lib/api";
+import type { EarnOpportunity } from "../../types/loyalty";
+import {
+  brandNavySolidClass,
+  brandNavySolidHoverClass,
+  infoPillClass,
+  infoTextStrongClass,
+} from "../../lib/ui-color-tokens";
+import {
+  customerEyebrowClass,
+  customerPageDescriptionClass,
+  customerPageHeroClass,
+  customerPageHeroInnerClass,
+  customerPanelSoftClass,
+  customerPageTitleClass,
+} from "../lib/page-theme";
+
+export default function EarnPoints() {
+  const { user, refreshUser, completedTaskIds, setCompletedTaskIds } = useOutletContext<AppOutletContext>();
+  const navigate = useNavigate();
+  const [tasks, setTasks] = useState<EarnOpportunity[]>(DEFAULT_EARN_TASKS);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [surveyOpen, setSurveyOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [purchaseAmount, setPurchaseAmount] = useState("");
+  const [purchaseCategory, setPurchaseCategory] = useState("beverage");
+  const [saving, setSaving] = useState(false);
+  const [projectedPointsLoading, setProjectedPointsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setTasksLoading(true);
+    loadEarnTasks()
+      .then((rows) => {
+        if (!active) return;
+        setTasks(rows.length > 0 ? rows : DEFAULT_EARN_TASKS);
+      })
+      .catch(() => {
+        if (!active) return;
+        setTasks(DEFAULT_EARN_TASKS);
+      })
+      .finally(() => {
+        if (active) setTasksLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const completedSet = useMemo(() => new Set(completedTaskIds), [completedTaskIds]);
+
+  const completeTask = async (taskId: string, title: string, points: number) => {
+    try {
+      setSaving(true);
+      await awardPointsViaApi({
+        memberIdentifier: user.memberId,
+        fallbackEmail: user.email,
+        points,
+        transactionType: "MANUAL_AWARD",
+        reason: `Task completed (${taskId}): ${title}`,
+      });
+
+      setCompletedTaskIds((prev) => [...new Set([...prev, taskId])]);
+      await refreshUser();
+      toast.success(`${title} completed! +${points} points`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to complete task");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSurveyComplete = async () => {
+    await completeTask("E003", "Survey Completion", 50);
+    setSurveyOpen(false);
+  };
+
+  const handlePurchase = async () => {
+    const amount = parseFloat(purchaseAmount);
+    if (!(amount > 0)) return;
+    const basePointsEarned = await calculateDynamicPurchasePoints({
+      amountSpent: amount,
+      tier: normalizeTierLabel(user.tier),
+    });
+
+    try {
+      setSaving(true);
+      const response = await awardPointsViaApi({
+        memberIdentifier: user.memberId,
+        fallbackEmail: user.email,
+        points: basePointsEarned,
+        transactionType: "PURCHASE",
+        reason: `Purchase of $${amount.toFixed(2)}`,
+        amountSpent: amount,
+        productCategory: purchaseCategory,
+      });
+
+      await refreshUser();
+      toast.success(`Purchase recorded! +${response.result.pointsAdded} points`, {
+        description:
+          response.result.bonusPointsAdded > 0
+            ? `${response.result.bonusPointsAdded} bonus points applied from active campaigns.`
+            : `Earned from $${amount.toFixed(2)} ${purchaseCategory} purchase.`,
+      });
+      setReceiptOpen(false);
+      setPurchaseAmount("");
+      setPurchaseCategory("beverage");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Purchase failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const livePurchaseValue = parseFloat(purchaseAmount || "0");
+  const deferredPurchaseAmount = useDeferredValue(purchaseAmount);
+  const deferredPurchaseValue = parseFloat(deferredPurchaseAmount || "0");
+  const [projectedPointsEarned, setProjectedPointsEarned] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      if (!(deferredPurchaseValue > 0)) {
+        if (!cancelled) setProjectedPointsEarned(0);
+        if (!cancelled) setProjectedPointsLoading(false);
+        return;
+      }
+      try {
+        if (!cancelled) setProjectedPointsLoading(true);
+        const next = await calculateDynamicPurchasePoints({
+          amountSpent: deferredPurchaseValue,
+          tier: normalizeTierLabel(user.tier),
+        });
+        if (!cancelled) setProjectedPointsEarned(next);
+      } catch {
+        if (!cancelled) setProjectedPointsEarned(0);
+      } finally {
+        if (!cancelled) setProjectedPointsLoading(false);
+      }
+    };
+
+    compute();
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredPurchaseValue, user.tier]);
+
+  const projectedPostPurchaseBalance = user.points + projectedPointsEarned;
+
+  const getIcon = (iconName: string) => {
+    const icons: Record<string, any> = {
+      user: User,
+      smartphone: Smartphone,
+      clipboard: Clipboard,
+      users: Users,
+      "share-2": Share2,
+      star: Star,
+    };
+    return icons[iconName] || User;
+  };
+
+  const claimProfileTask = async (task: EarnOpportunity) => {
+    await completeTask(task.id, task.title, task.points);
+  };
+
+  const taskCards = useMemo(() => {
+    return tasks.map((opportunity) => {
+      const directCompletion = completedSet.has(opportunity.id);
+      const surveyCompletion = opportunity.id === "E003" && user.surveysCompleted > 0;
+      const profileCompletion = opportunity.id === "E001" && user.profileComplete && directCompletion;
+      const appCompletion = opportunity.id === "E002" && (user.hasDownloadedApp || directCompletion);
+      const completed = directCompletion || surveyCompletion || profileCompletion || appCompletion;
+
+      const base = {
+        opportunity,
+        completed,
+        actionLabel: "Start task",
+        helperText: opportunity.description,
+        action: () => completeTask(opportunity.id, opportunity.title, opportunity.points),
+        disabled: saving,
+        statusLabel: completed ? "Completed" : "Available now",
+      };
+
+      switch (opportunity.id) {
+        case "E001": {
+          const readyToClaim = user.profileComplete && !completed;
+          return {
+            ...base,
+            actionLabel: readyToClaim ? `Claim +${opportunity.points}` : "Finish profile",
+            helperText: readyToClaim
+              ? "Your profile already has the details needed to unlock this task."
+              : "Add your phone number and birthday in Profile to unlock these points.",
+            action: readyToClaim ? () => claimProfileTask(opportunity) : () => navigate("/customer/profile"),
+            statusLabel: completed ? "Completed" : readyToClaim ? "Ready to claim" : "Needs profile details",
+          };
+        }
+        case "E002": {
+          const readyToClaim = user.hasDownloadedApp && !completed;
+          return {
+            ...base,
+            actionLabel: readyToClaim ? `Claim +${opportunity.points}` : "Mobile app only",
+            helperText: readyToClaim
+              ? "Your mobile-app activity is ready to be claimed here."
+              : "This task is tracked after a verified sign-in on the mobile app.",
+            action: readyToClaim ? () => completeTask(opportunity.id, opportunity.title, opportunity.points) : () => undefined,
+            disabled: readyToClaim ? saving : true,
+            statusLabel: completed ? "Completed" : readyToClaim ? "Ready to claim" : "Tracked elsewhere",
+          };
+        }
+        case "E003":
+          return {
+            ...base,
+            actionLabel: "Open survey",
+            helperText: completed
+              ? "Your latest survey reward has already been counted."
+              : "Answer a quick feedback prompt and the points are added after submit.",
+            action: () => setSurveyOpen(true),
+            statusLabel: completed ? "Completed" : "Quick win",
+          };
+        case "E004":
+          return {
+            ...base,
+            actionLabel: "Go to referrals",
+            helperText: completed
+              ? "Referral points already landed in your activity."
+              : "Open Referral & Feedback to copy your code and invite a friend.",
+            action: () => navigate("/customer/engagement#engagement-rewards"),
+            statusLabel: completed ? "Completed" : "Open engagement",
+          };
+        case "E005":
+          return {
+            ...base,
+            actionLabel: "Open social hub",
+            helperText: completed
+              ? "Your social follow task has already been counted."
+              : "Use the Engagement social hub so social actions stay tied to your member history.",
+            action: () => navigate("/customer/engagement#engagement-sharing"),
+            statusLabel: completed ? "Completed" : "Open engagement",
+          };
+        case "E006":
+          return {
+            ...base,
+            actionLabel: "Go to feedback",
+            helperText: completed
+              ? "Your review reward is already reflected in points activity."
+              : "Leave feedback from Referral & Feedback so this task stays linked to your account.",
+            action: () => navigate("/customer/engagement#engagement-rewards"),
+            statusLabel: completed ? "Completed" : "Open engagement",
+          };
+        default:
+          return base;
+      }
+    });
+  }, [
+    completedSet,
+    navigate,
+    saving,
+    tasks,
+    user.hasDownloadedApp,
+    user.profileComplete,
+    user.surveysCompleted,
+    user.tier,
+  ]);
+
+  return (
+    <div className="space-y-6">
+      <div className={customerPageHeroClass}>
+        <div className={customerPageHeroInnerClass}>
+          <div className={customerEyebrowClass}>Points Builder</div>
+          <h1 className={customerPageTitleClass}>Earn Points</h1>
+          <p className={customerPageDescriptionClass}>Complete tasks, log purchases, and pick up bonus opportunities with the same polished design language used across the portal.</p>
+        </div>
+      </div>
+
+      <Card className="p-6 bg-gradient-to-br from-[#1A2B47] to-[#1A2B47] text-white border-0">
+        <h2 className="text-xl font-bold mb-4">How to Earn Points</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><ShoppingCart className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Make Purchases</h3><p className="text-[#d8fbff] text-sm">Points are calculated automatically from your active tier rules</p></div></div>
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Clipboard className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Complete Tasks</h3><p className="text-[#d8fbff] text-sm">Surveys, reviews, and more</p></div></div>
+          <div className="flex items-start gap-3"><div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0"><Users className="w-5 h-5" /></div><div><h3 className="font-semibold mb-1">Refer Friends</h3><p className="text-[#d8fbff] text-sm">Both get 250 points</p></div></div>
+        </div>
+      </Card>
+
+      <Card className={`${customerPanelSoftClass} border-[#dbe3f3] bg-white/90`}>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Earn flow only</h2>
+            <p className="text-sm text-gray-600">This page is now focused on earning widgets. Redemptions stay in the Rewards page so this view loads cleaner and feels faster.</p>
+          </div>
+          <Button variant="outline" className="border-[#c8d7ea] text-[#1A2B47]" onClick={() => navigate("/customer/rewards")}>
+            Open Rewards
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className={`${customerPanelSoftClass} cursor-pointer border-[#9ed8ff]/60 bg-[#f7fbff] transition-shadow hover:shadow-lg`} onClick={() => setReceiptOpen(true)}>
+          <div className="flex items-center gap-4 mb-4"><div className="w-12 h-12 bg-[#dbeafe] rounded-xl flex items-center justify-center"><Receipt className="w-6 h-6 text-[#2563eb]" /></div><div><h3 className="font-semibold text-gray-900">Record Purchase</h3><p className="text-sm text-gray-500">Earn points instantly</p></div></div>
+          <p className="text-sm text-gray-600">Record a purchase and we calculate points from your live tier rules before saving it to the database.</p>
+        </Card>
+
+        <Card className={`${customerPanelSoftClass} cursor-pointer border-[#9ed8ff]/60 bg-[#f7fbff] transition-shadow hover:shadow-lg`} onClick={() => setSurveyOpen(true)}>
+          <div className="flex items-center gap-4 mb-4"><div className="w-12 h-12 bg-[#dbeafe] rounded-xl flex items-center justify-center"><FileText className="w-6 h-6 text-[#2563eb]" /></div><div><h3 className="font-semibold text-gray-900">Complete Survey</h3><p className="text-sm text-gray-500">Quick feedback form</p></div></div>
+          <p className="text-sm text-gray-600">Share your experience and earn 50 points.</p>
+        </Card>
+      </div>
+
+      <div>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Available Tasks</h2>
+            <p className="text-sm text-gray-600">Each task now routes to the right experience instead of using one generic manual action.</p>
+          </div>
+          <div className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${tasksLoading ? "bg-[#eef5ff] text-[#1A2B47]" : "bg-[#ecfdf3] text-[#166534]"}`}>
+            {tasksLoading ? "Syncing latest tasks..." : "Tasks ready"}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {taskCards.map(({ opportunity, completed, action, actionLabel, disabled, helperText, statusLabel }) => {
+            const Icon = getIcon(opportunity.icon);
+            return (
+              <Card key={opportunity.id} className={completed ? "bg-gray-50/60" : "bg-white"}>
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start gap-4 flex-1">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${completed ? "bg-gray-100" : "bg-[#dbeafe]"}`}>
+                        {completed ? <Check className="w-6 h-6 text-gray-400" /> : <Icon className="w-6 h-6 text-[#1A2B47]" />}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 mb-1">{opportunity.title}</h3>
+                        <p className="text-sm text-gray-600">{helperText}</p>
+                      </div>
+                    </div>
+                    <div className="text-right ml-4"><div className={`inline-flex items-center px-3 py-1 rounded-lg text-sm font-semibold ${completed ? "bg-gray-100 text-gray-600" : infoPillClass}`}>+{opportunity.points}</div></div>
+                  </div>
+                  {!completed && (
+                    <Button
+                      className={`w-full ${brandNavySolidClass} ${brandNavySolidHoverClass}`}
+                      disabled={disabled}
+                      onClick={action}
+                    >
+                      {actionLabel}
+                    </Button>
+                  )}
+                  <div className="mt-3 flex items-center gap-2 text-sm text-gray-500">
+                    {completed ? <Check className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                    <span>{statusLabel}</span>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+        {tasks.length === 0 && (
+          <Card className={`${customerPanelSoftClass} border-dashed border-gray-300`}>
+            <p className="text-sm text-gray-600">
+              No earn tasks found in database. Add rows to <code>earn_tasks</code> to show task-based earning.
+            </p>
+          </Card>
+        )}
+      </div>
+
+      <Dialog open={surveyOpen} onOpenChange={setSurveyOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Feedback Survey</DialogTitle>
+            <DialogDescription>Help us improve your experience and earn 50 points</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div><Label>How would you rate your recent experience?</Label><div className="flex gap-2 mt-2">{[1, 2, 3, 4, 5].map((rating) => (<button key={rating} className="w-12 h-12 rounded-lg border-2 border-gray-200 hover:border-[#1A2B47] transition-colors flex items-center justify-center font-semibold">{rating}</button>))}</div></div>
+            <div><Label htmlFor="feedback">What can we improve?</Label><Textarea id="feedback" placeholder="Share your thoughts..." className="mt-2" rows={4} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSurveyOpen(false)}>Cancel</Button>
+            <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handleSurveyComplete} disabled={saving}>Submit & Earn 50 Points</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={receiptOpen} onOpenChange={setReceiptOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Record Purchase</DialogTitle>
+            <DialogDescription>Enter your purchase amount and we will calculate points from your current tier earn rules.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div><Label htmlFor="amount">Purchase Amount ($)</Label><Input id="amount" type="number" step="0.01" placeholder="0.00" value={purchaseAmount} onChange={(e) => setPurchaseAmount(e.target.value)} className="mt-2" /></div>
+            <div>
+              <Label htmlFor="purchase-category">Purchase Category</Label>
+              <select
+                id="purchase-category"
+                value={purchaseCategory}
+                onChange={(event) => setPurchaseCategory(event.target.value)}
+                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="beverage">Beverage</option>
+                <option value="pastry">Pastry</option>
+                <option value="food">Food</option>
+                <option value="merchandise">Merchandise</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Active campaigns can use this category to auto-apply bonus points.</p>
+            </div>
+            {projectedPointsEarned > 0 && (
+              <div className="p-4 rounded-lg bg-[#f5f7fb] border border-[#1A2B47]/30">
+                <div className="flex items-center justify-between mb-2"><span className="text-sm text-gray-600">Purchase Amount</span><span className="font-semibold text-gray-900">${livePurchaseValue.toFixed(2)}</span></div>
+                <div className="flex items-center justify-between"><span className="text-sm text-gray-600">Points to Earn</span><span className={`text-lg font-bold ${infoTextStrongClass}`}>{projectedPointsLoading ? "..." : `+${projectedPointsEarned}`}</span></div>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#1A2B47]/30"><span className="text-sm text-gray-600">Projected Point Balance</span><span className="font-semibold text-gray-900">{projectedPostPurchaseBalance.toLocaleString()}</span></div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceiptOpen(false)}>Cancel</Button>
+            <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handlePurchase} disabled={saving || !purchaseAmount || parseFloat(purchaseAmount) <= 0}>Record Purchase</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

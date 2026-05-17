@@ -1,0 +1,19 @@
+
+{
+  "name": "centralperk-workspace",
+  "private": true,
+  "scripts": {
+    "install:frontend": "npm --prefix ./centralperk-frontend install",
+    "install:backend": "npm --prefix ./centralperk-backend install",
+    "dev": "npm --prefix ./centralperk-frontend run dev",
+    "frontend": "npm --prefix ./centralperk-frontend run dev",
+    "backend": "npm --prefix ./centralperk-backend run build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "npm --prefix ./centralperk-frontend run build",
+    "build:backend": "npm --prefix ./centralperk-backend run build",
+    "start:frontend": "npm --prefix ./centralperk-frontend run start",
+    "start:backend": "npm --prefix ./centralperk-backend run start:help",
+    "preview": "npm --prefix ./centralperk-frontend run start",
+    "postinstall": "npm run install:frontend && npm run install:backend"
+  }
+}

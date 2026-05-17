@@ -1,0 +1,21 @@
+{
+  "name": "centralperk-backend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "install:services": "npm --prefix member-service install && npm --prefix segment-service install && npm --prefix campaign-service install && npm --prefix notification-service install && npm --prefix reward-service install && npm --prefix points-engine install && npm --prefix gateway install",
+    "build": "npm --prefix member-service run build && npm --prefix segment-service run build && npm --prefix campaign-service run build && npm --prefix notification-service run build && npm --prefix reward-service run build && npm --prefix points-engine run build && npm --prefix gateway run build",
+    "test": "npm --prefix member-service test && npm --prefix segment-service test && npm --prefix campaign-service test && npm --prefix notification-service test && npm --prefix reward-service test && npm --prefix points-engine test && npm --prefix gateway run verify",
+    "validate:split-dbs": "powershell -ExecutionPolicy Bypass -File scripts/validate-split-service-dbs.ps1",
+    "start:member": "node member-service/dist/server.js",
+    "start:segment": "node segment-service/dist/server.js",
+    "start:campaign": "node campaign-service/dist/server.js",
+    "start:notification": "node notification-service/dist/server.js",
+    "start:reward": "node reward-service/dist/server.js",
+    "start:points": "node points-engine/dist/server.js",
+    "start:gateway": "node gateway/dist/server.js",
+    "start:help": "node -e \"console.log('Start backend services in separate terminals: npm run start:member, start:segment, start:campaign, start:notification, start:reward, start:points, start:gateway')\"",
+    "postinstall": "npm run install:services"
+  }
+}

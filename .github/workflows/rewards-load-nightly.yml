@@ -1,0 +1,72 @@
+name: rewards-load-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *"
+
+jobs:
+  run-baseline-load:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: LOYALTY_SYSTEM-main/CentralPerk
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: LOYALTY_SYSTEM-main/CentralPerk/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Build application
+        run: npm run build
+
+      - name: Create results folder
+        run: mkdir -p tests/load/results/nightly
+
+      - name: Start Next.js server
+        run: |
+          npm run server > tests/load/results/nightly/server.log 2>&1 &
+
+      - name: Wait for API readiness
+        run: node tests/support/wait-for-url.mjs http://127.0.0.1:3000/api/campaigns/performance 120000
+
+      - name: Run nightly baseline with Grafana remote write
+        if: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL != '' }}
+        env:
+          K6_BASE_URL: http://127.0.0.1:3000
+          K6_SUMMARY_DIR: tests/load/results/nightly
+          K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
+          K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
+          K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+        run: k6 run --out experimental-prometheus-rw tests/load/k6/points-and-campaigns.js
+
+      - name: Run nightly baseline without Grafana remote write
+        if: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL == '' }}
+        env:
+          K6_BASE_URL: http://127.0.0.1:3000
+          K6_SUMMARY_DIR: tests/load/results/nightly
+        run: k6 run tests/load/k6/points-and-campaigns.js
+
+      - name: Generate breach triage report
+        if: ${{ always() }}
+        run: node tests/load/k6/triage-breaches.mjs tests/load/results/nightly/summary.json tests/load/results/nightly/triage.md
+
+      - name: Upload load-test artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-load-nightly
+          path: |
+            LOYALTY_SYSTEM-main/CentralPerk/tests/load/results/nightly
