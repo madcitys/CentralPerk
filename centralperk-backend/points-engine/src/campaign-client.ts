@@ -1,7 +1,8 @@
+import { config } from "./config.js";
+
 const BASE_URL =
   process.env.CAMPAIGN_SERVICE_URL ||
-  process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL ||
-  "http://127.0.0.1:4002";
+  config.campaignServiceUrl;
 
 function fullUrl(path: string) {
   return `${BASE_URL.replace(/\/+$/, "")}${path}`;

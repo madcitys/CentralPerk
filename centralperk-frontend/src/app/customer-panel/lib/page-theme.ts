@@ -1,4 +1,4 @@
-export const customerPageShellClass = "max-w-7xl mx-auto space-y-6";
+export const customerPageShellClass = "mx-auto w-full max-w-[1680px] space-y-6";
 
 export const customerPageHeroClass =
   "overflow-hidden rounded-[28px] border border-[#d6e5f7] bg-[radial-gradient(circle_at_top_left,#e7fbfb_0%,#ffffff_38%,#f1f5ff_100%)] shadow-[0_18px_56px_rgba(26,43,71,0.08)]";

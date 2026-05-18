@@ -3,36 +3,18 @@ import { loadCommunicationPreference, saveCommunicationPreference } from "../app
 import { queueMemberNotification } from "../app/lib/notifications";
 import { createApiHandler } from "./route-utils";
 import { resolveAudienceMembers } from "./segment-preview";
-import { createServerSupabaseClient } from "./supabase-admin";
-import {
-  listLocalNotifications,
-  localCommunicationAnalytics,
-  queueLocalMemberNotification,
-  saveLocalCommunicationPreference,
-} from "./local-notifications";
-import { gatewayJson, requireGatewayUpstream, useRemoteMicroservices } from "./microservice-client";
+import { serviceBaseUrl } from "./service-proxy";
 
 const emailSchema = z
   .object({
-    campaignId: z.string().trim().max(80).optional(),
-    subject: z.string().trim().min(1).max(160).optional(),
-    message: z.string().trim().min(1).max(4_000).optional(),
+    subject: z.string().trim().min(1).max(160),
+    message: z.string().trim().min(1).max(4_000),
     segment: z.string().trim().max(80).optional(),
     memberId: z.string().trim().max(80).optional(),
     email: z.string().trim().email().max(254).optional(),
     scheduledFor: z.string().datetime().optional(),
   })
-  .refine((body) => Boolean(body.campaignId || body.subject || body.message), {
-    message: "campaignId, subject, or message is required.",
-  })
   .strict();
-
-function useLocalRuntimeFirst() {
-  return (
-    process.env.USE_REMOTE_LOYALTY_API !== "true" &&
-    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.USE_LOCAL_LOYALTY_API === "true")
-  );
-}
 
 async function unsubscribeMember(input: { memberId?: string; email?: string }) {
   const members = await resolveAudienceMembers(input);
@@ -41,17 +23,6 @@ async function unsubscribeMember(input: { memberId?: string; email?: string }) {
   }
 
   for (const member of members) {
-    if (useLocalRuntimeFirst()) {
-      await saveLocalCommunicationPreference(member.memberNumber, {
-        sms: true,
-        email: false,
-        push: true,
-        promotionalOptIn: false,
-        frequency: "never",
-      });
-      continue;
-    }
-
     const currentPreference = await loadCommunicationPreference(member.memberNumber, member.email || undefined);
     await saveCommunicationPreference(
       member.memberNumber,
@@ -71,47 +42,29 @@ export const communicationsEmailHandler = createApiHandler({
   route: "/api/communications/email",
   methods: ["POST"] as const,
   schema: emailSchema,
-  parseBodyFromQuery: true,
   rateLimit: { limit: 20, windowMs: 60_000 },
   resolveActor: (body) => body.memberId || body.email || body.segment || "audience",
   summarize: (body) => ({
-    campaignId: body.campaignId || null,
     segment: body.segment || null,
     memberId: body.memberId || null,
     scheduledFor: body.scheduledFor || null,
   }),
   handler: async ({ body }) => {
-    if (useRemoteMicroservices()) {
-      await requireGatewayUpstream("notification", "Notification service");
-    }
-
-    const subject = body.subject || (body.campaignId ? `Campaign ${body.campaignId}` : "Loyalty update");
-    const message = body.message || `Campaign ${body.campaignId} is ready for members.`;
     const members = await resolveAudienceMembers({
-      segment: body.segment || (body.campaignId ? "All Members" : undefined),
+      segment: body.segment,
       memberId: body.memberId,
       email: body.email,
     });
 
     const results = await Promise.all(
       members.map((member) =>
-        useLocalRuntimeFirst()
-          ? queueLocalMemberNotification({
-              memberId: member.memberNumber,
-              channel: "email",
-              subject,
-              message,
-              isTransactional: false,
-              scheduledFor: body.scheduledFor ?? null,
-            })
-          : queueMemberNotification({
-              memberId: member.memberNumber,
-              channel: "email",
-              subject,
-              message,
-              isTransactional: false,
-              scheduledFor: body.scheduledFor ?? null,
-            }),
+        queueMemberNotification({
+          memberId: member.memberNumber,
+          channel: "email",
+          subject: body.subject,
+          message: body.message,
+          isTransactional: false,
+        }),
       ),
     );
 
@@ -128,67 +81,12 @@ export const communicationsAnalyticsHandler = createApiHandler({
   methods: ["GET"] as const,
   rateLimit: { limit: 60, windowMs: 60_000 },
   handler: async () => {
-    if (useLocalRuntimeFirst()) {
-      return {
-        ok: true as const,
-        analytics: await localCommunicationAnalytics(),
-        notifications: await listLocalNotifications({ limit: 100 }),
-        source: "local_runtime",
-      };
-    }
-
-    if (useRemoteMicroservices()) {
-      const response = await gatewayJson<{
-        ok: true;
-        notifications: Array<{ channel?: string; status?: string }>;
-      }>("/notifications?limit=100");
-      const byChannel: Record<string, number> = {};
-      const byStatus: Record<string, number> = {};
-
-      for (const row of response.notifications || []) {
-        const channel = String(row.channel ?? "unknown");
-        const status = String(row.status ?? "pending");
-        byChannel[channel] = (byChannel[channel] || 0) + 1;
-        byStatus[status] = (byStatus[status] || 0) + 1;
-      }
-
-      return {
-        ok: true as const,
-        analytics: {
-          total: (response.notifications || []).length,
-          byChannel,
-          byStatus,
-        },
-        notifications: response.notifications || [],
-        source: "notification-service",
-      };
-    }
-
-    const supabase = createServerSupabaseClient();
-    const { data, error } = await supabase
-      .from("notification_outbox")
-      .select("channel,status")
-      .limit(5_000);
-    if (error) throw error;
-
-    const byChannel: Record<string, number> = {};
-    const byStatus: Record<string, number> = {};
-
-    for (const row of data || []) {
-      const channel = String(row.channel ?? "unknown");
-      const status = String(row.status ?? "pending");
-      byChannel[channel] = (byChannel[channel] || 0) + 1;
-      byStatus[status] = (byStatus[status] || 0) + 1;
-    }
-
-    return {
-      ok: true as const,
-      analytics: {
-        total: (data || []).length,
-        byChannel,
-        byStatus,
-      },
-    };
+    const response = await fetch(`${serviceBaseUrl("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:4005")}/communications/analytics`, {
+      headers: { accept: "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`Notification service failed (${response.status}).`);
+    return payload;
   },
 });
 

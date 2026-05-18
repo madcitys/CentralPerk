@@ -1,251 +1,55 @@
-import type { MemberData, Transaction } from "../types/loyalty";
 import type { PromotionCampaign } from "./promotions";
 import type { AppNotification } from "./notifications";
-import { API_BASE_URL, apiUrl, BACKEND_OFFLINE_MESSAGE } from "./api-config";
+import type { Reward } from "../types/loyalty";
+import type { RedemptionVoucher } from "../types/voucher";
+import { normalizeRewardDescription, normalizeRewardDisplayName, normalizeRewardImageUrl } from "./reward-display";
 
-export { API_BASE_URL, apiUrl, BACKEND_OFFLINE_MESSAGE };
-
-const GET_CACHE_TTL_MS = 20_000;
-const REQUEST_TIMEOUT_MS = 8_000;
-const getCache = new Map<string, { loadedAt: number; payload: unknown }>();
-const getInFlight = new Map<string, Promise<unknown>>();
-const HTML_RESPONSE_MARKERS = ["<!DOCTYPE html", "__next/static", "<html"];
-
-function withApiLabel<T>(promise: Promise<T>, label: string): Promise<T> {
-  return promise.catch((error) => {
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : `Failed to load ${label}.`;
-    throw new Error(message.includes("Failed to load") ? message : `Failed to load ${label}: ${message}`);
-  });
-}
+type AnyRecord = Record<string, unknown>;
 
 export async function requestJson<TResponse = unknown>(
   url: string,
   init?: RequestInit & { idempotencyKey?: string },
 ): Promise<TResponse> {
-  const method = String(init?.method || "GET").toUpperCase();
-  const isGet = method === "GET";
-  const resolvedUrl = apiUrl(url);
-  const now = Date.now();
-
-  if (isGet) {
-    const cached = getCache.get(resolvedUrl);
-    if (cached && now - cached.loadedAt < GET_CACHE_TTL_MS) return cached.payload as TResponse;
-
-    const inFlight = getInFlight.get(resolvedUrl);
-    if (inFlight) return inFlight as Promise<TResponse>;
-  }
-
   const headers = new Headers(init?.headers ?? {});
   headers.set("Content-Type", "application/json");
   if (init?.idempotencyKey) {
     headers.set("Idempotency-Key", init.idempotencyKey);
   }
 
-  const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  init?.signal?.addEventListener("abort", () => controller.abort(), { once: true });
-  const startedAt = performance.now();
-
-  const request = fetch(resolvedUrl, {
-    cache: init?.cache ?? "no-store",
+  const response = await fetch(url, {
     ...init,
     headers,
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      const raw = await response.text();
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      if (elapsedMs > 800) {
-        console.info(`[api] ${method} ${resolvedUrl} ${response.status} in ${elapsedMs}ms`);
-      }
-      if (HTML_RESPONSE_MARKERS.some((marker) => raw.includes(marker))) {
-        throw new Error(
-          `Received HTML instead of backend JSON from ${resolvedUrl}. Check NEXT_PUBLIC_API_BASE_URL and point the app to ${API_BASE_URL}.`,
-        );
-      }
-      const payload = raw ? JSON.parse(raw) : {};
-      if (!response.ok) {
-        throw new Error(String((payload as { error?: unknown }).error || `Request failed (${response.status}).`));
-      }
-      if (isGet) {
-        getCache.set(resolvedUrl, { loadedAt: Date.now(), payload });
-      } else {
-        getCache.clear();
-      }
-      return payload as TResponse;
-    })
-    .catch((error) => {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error(`API request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. Check the backend at ${resolvedUrl}.`);
-      }
-      if (error instanceof TypeError) {
-        throw new Error(BACKEND_OFFLINE_MESSAGE);
-      }
-      throw error;
-    })
-    .finally(() => {
-      globalThis.clearTimeout(timeout);
-      if (isGet) getInFlight.delete(resolvedUrl);
-    });
+  });
 
-  if (isGet) getInFlight.set(resolvedUrl, request);
-  return request;
-}
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorPayload = (payload as { error?: unknown; message?: unknown }).error;
+    const message =
+      typeof errorPayload === "string"
+        ? errorPayload
+        : errorPayload && typeof errorPayload === "object" && typeof (errorPayload as { message?: unknown }).message === "string"
+          ? (errorPayload as { message: string }).message
+          : typeof (payload as { message?: unknown }).message === "string"
+            ? String((payload as { message: unknown }).message)
+            : `Request failed (${response.status}).`;
+    throw new Error(message);
+  }
 
-export function clearApiReadCache() {
-  getCache.clear();
-  getInFlight.clear();
+  return payload as TResponse;
 }
 
 export function createIdempotencyKey(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function resolveMemberIdentifier(memberIdentifier?: string, fallbackEmail?: string) {
-  return String(memberIdentifier || fallbackEmail || "").trim();
-}
+function normalizeMemberIdentifier(memberIdentifier?: string, fallbackEmail?: string) {
+  const normalizedMemberIdentifier = memberIdentifier?.trim();
+  if (normalizedMemberIdentifier) return normalizedMemberIdentifier;
 
-function normalizeTier(value: unknown): MemberData["tier"] {
-  const tier = String(value || "").trim().toLowerCase();
-  if (tier === "gold") return "Gold";
-  if (tier === "silver") return "Silver";
-  return "Bronze";
-}
+  const normalizedFallbackEmail = fallbackEmail?.trim();
+  if (normalizedFallbackEmail) return normalizedFallbackEmail;
 
-function mapApiTransactionType(value: unknown): Transaction["type"] {
-  const type = String(value || "").trim().toUpperCase();
-  if (type === "REDEEM" || type === "REDEEMED" || type === "REWARD_REDEEMED") return "redeemed";
-  if (type === "GIFT" || type === "GIFTED") return "gifted";
-  if (type === "EXPIRED" || type === "EXPIRY") return "expired";
-  if (type === "PENDING") return "pending";
-  return "earned";
-}
-
-function transactionDate(row: Record<string, unknown>) {
-  return String(row.date || row.transaction_date || row.created_at || new Date().toISOString());
-}
-
-function transactionDescription(row: Record<string, unknown>) {
-  return String(row.reason || row.description || row.transaction_type || row.type || "Transaction");
-}
-
-function monthKey(value: string | Date) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-export async function loadMemberSnapshotViaApi(currentUser: MemberData): Promise<Partial<MemberData>> {
-  const memberId = currentUser.memberId;
-  const email = currentUser.email;
-  if (!memberId && !email) return {};
-
-  const resolvedMemberId = memberId || email;
-  const query = email ? `?email=${encodeURIComponent(email)}` : "";
-
-  const [pointsResponse, historyResponse] = await Promise.all([
-    withApiLabel(
-      requestJson<{
-      ok: true;
-      memberId: string;
-      points: number;
-      balance: { member_id: string; points_balance: number; tier: string };
-      }>(`/members/${encodeURIComponent(resolvedMemberId)}/points${query}`),
-      "points API",
-    ),
-    withApiLabel(
-      requestJson<{
-      ok: true;
-      memberId: string;
-      history: Array<Record<string, unknown>>;
-      }>(`/members/${encodeURIComponent(resolvedMemberId)}/points-history${query}`),
-      "points history API",
-    ),
-  ]);
-
-  const balance = Number(pointsResponse.points ?? pointsResponse.balance?.points_balance ?? currentUser.points ?? 0);
-  const sortedHistory = [...(historyResponse.history || [])].sort(
-    (left, right) => new Date(transactionDate(right)).getTime() - new Date(transactionDate(left)).getTime(),
-  );
-
-  let runningBalance = balance;
-  const transactions = sortedHistory.map((row, index): Transaction => {
-    const signedPoints = Number(row.points || 0);
-    const type = mapApiTransactionType(row.type || row.transaction_type);
-    const transaction: Transaction = {
-      id: String(row.id || row.transaction_id || row.reference || `${index}`),
-      date: transactionDate(row),
-      description: transactionDescription(row),
-      type,
-      points: Math.abs(signedPoints),
-      balance: runningBalance,
-      category: type === "redeemed" || type === "gifted" ? "Reward" : "Purchase",
-      receiptId: row.receipt_id ? String(row.receipt_id) : undefined,
-    };
-    if (type !== "pending") runningBalance -= signedPoints;
-    return transaction;
-  });
-
-  const currentMonth = monthKey(new Date());
-  const earnedThisMonth = sortedHistory
-    .filter((row) => mapApiTransactionType(row.type || row.transaction_type) === "earned")
-    .filter((row) => monthKey(transactionDate(row)) === currentMonth)
-    .reduce((sum, row) => sum + Math.max(0, Number(row.points || 0)), 0);
-
-  const redeemedThisMonth = sortedHistory
-    .filter((row) => {
-      const type = mapApiTransactionType(row.type || row.transaction_type);
-      return (type === "redeemed" || type === "gifted") && monthKey(transactionDate(row)) === currentMonth;
-    })
-    .reduce((sum, row) => sum + Math.abs(Number(row.points || 0)), 0);
-
-  const pendingPoints = sortedHistory
-    .filter((row) => mapApiTransactionType(row.type || row.transaction_type) === "pending")
-    .reduce((sum, row) => sum + Math.max(0, Number(row.points || 0)), 0);
-
-  const lifetimePoints = sortedHistory
-    .filter((row) => mapApiTransactionType(row.type || row.transaction_type) === "earned")
-    .reduce((sum, row) => sum + Math.max(0, Number(row.points || 0)), 0);
-
-  const expiringRows = sortedHistory.filter((row) => {
-    const expiryValue = row.expiry_date || row.expiryDate;
-    if (!expiryValue) return false;
-    const days = (new Date(String(expiryValue)).getTime() - Date.now()) / 86_400_000;
-    return days >= 0 && days <= 30 && Number(row.points || 0) > 0;
-  });
-  const expiringPoints = expiringRows.reduce((sum, row) => sum + Math.max(0, Number(row.points || 0)), 0);
-  const daysUntilExpiry = expiringRows.length
-    ? Math.max(
-        0,
-        Math.min(
-          ...expiringRows.map((row) =>
-            Math.ceil((new Date(String(row.expiry_date || row.expiryDate)).getTime() - Date.now()) / 86_400_000),
-          ),
-        ),
-      )
-    : 0;
-
-  return {
-    memberId: String(pointsResponse.balance?.member_id || currentUser.memberId),
-    fullName: currentUser.fullName,
-    email: currentUser.email,
-    phone: currentUser.phone || "",
-    birthdate: currentUser.birthdate,
-    profileImage: currentUser.profileImage || "",
-    memberSince: currentUser.memberSince,
-    points: balance,
-    pendingPoints,
-    lifetimePoints,
-    earnedThisMonth,
-    redeemedThisMonth,
-    expiringPoints,
-    daysUntilExpiry,
-    tier: normalizeTier(pointsResponse.balance?.tier),
-    transactions,
-  };
+  throw new Error("Missing member identifier. Refresh the page and try again.");
 }
 
 export async function awardPointsViaApi(input: {
@@ -257,50 +61,71 @@ export async function awardPointsViaApi(input: {
   amountSpent?: number;
   productCode?: string;
   productCategory?: string;
-  transactionReference?: string;
-}) {
-  const { transactionReference, ...payload } = input;
-  const memberIdentifier = resolveMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
-  return requestJson<{
-    ok: true;
-    result: {
+}): Promise<{
+  ok: true;
+  result: {
+    newBalance: number;
+    newTier: string;
+    pointsAdded: number;
+    bonusPointsAdded: number;
+    appliedCampaigns: Array<Record<string, unknown>>;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  };
+  replayed: boolean;
+}> {
+  const idempotencyKey = createIdempotencyKey("points-award");
+  const memberIdentifier = normalizeMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
+  const response = await requestJson<{
+    ok?: true;
+    result?: {
       newBalance: number;
       newTier: string;
       pointsAdded: number;
       bonusPointsAdded: number;
       appliedCampaigns: Array<Record<string, unknown>>;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
     };
-    replayed: boolean;
-  }>("/points/award", {
-    method: "POST",
-    body: JSON.stringify({ ...payload, memberIdentifier }),
-    idempotencyKey: transactionReference || createIdempotencyKey("points-award"),
-  });
-}
-
-export async function recordTransactionCompletedViaApi(input: {
-  eventId?: string;
-  transactionReference: string;
-  memberIdentifier: string;
-  fallbackEmail?: string;
-  amountSpent: number;
-  reason?: string;
-  productCode?: string;
-  productCategory?: string;
-}) {
-  const memberIdentifier = resolveMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
-  return requestJson<{
-    ok: true;
-    result: unknown;
-    replayed: boolean;
-  }>("/events/transaction-completed", {
+    replayed?: boolean;
+    newBalance?: number;
+    newTier?: string;
+    pointsAdded?: number;
+    bonusPointsAdded?: number;
+    appliedCampaigns?: Array<Record<string, unknown>>;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  }>("/api/points/award", {
     method: "POST",
     body: JSON.stringify({
-      eventType: "transaction.completed",
       ...input,
       memberIdentifier,
+      idempotencyKey,
     }),
+    idempotencyKey,
   });
+
+  if (response.result) {
+    return {
+      ok: true as const,
+      result: response.result,
+      replayed: Boolean(response.replayed ?? response.result.duplicate ?? false),
+    };
+  }
+
+  return {
+    ok: true as const,
+    result: {
+      newBalance: Number(response.newBalance ?? 0),
+      newTier: String(response.newTier ?? "Bronze"),
+      pointsAdded: Number(response.pointsAdded ?? 0),
+      bonusPointsAdded: Number(response.bonusPointsAdded ?? 0),
+      appliedCampaigns: Array.isArray(response.appliedCampaigns) ? response.appliedCampaigns : [],
+      duplicate: Boolean(response.duplicate ?? false),
+      idempotencyKey: response.idempotencyKey ?? idempotencyKey,
+    },
+    replayed: Boolean(response.duplicate ?? false),
+  };
 }
 
 export async function redeemPointsViaApi(input: {
@@ -311,31 +136,133 @@ export async function redeemPointsViaApi(input: {
   transactionType?: "REDEEM" | "GIFT";
   rewardCatalogId?: string | number | null;
   promotionCampaignId?: string | null;
-}) {
-  const memberIdentifier = resolveMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
-  return requestJson<{
-    ok: true;
-    result: {
+}): Promise<{
+  ok: true;
+  result: {
+    newBalance: number;
+    newTier: string;
+    pointsDeducted: number;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  };
+}> {
+  const idempotencyKey = createIdempotencyKey("points-redeem");
+  const memberIdentifier = normalizeMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
+  const response = await requestJson<{
+    ok?: true;
+    result?: {
       newBalance: number;
       newTier: string;
       pointsDeducted: number;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
     };
-  }>("/points/redeem", {
+    newBalance?: number;
+    newTier?: string;
+    pointsDeducted?: number;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  }>("/api/points/redeem", {
     method: "POST",
-    body: JSON.stringify({ ...input, memberIdentifier }),
+    body: JSON.stringify({
+      ...input,
+      memberIdentifier,
+      idempotencyKey,
+    }),
+    idempotencyKey,
   });
+
+  if (response.result) {
+    return {
+      ok: true as const,
+      result: response.result,
+    };
+  }
+
+  return {
+    ok: true as const,
+    result: {
+      newBalance: Number(response.newBalance ?? 0),
+      newTier: String(response.newTier ?? "Bronze"),
+      pointsDeducted: Number(response.pointsDeducted ?? 0),
+      duplicate: Boolean(response.duplicate ?? false),
+      idempotencyKey: response.idempotencyKey ?? idempotencyKey,
+    },
+  };
+}
+
+export async function loadPointsLedgerViaApi(limit = 1000) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return requestJson<{
+    ok: true;
+    transactions: Array<{
+      id?: string | number;
+      member_id: string | number;
+      transaction_id?: string | number;
+      transaction_type: string;
+      points: number;
+      balance?: number | null;
+      transaction_date: string;
+      expiry_date?: string | null;
+      reason?: string | null;
+      reward_catalog_id?: number | string | null;
+      promotion_campaign_id?: string | null;
+    }>;
+  }>(`/api/points/ledger?${params.toString()}`);
 }
 
 export async function saveCampaignViaApi(input: Record<string, unknown>) {
-  return requestJson<{ ok: true; campaign: PromotionCampaign }>("/campaigns", {
+  return requestJson<{ ok: true; campaign: PromotionCampaign }>("/api/campaigns", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
+export async function loadRewardsViaApi() {
+  const response = await requestJson<{
+    ok: true;
+    rewards: AnyRecord[];
+  }>("/api/rewards");
+
+  return {
+    ...response,
+    rewards: (response.rewards || []).map((reward) => {
+      const rawName = String(reward.name ?? "Reward");
+      const rawDescription = String(reward.description ?? "");
+      return {
+        id: String(reward.reward_id ?? reward.id ?? ""),
+        rewardCatalogId: reward.id ? String(reward.id) : undefined,
+        name: normalizeRewardDisplayName(rawName),
+        description: normalizeRewardDescription(rawName, rawDescription),
+        pointsCost: Number(reward.points_cost ?? 0),
+        category: String(reward.category ?? "voucher") as Reward["category"],
+        imageUrl: normalizeRewardImageUrl(rawName, reward.image_url ? String(reward.image_url) : undefined),
+        available: Boolean(reward.is_active ?? true),
+        expiryDate: reward.expiry_date ? String(reward.expiry_date) : undefined,
+        partnerId: reward.partner_id ? String(reward.partner_id) : null,
+        partnerName: reward.partner_name ? String(reward.partner_name) : null,
+        partnerCode: reward.partner_code ? String(reward.partner_code) : null,
+        partnerLogoUrl: reward.partner_logo_url ? String(reward.partner_logo_url) : null,
+        partnerConversionRate:
+          reward.partner_conversion_rate === null || reward.partner_conversion_rate === undefined
+            ? null
+            : Number(reward.partner_conversion_rate),
+        cashValue: reward.cash_value === null || reward.cash_value === undefined ? null : Number(reward.cash_value),
+        activeFlashSaleId: null,
+        flashSaleStartsAt: null,
+        flashSaleEndsAt: null,
+        flashSaleQuantityLimit: null,
+        flashSaleClaimedCount: 0,
+        flashSaleBanner: null,
+        flashSaleCountdownLabel: null,
+      };
+    }),
+  };
+}
+
 export async function publishCampaignViaApi(campaignId: string, queueNotifications = false) {
   return requestJson<{ ok: true; campaign: PromotionCampaign; notificationsQueued: number }>(
-    `/campaigns/${campaignId}/publish`,
+    `/api/campaigns/${campaignId}/publish`,
     {
       method: "PATCH",
       body: JSON.stringify({ queueNotifications }),
@@ -347,45 +274,17 @@ export async function loadActiveCampaignsViaApi(tier?: string) {
   const params = new URLSearchParams();
   if (tier) params.set("tier", tier);
   const query = params.toString();
-  return withApiLabel(
-    requestJson<{
-      ok: true;
-      campaigns: Array<
-        PromotionCampaign & {
-          budgetUtilizationPercent: number;
-          trackedTransactions: number;
-          pointsAwarded: number;
-          notificationsSent: number;
-        }
-      >;
-    }>(`/campaigns/active${query ? `?${query}` : ""}`),
-    "campaigns API",
-  );
-}
-
-export async function loadCampaignBudgetStatusViaApi(campaignId: string) {
-  return withApiLabel(
-    requestJson<{
-      ok: true;
-      budgetStatus: {
-        campaignId: string;
-        status: string;
-        active: boolean;
-        budgetLimit: number | null;
-        budgetSpent: number;
-        budgetRemaining: number | null;
-        utilizationPercent: number;
+  return requestJson<{
+    ok: true;
+    campaigns: Array<
+      PromotionCampaign & {
+        budgetUtilizationPercent: number;
         trackedTransactions: number;
         pointsAwarded: number;
         notificationsSent: number;
-        redemptionCount: number;
-        quantityLimit: number | null;
-        quantityClaimed: number;
-        sellThrough: number | null;
-      };
-    }>(`/campaigns/${campaignId}/budget-status`),
-    "campaign budget API",
-  );
+      }
+    >;
+  }>(`/api/campaigns/active${query ? `?${query}` : ""}`);
 }
 
 export async function saveSegmentViaApi(input: {
@@ -411,22 +310,11 @@ export async function saveSegmentViaApi(input: {
       }>;
     } | null;
   }>(
-    "/segments",
+    "/api/segments",
     {
       method: "POST",
       body: JSON.stringify(input),
     },
-  );
-}
-
-export async function listSegmentsViaApi() {
-  return withApiLabel(
-    requestJson<{
-    ok: true;
-    segments: Array<{ id: string; name: string; description: string | null; is_system: boolean }>;
-    source?: string;
-    }>("/segments"),
-    "segments API",
   );
 }
 
@@ -448,7 +336,7 @@ export async function previewSegmentViaApi(input: {
         lastActivityAt: string | null;
       }>;
     };
-  }>("/segments/preview", {
+  }>("/api/segments/preview", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -457,12 +345,11 @@ export async function previewSegmentViaApi(input: {
 export async function triggerSmsViaApi(input: {
   subject: string;
   message: string;
-  trigger?: string;
   segment?: string;
   memberId?: string;
   email?: string;
 }) {
-  return requestJson<{ ok: true; queued: number }>("/notifications/sms", {
+  return requestJson<{ ok: true; queued: number }>("/api/notifications/sms", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -476,7 +363,7 @@ export async function scheduleEmailViaApi(input: {
   email?: string;
   scheduledFor?: string;
 }) {
-  return requestJson<{ ok: true; queued: number; scheduledFor: string | null }>("/communications/email", {
+  return requestJson<{ ok: true; queued: number; scheduledFor: string | null }>("/api/communications/email", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -492,40 +379,34 @@ export async function loadNotificationsViaApi(input: {
   if (input.email) params.set("email", input.email);
   if (input.limit) params.set("limit", String(input.limit));
 
-  return withApiLabel(
-    requestJson<{ ok: true; notifications: AppNotification[] }>(
-      `/notifications${params.toString() ? `?${params.toString()}` : ""}`,
-    ),
-    "notifications API",
+  return requestJson<{ ok: true; notifications: AppNotification[] }>(
+    `/api/notifications${params.toString() ? `?${params.toString()}` : ""}`,
   );
 }
 
 export async function markNotificationReadViaApi(id: string) {
-  return requestJson<{ ok: true }>(`/notifications/${id}/read`, {
+  return requestJson<{ ok: true }>(`/api/notifications/${id}/read`, {
     method: "PATCH",
     body: JSON.stringify({}),
   });
 }
 
 export async function unsubscribeEmailViaApi(input: { memberId?: string; email?: string }) {
-  return requestJson<{ ok: true }>("/unsubscribe", {
+  return requestJson<{ ok: true }>("/api/unsubscribe", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export async function loadCommunicationAnalyticsViaApi() {
-  return withApiLabel(
-    requestJson<{
+  return requestJson<{
     ok: true;
     analytics: {
       total: number;
       byChannel: Record<string, number>;
       byStatus: Record<string, number>;
     };
-    }>("/communications/analytics"),
-    "communications analytics API",
-  );
+  }>("/api/communications/analytics");
 }
 
 export async function recordPartnerTransactionViaApi(input: {
@@ -538,109 +419,88 @@ export async function recordPartnerTransactionViaApi(input: {
   points: number;
   grossAmount: number;
   note?: string;
+  fulfillmentMethod?: "in-store" | "online";
+  deliveryPartner?: string | null;
+  deliveryAddress?: string | null;
+  deliveryNotes?: string | null;
+  contactNumber?: string | null;
 }) {
-  return requestJson("/partners/transactions", {
+  return requestJson("/api/partners/transactions", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
+export async function createVoucherViaApi(input: RedemptionVoucher) {
+  return requestJson<{ ok: true; voucher: RedemptionVoucher }>("/api/vouchers", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function loadVouchersViaApi(input: {
+  memberId?: string;
+  email?: string;
+}) {
+  const params = new URLSearchParams();
+  if (input.memberId) params.set("memberId", input.memberId);
+  if (input.email) params.set("email", input.email);
+
+  return requestJson<{ ok: true; vouchers: RedemptionVoucher[] }>(
+    `/api/vouchers${params.toString() ? `?${params.toString()}` : ""}`,
+  );
+}
+
+export async function loadVoucherViaApi(voucherId: string) {
+  return requestJson<{ ok: true; voucher: RedemptionVoucher }>(`/api/vouchers/${voucherId}`);
+}
+
+export async function validateVoucherViaApi(voucherId: string, voucherCode: string) {
+  return requestJson<{ ok: true; voucher: RedemptionVoucher }>(`/api/vouchers/${voucherId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      action: "validate",
+      voucherCode,
+    }),
+  });
+}
+
 export async function loadPartnerDashboardViaApi() {
-  return withApiLabel(
-    requestJson<{
-      ok: true;
-      partners: Array<{
-        partner: {
-          id: string;
-          partnerCode: string;
-          partnerName: string;
-          description: string | null;
-          logoUrl: string | null;
-          conversionRate: number;
-          isActive: boolean;
-        };
-        totals: {
-          transactions: number;
-          pendingTransactions: number;
-          settledTransactions: number;
-          points: number;
-          grossAmount: number;
-          totalCommission: number;
-        };
-      }>;
-    }>("/partners/dashboard"),
-    "partners dashboard API",
-  );
-}
-
-export async function loadPartnerDashboardByIdViaApi(partnerId: string) {
-  return withApiLabel(
-    requestJson<{
-      ok: true;
-      dashboard: {
-        partner: {
-          id: string;
-          partnerCode: string;
-          partnerName: string;
-          description: string | null;
-          logoUrl: string | null;
-          conversionRate: number;
-          isActive: boolean;
-        };
-        totals: {
-          transactions: number;
-          pendingTransactions: number;
-          settledTransactions: number;
-          points: number;
-          grossAmount: number;
-          totalCommission: number;
-        };
-        settlements: Array<Record<string, unknown>>;
-        recentTransactions: Array<Record<string, unknown>>;
-      };
-    }>(`/partners/${partnerId}/dashboard`),
-    "partner detail API",
-  );
-}
-
-export async function triggerPartnerSettlementViaApi(partnerId?: string, month?: string) {
-  if (partnerId && month) {
-    return requestJson<{
-      ok: true;
-      settlement: {
+  return requestJson<{
+    ok: true;
+    partners: Array<{
+      partner: {
         id: string;
-        partnerId: string;
+        partnerCode: string;
         partnerName: string;
-        month: string;
-        commissionAmount: number;
+        description: string | null;
+        logoUrl: string | null;
+        conversionRate: number;
+        isActive: boolean;
       };
-    }>(`/partners/${partnerId}/settlement?month=${encodeURIComponent(month)}`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-  }
+      totals: {
+        transactions: number;
+        pendingTransactions: number;
+        settledTransactions: number;
+        points: number;
+        grossAmount: number;
+        totalCommission: number;
+      };
+    }>;
+  }>("/api/partners/dashboard");
+}
 
+export async function triggerPartnerSettlementViaApi(partnerId?: string) {
   return requestJson<{
     ok: true;
     settlement: {
       id: string;
       partnerId: string;
       partnerName: string;
-      month?: string;
       commissionAmount: number;
     };
-  }>("/partners/settlements", {
+  }>("/api/partners/settlements", {
     method: "POST",
-    body: JSON.stringify({ partnerId, month }),
+    body: JSON.stringify({ partnerId }),
   });
-}
-
-export async function markPartnerSettlementPaidViaApi(partnerId: string, month: string) {
-  return requestJson<{ ok: true; settlement: Record<string, unknown> }>(
-    `/partners/${partnerId}/settlement/${encodeURIComponent(month)}/paid`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({}),
-    },
-  );
 }

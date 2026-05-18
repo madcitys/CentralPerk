@@ -7,10 +7,12 @@
   "scripts": {
     "dev": "ts-node src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "npm run build"
   },
   "dependencies": {
-    "dotenv": "^16.6.1",
+    "@supabase/supabase-js": "^2.97.0",
+    "dotenv": "^16.4.5",
     "fastify": "^4.27.2"
   },
   "devDependencies": {

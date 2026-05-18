@@ -32,6 +32,7 @@ export function normalizeTierRules(rules: TierRule[] | null | undefined): TierRu
   return withBronze
     .map((r) => {
       const tierLabel = normalizeTierLabel(r.tier_label);
+      // Bronze is the base tier and must always start at 0.
       const minPoints = tierLabel === "Bronze" ? 0 : Math.max(0, Number(r.min_points) || 0);
       return { tier_label: tierLabel, min_points: minPoints };
     })
@@ -39,6 +40,7 @@ export function normalizeTierRules(rules: TierRule[] | null | undefined): TierRu
 }
 
 export function calculatePurchasePoints(amount: number): number {
+  // SQUAD3 logic: 1 point per $1, floored.
   return Math.floor(Math.max(0, amount) * 1);
 }
 

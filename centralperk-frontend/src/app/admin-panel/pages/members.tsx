@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAdminData } from "../hooks/use-admin-data";
 import { MemberLookup } from "../../../components/member-lookup";
@@ -16,14 +16,17 @@ import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import {
   buildSegmentStats,
+  createCustomSegment,
   deleteCustomSegment,
   exportMembersCsv,
+  fetchAllSegments,
   fetchSegmentAssignments,
   saveManualSegment,
   SYSTEM_MEMBER_SEGMENTS,
+  updateCustomSegment,
   assignMembersToSegment,
 } from "../../lib/member-lifecycle";
-import { awardPointsViaApi, listSegmentsViaApi, previewSegmentViaApi, saveSegmentViaApi } from "../../lib/api";
+import { awardPointsViaApi, previewSegmentViaApi, saveSegmentViaApi } from "../../lib/api";
 import {
   adminDangerOutlineButtonClass,
   adminDarkButtonClass,
@@ -48,7 +51,6 @@ const builderOperatorOptions: Record<string, string[]> = {
   "Last Activity": ["is within", "is older than"],
   "Points Balance": ["is", "is above", "is below"],
 };
-const MEMBER_TABLE_PAGE_SIZE = 50;
 
 type BuilderCondition = {
   id: string;
@@ -65,9 +67,8 @@ function formatBuilderChip(field: string, operator: string, value: string) {
 }
 
 export default function AdminMembersPage() {
-  const { members, transactions, loading, error, refetch } = useAdminData({ scope: "members" });
+  const { members, transactions, loading, error, refetch } = useAdminData();
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
   const [awardingMember, setAwardingMember] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<(typeof members)[number] | null>(null);
   const [manualAwardMember, setManualAwardMember] = useState<(typeof members)[number] | null>(null);
@@ -82,7 +83,6 @@ export default function AdminMembersPage() {
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [segmentDialogOpen, setSegmentDialogOpen] = useState(false);
   const [bulkSegmentId, setBulkSegmentId] = useState<string>("");
-  const [visibleMemberCount, setVisibleMemberCount] = useState(MEMBER_TABLE_PAGE_SIZE);
   const [builderSegmentName, setBuilderSegmentName] = useState("High-spend lapsed members");
   const [builderDescription, setBuilderDescription] = useState("Win-back audience for April outreach");
   const [builderLogicMode, setBuilderLogicMode] = useState<"AND" | "OR">("AND");
@@ -95,11 +95,8 @@ export default function AdminMembersPage() {
   ]);
 
   const loadManualSegments = async () => {
-    const [segmentsResponse, assignments] = await Promise.all([
-      listSegmentsViaApi(),
-      fetchSegmentAssignments().catch(() => []),
-    ]);
-    setSegments(segmentsResponse.segments);
+    const [allSegments, assignments] = await Promise.all([fetchAllSegments(), fetchSegmentAssignments()]);
+    setSegments(allSegments);
     const nextMap: Record<string, string[]> = {};
     for (const row of assignments as Array<{ member_id?: string | number; member_segments?: { name?: string } }>) {
       const key = String(row.member_id ?? "");
@@ -147,7 +144,7 @@ export default function AdminMembersPage() {
     }, 350);
 
     return () => window.clearTimeout(handle);
-  }, [builderConditions, builderLogicMode]);
+  }, [builderConditions, builderLogicMode, builderSegmentName, builderDescription]);
 
   const closeManualAwardDialog = () => {
     setManualAwardMember(null);
@@ -221,7 +218,7 @@ export default function AdminMembersPage() {
   );
 
   const filtered = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
     return segmentedMembers.filter((m) => {
       const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
       const memberNumber = String(m.member_number || "").toLowerCase();
@@ -236,53 +233,34 @@ export default function AdminMembersPage() {
           : m.segment === segmentFilter || m.customSegments.includes(segmentFilter);
       return matchesSearch && matchesSegment;
     });
-  }, [segmentedMembers, deferredQuery, segmentFilter]);
-
-  useEffect(() => {
-    setVisibleMemberCount(MEMBER_TABLE_PAGE_SIZE);
-  }, [deferredQuery, segmentFilter]);
-
-  const visibleMembers = useMemo(() => filtered.slice(0, visibleMemberCount), [filtered, visibleMemberCount]);
+  }, [segmentedMembers, query, segmentFilter]);
 
   const stats = useMemo(
-    () => buildSegmentStats(segmentedMembers.length, segmentedMembers.map((m) => m.segment)),
+    () => buildSegmentStats(segmentedMembers.length, segmentedMembers.flatMap((m) => (m.customSegments.length ? m.allSegments : [m.segment]))),
     [segmentedMembers]
   );
   const segmentAnalytics = useMemo(() => {
     const now = Date.now();
     const recentWindowMs = 30 * 24 * 60 * 60 * 1000;
-    const spendByMember = new Map<string, number>();
-    for (const transaction of transactions) {
-      const spend = Number(transaction.amount_spent || 0);
-      if (spend <= 0) continue;
-      const key = String(transaction.member_id);
-      spendByMember.set(key, (spendByMember.get(key) || 0) + spend);
-    }
-
-    const totals = new Map<string, { count: number; spend: number; active: number }>();
-    for (const member of segmentedMembers) {
-      const memberKey = String(member.member_id ?? member.id ?? "");
-      const segmentNames = [member.segment];
-      const lastActivity = member.last_activity_at ? new Date(member.last_activity_at).getTime() : NaN;
-      const isActive = Number.isFinite(lastActivity) && now - lastActivity <= recentWindowMs;
-
-      for (const segmentName of segmentNames) {
-        const current = totals.get(segmentName) || { count: 0, spend: 0, active: 0 };
-        current.count += 1;
-        current.spend += spendByMember.get(memberKey) || 0;
-        if (isActive) current.active += 1;
-        totals.set(segmentName, current);
-      }
-    }
 
     return stats.map((item) => {
-      const current = totals.get(item.segment) || { count: 0, spend: 0, active: 0 };
+      const membersInSegment = segmentedMembers.filter((member) =>
+        member.customSegments.length ? member.allSegments.includes(item.segment) : member.segment === item.segment
+      );
+      const memberIds = new Set(membersInSegment.map((member) => String(member.member_id ?? member.id ?? "")));
+      const segmentTransactions = transactions.filter((transaction) => memberIds.has(String(transaction.member_id)));
+      const spendTransactions = segmentTransactions.filter((transaction) => Number(transaction.amount_spent || 0) > 0);
+      const totalSpend = spendTransactions.reduce((sum, transaction) => sum + Number(transaction.amount_spent || 0), 0);
+      const activeMembers = membersInSegment.filter((member) => {
+        const lastActivity = member.last_activity_at ? new Date(member.last_activity_at).getTime() : NaN;
+        return Number.isFinite(lastActivity) && now - lastActivity <= recentWindowMs;
+      }).length;
 
       return {
         segment: item.segment,
-        count: current.count,
-        avgSpend: current.count ? current.spend / current.count : 0,
-        activityRate: current.count ? (current.active / current.count) * 100 : 0,
+        count: membersInSegment.length,
+        avgSpend: membersInSegment.length ? totalSpend / membersInSegment.length : 0,
+        activityRate: membersInSegment.length ? (activeMembers / membersInSegment.length) * 100 : 0,
       };
     });
   }, [segmentedMembers, stats, transactions]);
@@ -320,12 +298,13 @@ export default function AdminMembersPage() {
 
   const handleCreateOrUpdateSegment = async () => {
     try {
-      await saveSegmentViaApi({
-        id: editingSegmentId || undefined,
-        name: segmentName,
-        description: segmentDescription,
-      });
-      toast.success(editingSegmentId ? "Segment updated." : "Segment created.");
+      if (editingSegmentId) {
+        await updateCustomSegment(editingSegmentId, { name: segmentName, description: segmentDescription });
+        toast.success("Segment updated.");
+      } else {
+        await createCustomSegment({ name: segmentName, description: segmentDescription });
+        toast.success("Segment created.");
+      }
       setSegmentDialogOpen(false);
       setSegmentName("");
       setSegmentDescription("");
@@ -797,8 +776,8 @@ export default function AdminMembersPage() {
             <div className="min-h-[268px] rounded-[28px] border border-[#dbe8f6] bg-white p-6">
               <h3 className="text-lg font-semibold text-[#10213a]">Condition summary</h3>
               <div className="mt-5 flex flex-wrap gap-3">
-                {builderConditionChips.map((chip, index) => (
-                  <span key={`builder-chip-${index}-${chip}`} className="rounded-full border border-[#d6e0f7] bg-[#f8fbff] px-5 py-3 text-base text-[#10213a]">
+                {builderConditionChips.map((chip) => (
+                  <span key={chip} className="rounded-full border border-[#d6e0f7] bg-[#f8fbff] px-5 py-3 text-base text-[#10213a]">
                     {chip}
                   </span>
                 ))}
@@ -955,12 +934,7 @@ export default function AdminMembersPage() {
       </Dialog>
 
       <div className={adminPanelClass}>
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">Members</h2>
-          <p className="text-sm text-gray-500">
-            Showing {Math.min(visibleMembers.length, filtered.length)} of {filtered.length} matching members
-          </p>
-        </div>
+        <h2 className="text-xl font-semibold text-gray-900 mb-6">Members</h2>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -976,7 +950,7 @@ export default function AdminMembersPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleMembers.map((member) => {
+              {filtered.map((member) => {
                 const key = String(member.member_id || member.id || member.member_number);
                 const selectedKey = String(member.member_id ?? member.id ?? member.member_number);
                 return (
@@ -1036,18 +1010,6 @@ export default function AdminMembersPage() {
             </tbody>
           </table>
           {filtered.length === 0 ? <p className="py-6 text-gray-500">No matching members found.</p> : null}
-          {filtered.length > visibleMembers.length ? (
-            <div className="flex justify-center py-6">
-              <Button
-                type="button"
-                variant="outline"
-                className={adminOutlineButtonClass}
-                onClick={() => setVisibleMemberCount((count) => count + MEMBER_TABLE_PAGE_SIZE)}
-              >
-                Load 50 More
-              </Button>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>

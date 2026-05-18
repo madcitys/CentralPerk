@@ -1,6 +1,4 @@
-import { createServerSupabaseClient } from "./supabase-admin";
-import { readApiState } from "./local-store";
-import { gatewayJson, useRemoteMicroservices } from "./microservice-client";
+import { serviceBaseUrl } from "./service-proxy";
 
 export type SegmentPreviewCondition = {
   id: string;
@@ -21,12 +19,19 @@ type MemberPreviewRow = {
 
 type RawMemberRow = {
   id?: string | number | null;
+  memberId?: string | number | null;
+  member_id?: string | number | null;
+  memberNumber?: string | null;
   member_number?: string | null;
+  firstName?: string | null;
   first_name?: string | null;
+  lastName?: string | null;
   last_name?: string | null;
   email?: string | null;
   tier?: string | null;
+  pointsBalance?: number | null;
   points_balance?: number | null;
+  lastActivityAt?: string | null;
   last_activity_at?: string | null;
 };
 
@@ -37,18 +42,24 @@ function daysSince(value?: string | null) {
   return Math.max(0, Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24)));
 }
 
-function useLocalRuntimeFirst() {
-  return (
-    process.env.USE_REMOTE_LOYALTY_API !== "true" &&
-    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.USE_LOCAL_LOYALTY_API === "true")
-  );
+function memberNumber(row: RawMemberRow) {
+  return String(row.memberNumber ?? row.member_number ?? row.memberId ?? row.member_id ?? row.id ?? "");
 }
 
-function nameFromMember(memberNumber: string, email: string) {
-  if (memberNumber === "MEM-000011" || email.toLowerCase() === "soundwave@example.com") return "Sound Wave";
-  const local = email.split("@")[0]?.replace(/[._-]+/g, " ").trim();
-  if (!local) return "Demo Member";
-  return local.replace(/\b\w/g, (value) => value.toUpperCase());
+function firstName(row: RawMemberRow) {
+  return String(row.firstName ?? row.first_name ?? "");
+}
+
+function lastName(row: RawMemberRow) {
+  return String(row.lastName ?? row.last_name ?? "");
+}
+
+function pointsBalance(row: RawMemberRow) {
+  return Math.max(0, Number(row.pointsBalance ?? row.points_balance ?? 0));
+}
+
+function lastActivityAt(row: RawMemberRow) {
+  return row.lastActivityAt || row.last_activity_at ? String(row.lastActivityAt ?? row.last_activity_at) : null;
 }
 
 function matchesCondition(member: RawMemberRow, condition: SegmentPreviewCondition) {
@@ -57,69 +68,51 @@ function matchesCondition(member: RawMemberRow, condition: SegmentPreviewConditi
   if (condition.field === "Tier") {
     const memberTier = String(member.tier || "").trim().toLowerCase();
     const expectedTier = normalizedValue.toLowerCase();
-    if (condition.operator === "is not") {
-      return memberTier !== expectedTier;
-    }
+    if (condition.operator === "is not") return memberTier !== expectedTier;
     return memberTier === expectedTier;
   }
 
   if (condition.field === "Last Activity") {
     const threshold = Math.max(0, Number(normalizedValue) || 0);
-    const inactiveDays = daysSince(member.last_activity_at);
-    if (condition.operator === "is older than") {
-      return inactiveDays > threshold;
-    }
+    const inactiveDays = daysSince(lastActivityAt(member));
+    if (condition.operator === "is older than") return inactiveDays > threshold;
     return inactiveDays <= threshold;
   }
 
-  const pointsBalance = Math.max(0, Number(member.points_balance || 0));
   const threshold = Math.max(0, Number(normalizedValue) || 0);
-
-  if (condition.operator === "is above") return pointsBalance > threshold;
-  if (condition.operator === "is below") return pointsBalance < threshold;
-  return pointsBalance === threshold;
+  const balance = pointsBalance(member);
+  if (condition.operator === "is above") return balance > threshold;
+  if (condition.operator === "is below") return balance < threshold;
+  return balance === threshold;
 }
 
-async function previewLocalSegmentAudience(input: {
-  logicMode: "AND" | "OR";
-  conditions: SegmentPreviewCondition[];
-}) {
-  const state = await readApiState();
-  const rows: RawMemberRow[] = Object.values(state.pointMembers)
-    .filter((member) => !member.memberId.includes("{{") && !member.memberId.includes("}}"))
-    .map((member) => {
-      const email = member.email?.includes("{{") || member.email?.includes("}}") ? "" : member.email || "";
-      return {
-        id: member.memberId,
-        member_number: member.memberId,
-        first_name: nameFromMember(member.memberId, email).split(" ")[0] || "Demo",
-        last_name: nameFromMember(member.memberId, email).split(" ").slice(1).join(" "),
-        email,
-        tier: member.tier,
-        points_balance: member.pointsBalance,
-        last_activity_at: member.history[0]?.date ?? null,
-      };
-    });
-
-  const filtered = rows.filter((member) => {
-    const results = input.conditions.map((condition) => matchesCondition(member, condition));
-    return input.logicMode === "AND" ? results.every(Boolean) : results.some(Boolean);
+async function loadMembers() {
+  const response = await fetch(`${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members?limit=5000`, {
+    headers: { accept: "application/json" },
   });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      typeof payload?.error === "string"
+        ? payload.error
+        : typeof payload?.error?.message === "string"
+          ? payload.error.message
+          : `Member service failed (${response.status}).`;
+    throw new Error(message);
+  }
+  return (Array.isArray(payload?.members) ? payload.members : []) as RawMemberRow[];
+}
 
+function toPreviewRow(row: RawMemberRow): MemberPreviewRow {
+  const number = memberNumber(row);
   return {
-    count: filtered.length,
-    members: filtered.slice(0, 25).map(
-      (row) =>
-        ({
-          id: String(row.id),
-          memberNumber: String(row.member_number || ""),
-          fullName: `${String(row.first_name || "")} ${String(row.last_name || "")}`.trim() || "Member",
-          email: String(row.email || ""),
-          tier: String(row.tier || "Bronze"),
-          pointsBalance: Math.max(0, Number(row.points_balance || 0)),
-          lastActivityAt: row.last_activity_at ? String(row.last_activity_at) : null,
-        }) satisfies MemberPreviewRow,
-    ),
+    id: String(row.id ?? row.memberId ?? row.member_id ?? ""),
+    memberNumber: number,
+    fullName: `${firstName(row)} ${lastName(row)}`.trim() || number || "Member",
+    email: String(row.email ?? ""),
+    tier: String(row.tier || "Bronze"),
+    pointsBalance: pointsBalance(row),
+    lastActivityAt: lastActivityAt(row),
   };
 }
 
@@ -127,36 +120,7 @@ export async function previewSegmentAudience(input: {
   logicMode: "AND" | "OR";
   conditions: SegmentPreviewCondition[];
 }) {
-  if (useRemoteMicroservices()) {
-    const response = await gatewayJson<{
-      ok: true;
-      preview: {
-        count: number;
-        members?: MemberPreviewRow[];
-        sampleMembers?: MemberPreviewRow[];
-      };
-    }>("/segments/preview", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-
-    return {
-      count: Number(response.preview?.count ?? 0),
-      members: response.preview?.members ?? response.preview?.sampleMembers ?? [],
-    };
-  }
-
-  if (useLocalRuntimeFirst()) return previewLocalSegmentAudience(input);
-
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("loyalty_members")
-    .select("id,member_number,first_name,last_name,email,tier,points_balance,last_activity_at")
-    .limit(1000);
-
-  if (error) throw error;
-
-  const rows = ((data || []) as RawMemberRow[]).filter((row) => row.id !== undefined && row.member_number);
+  const rows = (await loadMembers()).filter((row) => row.id !== undefined && memberNumber(row));
   const filtered = rows.filter((member) => {
     const results = input.conditions.map((condition) => matchesCondition(member, condition));
     return input.logicMode === "AND" ? results.every(Boolean) : results.some(Boolean);
@@ -164,18 +128,7 @@ export async function previewSegmentAudience(input: {
 
   return {
     count: filtered.length,
-    members: filtered.slice(0, 25).map(
-      (row) =>
-        ({
-          id: String(row.id),
-          memberNumber: String(row.member_number || ""),
-          fullName: `${String(row.first_name || "")} ${String(row.last_name || "")}`.trim() || "Member",
-          email: String(row.email || ""),
-          tier: String(row.tier || "Bronze"),
-          pointsBalance: Math.max(0, Number(row.points_balance || 0)),
-          lastActivityAt: row.last_activity_at ? String(row.last_activity_at) : null,
-        }) satisfies MemberPreviewRow,
-    ),
+    members: filtered.slice(0, 25).map(toPreviewRow),
   };
 }
 
@@ -184,79 +137,34 @@ export async function resolveAudienceMembers(input: {
   memberId?: string;
   email?: string;
 }) {
-  if (useLocalRuntimeFirst()) {
-    const state = await readApiState();
-    let rows = Object.values(state.pointMembers)
-      .filter((member) => !member.memberId.includes("{{") && !member.memberId.includes("}}"))
-      .map((member) => {
-        const email = member.email?.includes("{{") || member.email?.includes("}}") ? "" : member.email || "";
-        return {
-          id: member.memberId,
-          memberNumber: member.memberId,
-          email,
-          fullName: nameFromMember(member.memberId, email),
-          tier: member.tier,
-          pointsBalance: member.pointsBalance,
-          lastActivityAt: member.history[0]?.date ?? null,
-        };
-      });
+  let rows = (await loadMembers()).filter((row) => memberNumber(row));
+  const targetMemberId = input.memberId?.trim().toLowerCase();
+  const targetEmail = input.email?.trim().toLowerCase();
 
-    if (input.memberId) {
-      rows = rows.filter((row) => row.memberNumber === input.memberId?.trim());
-    } else if (input.email) {
-      rows = rows.filter((row) => row.email.toLowerCase() === input.email?.trim().toLowerCase());
-    }
-
-    const normalizedSegment = String(input.segment || "").trim().toLowerCase();
-    if (normalizedSegment && !input.memberId && !input.email) {
-      rows = rows.filter((row) => {
-        if (normalizedSegment === "all members") return true;
-        if (normalizedSegment === "inactive 60+ days") return daysSince(row.lastActivityAt) >= 60;
-        if (normalizedSegment === "high value") return row.pointsBalance >= 1000;
-        return row.tier.toLowerCase() === normalizedSegment;
-      });
-    }
-
-    return rows.map((row) => ({
-      id: row.id,
-      memberNumber: row.memberNumber,
-      email: row.email,
-      fullName: row.fullName,
-      tier: row.tier,
-    }));
+  if (targetMemberId) {
+    rows = rows.filter((row) => memberNumber(row).toLowerCase() === targetMemberId);
+  } else if (targetEmail) {
+    rows = rows.filter((row) => String(row.email || "").trim().toLowerCase() === targetEmail);
   }
 
-  const supabase = createServerSupabaseClient();
-  let query = supabase
-    .from("loyalty_members")
-    .select("id,member_number,email,first_name,last_name,tier,points_balance,last_activity_at");
-
-  if (input.memberId) {
-    query = query.eq("member_number", input.memberId.trim());
-  } else if (input.email) {
-    query = query.ilike("email", input.email.trim());
-  }
-
-  const { data, error } = await query.limit(1000);
-  if (error) throw error;
-
-  let rows = ((data || []) as RawMemberRow[]).filter((row) => row.member_number);
   const normalizedSegment = String(input.segment || "").trim().toLowerCase();
-
   if (normalizedSegment && !input.memberId && !input.email) {
     rows = rows.filter((row) => {
       if (normalizedSegment === "all members") return true;
-      if (normalizedSegment === "inactive 60+ days") return daysSince(row.last_activity_at) >= 60;
-      if (normalizedSegment === "high value") return Number(row.points_balance || 0) >= 1000;
+      if (normalizedSegment === "inactive 60+ days") return daysSince(lastActivityAt(row)) >= 60;
+      if (normalizedSegment === "high value") return pointsBalance(row) >= 1000;
       return String(row.tier || "Bronze").trim().toLowerCase() === normalizedSegment;
     });
   }
 
-  return rows.map((row) => ({
-    id: String(row.id ?? ""),
-    memberNumber: String(row.member_number || ""),
-    email: row.email ? String(row.email) : "",
-    fullName: `${String(row.first_name || "")} ${String(row.last_name || "")}`.trim() || "Member",
-    tier: String(row.tier || "Bronze"),
-  }));
+  return rows.map((row) => {
+    const preview = toPreviewRow(row);
+    return {
+      id: preview.id,
+      memberNumber: preview.memberNumber,
+      email: preview.email,
+      fullName: preview.fullName,
+      tier: preview.tier,
+    };
+  });
 }

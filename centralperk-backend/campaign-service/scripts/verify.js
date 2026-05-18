@@ -1,3 +1,5 @@
+// Simple verification script for local campaign-service runtime
+// Requires NODE 18+ (native fetch)
 
 import { createServer } from "../dist/server.js";
 

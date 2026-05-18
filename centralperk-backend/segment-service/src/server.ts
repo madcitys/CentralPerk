@@ -1,300 +1,303 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import Fastify from "fastify";
-import path from "path";
-import { fileURLToPath } from "url";
+import { pathToFileURL } from "node:url";
+import { config } from "./config.js";
+import { supabase } from "./supabase-client.js";
 
-type SegmentRow = {
-  id?: string | null;
-  name?: string | null;
-  description?: string | null;
-  is_system?: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
+type AnyRecord = Record<string, any>;
 
-type MemberRow = {
-  id?: string | number | null;
-  member_number?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  email?: string | null;
-  tier?: string | null;
-  points_balance?: number | null;
-  last_activity_at?: string | null;
-};
+function stringValue(value: unknown, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
 
-const localSegments: SegmentRow[] = [
-  {
-    id: "local-high-value",
-    name: "High Value",
-    description: "Local demo members with high point balances.",
-    is_system: true,
-    created_at: "2026-01-01T00:00:00.000Z",
-    updated_at: "2026-01-01T00:00:00.000Z",
-  },
-  {
-    id: "local-active",
-    name: "Active",
-    description: "Local demo members with recent activity.",
-    is_system: true,
-    created_at: "2026-01-01T00:00:00.000Z",
-    updated_at: "2026-01-01T00:00:00.000Z",
-  },
-];
-let localSegmentSequence = 1;
-
-const localMembers: MemberRow[] = [
-  {
-    id: 1,
-    member_number: "LOCAL-001",
-    first_name: "Demo",
-    last_name: "Member",
-    email: "demo@example.com",
-    tier: "Gold",
-    points_balance: 1250,
-    last_activity_at: "2026-04-01T00:00:00.000Z",
-  },
-  {
-    id: 2,
-    member_number: "LOCAL-002",
-    first_name: "Sample",
-    last_name: "Customer",
-    email: "sample@example.com",
-    tier: "Bronze",
-    points_balance: 420,
-    last_activity_at: "2026-03-15T00:00:00.000Z",
-  },
-];
-
-type SegmentPreviewCondition = {
-  field?: string;
-  operator?: string;
-  value?: string | number;
-};
-
-type SegmentPreviewBody = {
-  logicMode?: "AND" | "OR";
-  conditions?: SegmentPreviewCondition[];
-};
-
-function supabaseConfig() {
+function toMemberPreview(row: AnyRecord) {
+  const firstName = String(row.first_name ?? row.firstName ?? "").trim();
+  const lastName = String(row.last_name ?? row.lastName ?? "").trim();
+  const memberNumber = String(row.member_number ?? row.memberNumber ?? row.member_id ?? row.memberId ?? row.id ?? "");
   return {
-    url: process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    key:
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
-      "",
+    id: String(row.id ?? row.member_id ?? row.memberId ?? ""),
+    memberNumber,
+    fullName: `${firstName} ${lastName}`.trim() || memberNumber || "Member",
+    email: String(row.email ?? ""),
+    tier: String(row.tier ?? "Bronze"),
+    pointsBalance: Math.max(0, Math.floor(Number(row.points_balance ?? row.pointsBalance ?? 0))),
+    lastActivityAt: row.last_activity_at || row.lastActivityAt ? String(row.last_activity_at ?? row.lastActivityAt) : null,
   };
 }
 
-function useLocalFallback() {
-  const { url } = supabaseConfig();
-  return (
-    process.env.USE_LOCAL_LOYALTY_API === "true" ||
-    process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true" ||
-    url.startsWith("http://127.0.0.1") ||
-    url.startsWith("http://localhost")
-  );
-}
-
-function requireSupabaseConfig() {
-  const config = supabaseConfig();
-  if (!config.url || !config.key) {
-    throw new Error("Missing Supabase configuration for segment-service.");
-  }
-  return config;
-}
-
-async function supabaseRest<T>(pathAndQuery: string): Promise<T> {
-  const { url, key } = requireSupabaseConfig();
-  const endpoint = `${url.replace(/\/+$/, "")}/rest/v1/${pathAndQuery.replace(/^\/+/, "")}`;
-  const response = await fetch(endpoint, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      Accept: "application/json",
-    },
-  });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Supabase request failed (${response.status}).`);
-  }
-  return (await response.json()) as T;
-}
-
-function daysSince(value?: string | null) {
-  if (!value) return Number.POSITIVE_INFINITY;
-  const parsed = new Date(value).getTime();
-  if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, Math.floor((Date.now() - parsed) / 86_400_000));
-}
-
-function normalizedField(value: unknown) {
-  return String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
-}
-
-function matchesCondition(member: MemberRow, condition: SegmentPreviewCondition) {
-  const field = normalizedField(condition.field);
-  const operator = String(condition.operator || "is").trim().toLowerCase();
-  const value = String(condition.value ?? "").trim();
+function matchesCondition(member: ReturnType<typeof toMemberPreview>, condition: AnyRecord) {
+  const field = String(condition.field || "").toLowerCase();
+  const operator = String(condition.operator || "").toLowerCase();
+  const value = String(condition.value || "").trim();
 
   if (field === "tier") {
-    const tier = String(member.tier || "").trim().toLowerCase();
-    return operator === "is not" ? tier !== value.toLowerCase() : tier === value.toLowerCase();
+    const tier = member.tier.toLowerCase();
+    const expected = value.toLowerCase();
+    if (operator.includes("not")) return tier !== expected;
+    return tier === expected;
   }
 
-  if (field === "last activity" || field === "last activity at") {
-    const threshold = Math.max(0, Number(value) || 0);
-    const inactiveDays = daysSince(member.last_activity_at);
-    return operator === "is older than" ? inactiveDays > threshold : inactiveDays <= threshold;
+  if (field === "points balance") {
+    const expected = Number(value);
+    if (!Number.isFinite(expected)) return true;
+    if (operator.includes("greater") || operator.includes(">")) return member.pointsBalance > expected;
+    if (operator.includes("less") || operator.includes("<")) return member.pointsBalance < expected;
+    return member.pointsBalance === expected;
   }
 
-  const points = Math.max(0, Number(member.points_balance || 0));
-  const threshold = Math.max(0, Number(value) || 0);
-  if (operator === "is above" || operator === "above") return points > threshold;
-  if (operator === "is below" || operator === "below") return points < threshold;
-  return points === threshold;
+  if (field === "last activity") {
+    if (!member.lastActivityAt) return false;
+    const days = Number(value);
+    if (!Number.isFinite(days)) return true;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const activityTime = new Date(member.lastActivityAt).getTime();
+    if (!Number.isFinite(activityTime)) return false;
+    if (operator.includes("within") || operator.includes("less")) return activityTime >= cutoff;
+    if (operator.includes("before") || operator.includes("older") || operator.includes("greater")) return activityTime < cutoff;
+  }
+
+  return true;
 }
 
-function mapMember(row: MemberRow) {
-  return {
-    id: String(row.id ?? ""),
-    memberId: String(row.id ?? ""),
-    memberNumber: String(row.member_number || ""),
-    fullName: `${String(row.first_name || "")} ${String(row.last_name || "")}`.trim() || "Member",
-    email: String(row.email || ""),
-    tier: String(row.tier || "Bronze"),
-    pointsBalance: Number(row.points_balance || 0),
-    lastActivityAt: row.last_activity_at ? String(row.last_activity_at) : null,
-  };
-}
-
-function currentSegments() {
-  return localSegments.map((segment) => ({ ...segment }));
-}
-
-async function loadPreviewMembers() {
-  return useLocalFallback()
-    ? localMembers
-    : await supabaseRest<MemberRow[]>(
-        "loyalty_members?select=id,member_number,first_name,last_name,email,tier,points_balance,last_activity_at&limit=1000",
-      );
-}
-
-async function buildPreview(body: SegmentPreviewBody) {
-  const logicMode = body.logicMode === "OR" ? "OR" : "AND";
+function filterMembers(members: ReturnType<typeof toMemberPreview>[], body: AnyRecord) {
   const conditions = Array.isArray(body.conditions) ? body.conditions : [];
-  const rows = await loadPreviewMembers();
-  const filtered = rows.filter((member) => {
+  if (conditions.length === 0) return members;
+  const useOr = String(body.logicMode || "AND").toUpperCase() === "OR";
+  return members.filter((member) => {
     const results = conditions.map((condition) => matchesCondition(member, condition));
-    return logicMode === "OR" ? results.some(Boolean) : results.every(Boolean);
+    return useOr ? results.some(Boolean) : results.every(Boolean);
   });
-  const members = filtered.slice(0, 25).map(mapMember);
-  return {
-    count: filtered.length,
-    memberIds: filtered.map((member) => String(member.id ?? "")),
-    sampleMembers: members,
-    members,
-  };
 }
 
 export function createServer() {
   const app = Fastify({ logger: true });
 
-  app.get("/health", async (_request, reply) => {
-    if (useLocalFallback()) {
-      return { ok: true, service: "segment-service", dataSource: "local" };
+  app.get("/health", async () => ({
+    status: "ok",
+    service: config.serviceName,
+    dbMode: config.dbMode,
+    schema: config.schema,
+  }));
+
+  app.get("/health/db", async (_request, reply) => {
+    const { error } = await supabase.from("member_segments").select("id").limit(1);
+    if (error) {
+      reply.code(503).send({
+        status: "error",
+        service: config.serviceName,
+        dbMode: config.dbMode,
+        schema: config.schema,
+        database: { connected: false, check: "member_segments" },
+      });
+      return;
     }
 
-    const config = supabaseConfig();
-    if (!config.url || !config.key) {
-      return reply.code(503).send({ ok: false, service: "segment-service", error: "missing_supabase_config" });
-    }
-    return { ok: true, service: "segment-service", dataSource: "supabase" };
+    return {
+      status: "ok",
+      service: config.serviceName,
+      dbMode: config.dbMode,
+      schema: config.schema,
+      database: { connected: true, check: "member_segments" },
+    };
   });
 
   app.get("/segments", async () => {
-    if (useLocalFallback()) {
-      return { ok: true, segments: currentSegments(), source: "local" };
-    }
-
-    const segments = await supabaseRest<SegmentRow[]>(
-      "member_segments?select=id,name,description,is_system,created_at,updated_at&order=is_system.desc&order=name.asc",
-    );
-    return { ok: true, segments, source: "supabase" };
+    const { data, error } = await supabase
+      .from("member_segments")
+      .select("id,name,description,is_system,created_at,updated_at")
+      .order("is_system", { ascending: false })
+      .order("name", { ascending: true });
+    if (error) throw error;
+    return { ok: true, segments: data || [] };
   });
 
   app.post("/segments", async (request) => {
-    const body = (request.body || {}) as SegmentPreviewBody & {
-      id?: string;
-      name?: string;
-      description?: string;
+    const body = (request.body || {}) as AnyRecord;
+    const name = stringValue(body.name);
+    if (!name) return { ok: false, error: "segment_name_required" };
+
+    const payload = {
+      name,
+      description: stringValue(body.description) || null,
+      is_system: false,
+      updated_at: new Date().toISOString(),
     };
-    const name = String(body.name || "").trim();
-    if (!name) {
-      return {
-        ok: false,
-        error: "Segment name is required.",
-      };
+
+    const query = body.id
+      ? supabase
+          .from("member_segments")
+          .update(payload)
+          .eq("id", String(body.id))
+          .eq("is_system", false)
+          .select("id,name,description,is_system,created_at,updated_at")
+          .single()
+      : supabase
+          .from("member_segments")
+          .insert(payload)
+          .select("id,name,description,is_system,created_at,updated_at")
+          .single();
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    let preview = null;
+    if (body.logicMode && Array.isArray(body.conditions) && body.conditions.length > 0) {
+      const previewRows = await buildPreview(body);
+      preview = previewRows;
+      await replaceSegmentMembers(String(data.id), previewRows.members.map((member) => member.id));
     }
 
-    if (useLocalFallback()) {
-      const now = new Date().toISOString();
-      const existing = body.id ? localSegments.find((segment) => String(segment.id) === String(body.id)) : null;
-      const segment = existing || {
-        id: `local-custom-${String(localSegmentSequence++).padStart(3, "0")}`,
-        created_at: now,
-        is_system: false,
-      };
+    return { ok: true, segment: data, preview };
+  });
 
-      segment.name = name;
-      segment.description = String(body.description || "").trim() || null;
-      segment.updated_at = now;
-      if (!existing) {
-        localSegments.push(segment);
-      }
+  app.patch("/segments/:id", async (request, reply) => {
+    const segmentId = String((request.params as AnyRecord).id || "").trim();
+    const body = (request.body || {}) as AnyRecord;
+    const name = stringValue(body.name);
+    if (!segmentId || !name) {
+      reply.code(400).send({ ok: false, error: "segment_id_and_name_required" });
+      return;
+    }
 
-      return {
-        ok: true,
-        segment,
-        preview: await buildPreview(body),
-        source: "local",
-      };
+    const { data, error } = await supabase
+      .from("member_segments")
+      .update({
+        name,
+        description: stringValue(body.description) || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", segmentId)
+      .eq("is_system", false)
+      .select("id,name,description,is_system,created_at,updated_at")
+      .single();
+    if (error) throw error;
+    return { ok: true, segment: data };
+  });
+
+  app.delete("/segments/:id", async (request, reply) => {
+    const segmentId = String((request.params as AnyRecord).id || "").trim();
+    if (!segmentId) {
+      reply.code(400).send({ ok: false, error: "segment_id_required" });
+      return;
+    }
+
+    const lookup = await supabase.from("member_segments").select("id,is_system").eq("id", segmentId).maybeSingle();
+    if (lookup.error) throw lookup.error;
+    if (!lookup.data) {
+      reply.code(404).send({ ok: false, error: "segment_not_found" });
+      return;
+    }
+    if (lookup.data.is_system) {
+      reply.code(400).send({ ok: false, error: "system_segment_cannot_be_deleted" });
+      return;
+    }
+
+    const { error } = await supabase.from("member_segments").delete().eq("id", segmentId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+  app.get("/segments/assignments", async (request) => {
+    const segmentId = stringValue((request.query as AnyRecord).segmentId);
+    let query = supabase.from("member_segment_assignments").select("assigned_at,member_id,segment_id");
+    if (segmentId) query = query.eq("segment_id", segmentId);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const rows = (data || []) as AnyRecord[];
+    const segmentIds = [...new Set(rows.map((row) => String(row.segment_id)).filter(Boolean))];
+    const segmentMap = new Map<string, AnyRecord>();
+    if (segmentIds.length > 0) {
+      const segments = await supabase.from("member_segments").select("id,name,is_system").in("id", segmentIds);
+      if (segments.error) throw segments.error;
+      for (const segment of segments.data || []) segmentMap.set(String(segment.id), segment);
     }
 
     return {
-      ok: false,
-      error: "Remote segment save is not configured for this service.",
+      ok: true,
+      assignments: rows.map((row) => ({
+        ...row,
+        member_segments: segmentMap.get(String(row.segment_id)) || null,
+      })),
     };
   });
 
+  app.post("/segments/assignments", async (request) => {
+    const body = (request.body || {}) as AnyRecord;
+    const segmentId = stringValue(body.segmentId);
+    const memberIds = Array.isArray(body.memberIds) ? body.memberIds : [];
+    if (!segmentId || memberIds.length === 0) return { ok: true, assigned: 0 };
+
+    const rows = memberIds.map((memberId) => ({ member_id: Number(memberId), segment_id: segmentId }));
+    const { error } = await supabase.from("member_segment_assignments").upsert(rows, { onConflict: "member_id,segment_id" });
+    if (error) throw error;
+    return { ok: true, assigned: rows.length };
+  });
+
+  app.delete("/segments/assignments", async (request) => {
+    const body = (request.body || {}) as AnyRecord;
+    const segmentId = stringValue(body.segmentId);
+    const memberIds = Array.isArray(body.memberIds) ? body.memberIds.map((id) => Number(id)) : [];
+    if (!segmentId || memberIds.length === 0) return { ok: true, removed: 0 };
+
+    const { error } = await supabase
+      .from("member_segment_assignments")
+      .delete()
+      .eq("segment_id", segmentId)
+      .in("member_id", memberIds);
+    if (error) throw error;
+    return { ok: true, removed: memberIds.length };
+  });
+
+  async function buildPreview(body: AnyRecord) {
+    try {
+      const response = await fetch(`${config.memberServiceUrl.replace(/\/+$/, "")}/members?limit=5000`, {
+        headers: { accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : `Member service failed (${response.status})`);
+
+      const rows = Array.isArray(payload?.members) ? payload.members : [];
+      const members = filterMembers(rows.map(toMemberPreview), body);
+      return { count: members.length, members };
+    } catch (error) {
+      app.log.warn({ err: error }, "Segment preview member service unavailable");
+      return { count: 0, members: [] as ReturnType<typeof toMemberPreview>[] };
+    }
+  }
+
+  async function replaceSegmentMembers(segmentId: string, memberIds: string[]) {
+    const existing = await supabase.from("member_segment_assignments").select("member_id").eq("segment_id", segmentId);
+    if (existing.error) throw existing.error;
+    const existingIds = (existing.data || []).map((row) => Number(row.member_id));
+    if (existingIds.length > 0) {
+      const remove = await supabase
+        .from("member_segment_assignments")
+        .delete()
+        .eq("segment_id", segmentId)
+        .in("member_id", existingIds);
+      if (remove.error) throw remove.error;
+    }
+    if (memberIds.length > 0) {
+      const rows = memberIds.map((memberId) => ({ member_id: Number(memberId), segment_id: segmentId }));
+      const add = await supabase.from("member_segment_assignments").upsert(rows, { onConflict: "member_id,segment_id" });
+      if (add.error) throw add.error;
+    }
+  }
+
   app.post("/segments/preview", async (request) => {
-    const body = (request.body || {}) as SegmentPreviewBody;
-    return {
-      ok: true,
-      preview: await buildPreview(body),
-      source: useLocalFallback() ? "local" : "supabase",
-    };
+    const preview = await buildPreview((request.body || {}) as AnyRecord);
+    return { ok: true, preview };
   });
 
   return app;
 }
 
-function isEntrypoint() {
-  return process.argv[1] ? path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]) : false;
-}
+const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 
-if (isEntrypoint()) {
+if (isDirectRun) {
   const app = createServer();
-  app
-    .listen({ host: process.env.HOST || "0.0.0.0", port: Number(process.env.PORT || 4004) })
-    .then((address) => app.log.info({ address }, "Segment service listening"))
-    .catch((err) => {
-      app.log.error(err);
-      process.exit(1);
-    });
+  app.listen({ host: "0.0.0.0", port: config.port }).catch((err) => {
+    app.log.error(err);
+    process.exit(1);
+  });
 }

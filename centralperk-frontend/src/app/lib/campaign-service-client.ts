@@ -1,11 +1,23 @@
-import { apiUrl } from "./api-config";
+function resolveBaseUrl() {
+  if (typeof window !== "undefined") return "/api";
+
+  const baseUrl =
+    process.env.GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    process.env.CAMPAIGN_SERVICE_URL ||
+    process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL;
+
+  if (!baseUrl) {
+    throw new Error(
+      "Missing campaign service configuration. Set GATEWAY_URL, NEXT_PUBLIC_GATEWAY_URL, CAMPAIGN_SERVICE_URL, or NEXT_PUBLIC_CAMPAIGN_SERVICE_URL."
+    );
+  }
+
+  return baseUrl;
+}
 
 function fullUrl(path: string) {
-  const campaignServiceBaseUrl = (process.env.CAMPAIGN_SERVICE_URL || "").replace(/\/+$/, "");
-  if (campaignServiceBaseUrl) {
-    return `${campaignServiceBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-  }
-  return apiUrl(path);
+  return `${resolveBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -16,21 +28,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   });
-  const raw = await res.text();
-  if (raw.includes("<!DOCTYPE html") || raw.includes("__next/static") || raw.includes("<html")) {
-    throw new Error("Campaign API returned HTML instead of backend JSON.");
-  }
   if (!res.ok) {
-    throw new Error(raw || `Campaign service error (${res.status})`);
+    const message = await res.text();
+    throw new Error(message || `Campaign service error (${res.status})`);
   }
-  return (raw ? JSON.parse(raw) : {}) as T;
-}
-
-function adminWriteHeaders(init?: RequestInit) {
-  return {
-    "x-role": process.env.ADMIN_ROLE || "admin",
-    ...(init?.headers || {}),
-  };
+  return (await res.json()) as T;
 }
 
 export async function listCampaigns() {
@@ -45,15 +47,6 @@ export async function saveCampaign(payload: any) {
   return call<{ ok: boolean; campaign: any }>("/campaigns", {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: adminWriteHeaders(),
-  });
-}
-
-export async function publishCampaign(campaignId: string, payload?: { queueNotifications?: boolean }) {
-  return call<{ ok: boolean; campaign: any; notificationsQueued: number }>(`/campaigns/${campaignId}/publish`, {
-    method: "PATCH",
-    body: JSON.stringify(payload || {}),
-    headers: adminWriteHeaders(),
   });
 }
 
@@ -82,13 +75,6 @@ export async function loadCampaignPerformance() {
   return call<{ ok: boolean; performance: any[] }>("/campaigns/performance", { method: "GET" });
 }
 
-export async function loadCampaignBudgetStatus(campaignId: string) {
-  return call<{ ok: boolean; budgetStatus: any }>(`/campaigns/${campaignId}/budget-status`, { method: "GET" });
-}
-
 export async function queueCampaignNotifications(campaignId: string) {
-  return call<{ ok: boolean; notificationsQueued: number }>(`/campaigns/${campaignId}/notify`, {
-    method: "POST",
-    headers: adminWriteHeaders(),
-  });
+  return call<{ ok: boolean; notificationsQueued: number }>(`/campaigns/${campaignId}/notify`, { method: "POST" });
 }

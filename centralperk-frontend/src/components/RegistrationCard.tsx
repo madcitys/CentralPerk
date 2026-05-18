@@ -201,7 +201,6 @@ export function RegistrationCard() {
       });
       const { memberRecord, recoveredFromExistingAuthSignup } = registerResult;
       authUserAlreadyExisted = registerResult.authUserAlreadyExisted;
-      const isLocalDemoProfile = registerResult.profileMode === 'local_demo';
 
       const emailConfirmationRequired = registerResult.emailConfirmationRequired;
       const immediateLoginAvailable = registerResult.immediateLoginAvailable;
@@ -215,21 +214,15 @@ export function RegistrationCard() {
         successMessage = DEMO_AUTH_SUCCESS_MESSAGE;
       }
 
-      let memberPointsBalance = Number(memberRecord.points_balance ?? 0);
+      const welcomeResult = await ensureWelcomePackage(memberRecord.member_number, memberRecord.email);
+      const memberPointsBalance = Number(welcomeResult.newBalance ?? memberRecord.points_balance ?? 0);
       let profilePhotoUrl: string | undefined;
 
-      if (!isLocalDemoProfile) {
-        const welcomeResult = await ensureWelcomePackage(memberRecord.member_number, memberRecord.email);
-        memberPointsBalance = Number(welcomeResult.newBalance ?? memberRecord.points_balance ?? 0);
-
-        if (welcomeResult.granted && immediateLoginAvailable) {
-          successMessage = 'Registration complete. Welcome package applied. You can now log in.';
-        }
-      } else {
-        successMessage = `${successMessage} Local demo profile mode is active because the customer profile table is not reachable from the client.`;
+      if (welcomeResult.granted && immediateLoginAvailable) {
+        successMessage = 'Registration complete. Welcome package applied. You can now log in.';
       }
 
-      const canUploadProfilePhotoNow = profilePhotoFile && !isLocalDemoProfile && registerResult.authMode === 'supabase' && immediateLoginAvailable;
+      const canUploadProfilePhotoNow = profilePhotoFile && registerResult.authMode === 'supabase' && immediateLoginAvailable;
 
       if (canUploadProfilePhotoNow) {
         try {
@@ -243,7 +236,7 @@ export function RegistrationCard() {
         successMessage = `${successMessage} Your profile photo was not uploaded yet because storage access becomes available after you sign in. Please upload it from your profile page after logging in.`;
       }
 
-      if (formData.referralCode.trim() && !isLocalDemoProfile) {
+      if (formData.referralCode.trim()) {
         const referral = await applyReferralCodeForSignup({
           referralCode: formData.referralCode.trim(),
           refereeMemberId: String(memberRecord.member_number),
@@ -271,8 +264,6 @@ export function RegistrationCard() {
               : Promise.resolve({ queued: false as const }),
           ]);
         }
-      } else if (formData.referralCode.trim() && isLocalDemoProfile) {
-        successMessage = `${successMessage} Referral rewards were skipped in local demo profile mode.`;
       }
 
       if (recoveredFromExistingAuthSignup) {
@@ -283,6 +274,8 @@ export function RegistrationCard() {
       } else if (emailConfirmationRequired && AUTH_REQUIRE_EMAIL_CONFIRMATION_HINT) {
         successMessage = `${EMAIL_CONFIRMATION_REQUIRED_MESSAGE} Check your inbox for the confirmation link, then sign in.`;
       }
+
+      // Update state with new member data
       setRegisteredMember({
         id: String(memberRecord.id ?? memberRecord.member_id ?? ''),
         memberNumber: memberRecord.member_number,
@@ -295,6 +288,8 @@ export function RegistrationCard() {
         createdAt: memberRecord.enrollment_date,
         profilePhotoUrl,
       });
+
+      // Reset form
       setFormData({
         firstName: '',
         lastName: '',
@@ -333,6 +328,7 @@ export function RegistrationCard() {
   return (
     <div className="w-full bg-white rounded-3xl shadow-2xl overflow-hidden" style={{ fontFamily: "'Poppins', sans-serif" }}>
       <div className="flex flex-col md:flex-row">
+        {/* Left Side - Branded Area */}
         <div className="w-full md:w-2/5 bg-gradient-to-br from-[#0f172a] to-[#1e293b] p-12 flex flex-col justify-center text-white">
           <div className="mb-8">
             <div className="w-16 h-16 bg-[#1bb9d3] rounded-2xl flex items-center justify-center mb-6">
@@ -358,6 +354,8 @@ export function RegistrationCard() {
             </div>
           </div>
         </div>
+
+        {/* Right Side - Registration Form */}
         <div className="w-full md:w-3/5 p-12">
           <h1 className="mb-2 text-3xl font-semibold text-gray-800">
             Create Account
@@ -402,6 +400,7 @@ export function RegistrationCard() {
           )}
           
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Two-column grid for name fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block mb-2 text-gray-700 font-medium">
@@ -435,6 +434,8 @@ export function RegistrationCard() {
                 />
               </div>
             </div>
+
+            {/* Two-column grid for email and phone */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="email" className="block mb-2 text-gray-700 font-medium">
@@ -503,6 +504,8 @@ export function RegistrationCard() {
                 />
               </div>
             </div>
+
+            {/* Birthdate field - full width */}
             <div>
               <label htmlFor="birthdate" className="block mb-2 text-gray-700 font-medium">
                 Birthdate
@@ -522,6 +525,8 @@ export function RegistrationCard() {
                 variant="soft"
               />
             </div>
+
+            {/* Password field - full width */}
             <div>
               <label htmlFor="password" className="block mb-2 text-gray-700 font-medium">
                 Password

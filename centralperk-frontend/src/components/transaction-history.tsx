@@ -46,15 +46,21 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
   const [isGeneratingCSV, setIsGeneratingCSV] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const itemsPerPage = 10;
+
+  // Filter transactions
   const filteredTransactions = transactions.filter((transaction) => {
     if (filter === 'all') return true;
     return transaction.type === filter;
   });
+
+  // Sort transactions
   const sortedTransactions = [...filteredTransactions].sort((a, b) => {
     const dateA = new Date(a.date).getTime();
     const dateB = new Date(b.date).getTime();
     return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
   });
+
+  // Paginate
   const totalPages = Math.ceil(sortedTransactions.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -227,6 +233,8 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
               </TableBody>
             </Table>
           </div>
+
+          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <p className="text-sm text-gray-600">

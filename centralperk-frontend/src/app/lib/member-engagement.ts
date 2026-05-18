@@ -1,8 +1,6 @@
-import { supabase } from "../../utils/supabase/client";
 import type { MemberData } from "../types/loyalty";
 import type { LoyaltyTransaction, Member, MemberLoginActivity } from "../admin-panel/types";
-
-const STORAGE_KEY = "centralperk-member-engagement-v1";
+import { requestJson } from "./api";
 
 export type EngagementSegment =
   | "All Members"
@@ -383,15 +381,6 @@ function formatInputDate(value: Date) {
   return `${value.getFullYear()}-${`${value.getMonth() + 1}`.padStart(2, "0")}-${`${value.getDate()}`.padStart(2, "0")}`;
 }
 
-function startOfWeek(date: Date) {
-  const next = new Date(date);
-  const day = next.getDay();
-  const diff = (day + 6) % 7;
-  next.setDate(next.getDate() - diff);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
 function safeWindow() {
   return typeof window === "undefined" ? null : window;
 }
@@ -412,15 +401,6 @@ function isMissingRelationError(error: unknown, table: string) {
     message.includes(`could not find the table '${table.toLowerCase()}' in the schema cache`) ||
     (message.includes(table.toLowerCase()) && message.includes("schema cache")) ||
     (message.includes(table.toLowerCase()) && message.includes("does not exist"))
-  );
-}
-
-function useLocalEngagementFallback() {
-  return (
-    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
-    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
-      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true" ||
-      process.env.USE_LOCAL_LOYALTY_API === "true")
   );
 }
 
@@ -496,23 +476,16 @@ function normalizeChallengeRow(row: ChallengeRow): ChallengeDefinition {
 async function resolveMemberDatabaseId(memberIdentifier: string) {
   const normalized = String(memberIdentifier || "").trim();
   if (!normalized) return null;
-
-  const isNumericIdentifier = /^\d+$/.test(normalized);
-  let query = supabase
-    .from("loyalty_members")
-    .select("id,member_id,member_number")
-    .limit(1);
-
-  if (isNumericIdentifier) {
-    query = query.or(`member_number.eq.${normalized},member_id.eq.${normalized},id.eq.${normalized}`);
-  } else {
-    query = query.eq("member_number", normalized);
+  const params = new URLSearchParams({ identifier: normalized });
+  try {
+    const response = await requestJson<{ ok: true; member: { id: string | number } }>(
+      `/api/members/resolve?${params.toString()}`,
+    );
+    return response.member?.id !== undefined && response.member?.id !== null ? String(response.member.id) : null;
+  } catch (error) {
+    if (error instanceof Error && error.message.toLowerCase().includes("member_not_found")) return null;
+    throw error;
   }
-
-  const { data, error } = await query.maybeSingle();
-
-  if (error) throw error;
-  return data?.id ? String(data.id) : null;
 }
 
 function formatShareEventMemberName(member?: ShareEventMemberRow | null, fallbackMemberId?: number | string) {
@@ -524,300 +497,52 @@ function formatShareEventMemberName(member?: ShareEventMemberRow | null, fallbac
 }
 
 function buildDefaultState(): EngagementState {
-  const now = new Date();
-  const weekStart = startOfWeek(now);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
   return {
-    notificationCampaigns: [
-      {
-        id: "notif-1",
-        name: "Weekend Double Points",
-        trigger: "Flash Sale",
-        segment: "Gold",
-        scheduledFor: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-        status: "scheduled",
-        audienceSize: 128,
-        sentCount: 0,
-        deliveredCount: 0,
-        openedCount: 0,
-        variantA: "Double points starts at 6 PM. Swipe in early.",
-        variantB: "Gold members get first access to double points tonight.",
-        winner: "Pending",
-      },
-      {
-        id: "notif-2",
-        name: "Reward Ready Reminder",
-        trigger: "Reward Available",
-        segment: "High Value",
-        scheduledFor: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-        status: "completed",
-        audienceSize: 84,
-        sentCount: 84,
-        deliveredCount: 80,
-        openedCount: 41,
-        variantA: "A featured reward is ready in your account.",
-        variantB: "You have enough points for this week’s featured reward.",
-        winner: "B",
-      },
-    ],
-    challenges: [
-      {
-        id: "challenge-1",
-        title: "Make 3 purchases this week",
-        description: "Complete three purchases before the week ends to unlock a bonus.",
-        type: "purchase-count",
-        targetValue: 3,
-        unitLabel: "purchases",
-        startAt: weekStart.toISOString(),
-        endAt: new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-        rewardPoints: 150,
-        rewardBadge: "Weekly Streak",
-        competitive: true,
-        segment: "All Members",
-      },
-      {
-        id: "challenge-2",
-        title: "Earn 1000 points this month",
-        description: "Stay active and reach one thousand earned points before month-end.",
-        type: "points-earned",
-        targetValue: 1000,
-        unitLabel: "points",
-        startAt: monthStart.toISOString(),
-        endAt: monthEnd.toISOString(),
-        rewardPoints: 250,
-        rewardBadge: "Momentum Builder",
-        competitive: false,
-        segment: "All Members",
-      },
-      {
-        id: "challenge-3",
-        title: "Complete 2 surveys this month",
-        description: "Share feedback twice this month to earn extra loyalty points.",
-        type: "survey-completion",
-        targetValue: 2,
-        unitLabel: "surveys",
-        startAt: monthStart.toISOString(),
-        endAt: monthEnd.toISOString(),
-        rewardPoints: 100,
-        rewardBadge: "Voice of the Member",
-        competitive: false,
-        segment: "Silver",
-      },
-    ],
-    surveys: [
-      {
-        id: "survey-1",
-        title: "March Experience Pulse",
-        description: "Help us improve rewards, notifications, and member-exclusive offers.",
-        segment: "All Members",
-        bonusPoints: 50,
-        status: "live",
-        createdAt: now.toISOString(),
-        questions: [
-          {
-            id: "q1",
-            prompt: "How satisfied are you with your rewards experience this month?",
-            type: "rating",
-          },
-          {
-            id: "q2",
-            prompt: "Which perk motivates you most right now?",
-            type: "multiple-choice",
-            options: ["Bonus points", "Tier upgrades", "Flash sales", "Member challenges"],
-          },
-          {
-            id: "q3",
-            prompt: "What should we improve next?",
-            type: "free-text",
-          },
-        ],
-        responses: [],
-      },
-    ],
+    notificationCampaigns: [],
+    challenges: [],
+    surveys: [],
     shareEvents: [],
-    winBackCampaigns: [
-      {
-        id: "winback-1",
-        name: "Inactive Gold Rescue",
-        segment: "Inactive 60+ Days",
-        offerType: "2x Points",
-        offerValue: "2x points on the next purchase",
-        status: "running",
-        targetedMembers: 42,
-        responses: 14,
-        reengagedMembers: 8,
-        estimatedRevenue: 18600,
-        offerCost: 4300,
-        launchDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-    ],
+    winBackCampaigns: [],
     claimedChallengeRewardsByMember: {},
     privacySettingsByMember: {},
   };
 }
 
 export function loadEngagementState(): EngagementState {
-  const browser = safeWindow();
-  if (!browser) return buildDefaultState();
-
-  try {
-    const raw = browser.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return buildDefaultState();
-
-    const parsed = JSON.parse(raw) as Partial<EngagementState>;
-    const defaults = buildDefaultState();
-    const preferNonEmptyArray = <T,>(candidate: T[] | undefined, fallback: T[]) =>
-      candidate && candidate.length > 0 ? candidate : fallback;
-    return {
-      ...defaults,
-      ...parsed,
-      notificationCampaigns: preferNonEmptyArray(parsed.notificationCampaigns, defaults.notificationCampaigns),
-      challenges: defaults.challenges,
-      surveys: preferNonEmptyArray(parsed.surveys, defaults.surveys),
-      shareEvents: defaults.shareEvents,
-      winBackCampaigns: preferNonEmptyArray(parsed.winBackCampaigns, defaults.winBackCampaigns),
-      claimedChallengeRewardsByMember: parsed.claimedChallengeRewardsByMember ?? {},
-      privacySettingsByMember: parsed.privacySettingsByMember ?? {},
-    };
-  } catch {
-    return buildDefaultState();
-  }
+  return buildDefaultState();
 }
 
 export function saveEngagementState(state: EngagementState) {
-  const browser = safeWindow();
-  if (!browser) return;
-  browser.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  void state;
 }
 
 export async function loadChallengeDefinitions() {
-  if (useLocalEngagementFallback()) return loadEngagementState().challenges;
-
-  const { data, error } = await supabase
-    .from("challenges")
-    .select("id,challenge_code,challenge_name,challenge_type,description,target_value,reward_points,badge_name,target_segment,start_date,end_date,is_active")
-    .eq("is_active", true)
-    .order("start_date", { ascending: true });
-
-  if (error) {
-    if (isMissingRelationError(error, "challenges")) return [];
-    throw error;
-  }
-
-  return ((data || []) as ChallengeRow[]).map(normalizeChallengeRow);
+  const response = await requestJson<{ ok: true; challenges: ChallengeDefinition[] }>("/api/engagement/challenges");
+  return response.challenges || [];
 }
 
 export async function loadChallengeProgressByMember(memberIdentifier: string) {
-  if (useLocalEngagementFallback()) return new Map<string, ChallengeProgressSnapshot>();
-
-  const memberId = await resolveMemberDatabaseId(memberIdentifier);
-  if (!memberId) return new Map<string, ChallengeProgressSnapshot>();
-
-  const { data, error } = await supabase
-    .from("member_challenge_progress")
-    .select("challenge_id,current_value,target_value,progress_percent,is_completed")
-    .eq("member_id", memberId);
-
-  if (error) {
-    if (isMissingRelationError(error, "member_challenge_progress")) return new Map<string, ChallengeProgressSnapshot>();
-    throw error;
-  }
-
-  return new Map(
-    ((data || []) as ChallengeProgressRow[]).map((row) => [
-      String(row.challenge_id),
-      {
-        current: Math.max(0, Number(row.current_value || 0)),
-        target: Math.max(0, Number(row.target_value || 0)),
-        percent: Math.max(0, Math.min(100, Number(row.progress_percent || 0))),
-        completed: Boolean(row.is_completed),
-      } satisfies ChallengeProgressSnapshot,
-    ])
-  );
+  return new Map<string, ChallengeProgressSnapshot>();
 }
 
 export async function loadChallengeLeaderboard(challengeId: string) {
-  if (useLocalEngagementFallback()) return [] as ChallengeLeaderboardEntry[];
-
-  const { data, error } = await supabase
-    .from("challenge_leaderboard_view")
-    .select("challenge_id,member_id,member_name,member_number,tier,current_value,leaderboard_rank")
-    .eq("challenge_id", challengeId)
-    .order("leaderboard_rank", { ascending: true })
-    .limit(10);
-
-  if (error) {
-    if (isMissingRelationError(error, "challenge_leaderboard_view")) return [];
-    throw error;
-  }
-
-  return ((data || []) as ChallengeLeaderboardRow[]).map((row) => ({
-    memberId: String(row.member_id ?? row.member_number ?? ""),
-    memberName: String(row.member_name || row.member_number || "Member"),
-    tier: String(row.tier || "Bronze"),
-    value: Math.max(0, Number(row.current_value || 0)),
-  }));
+  const response = await requestJson<{ ok: true; leaderboard: ChallengeLeaderboardEntry[] }>(
+    `/api/engagement/challenges/${encodeURIComponent(challengeId)}/leaderboard`,
+  );
+  return response.leaderboard || [];
 }
 
 export async function loadSocialShareEvents(options?: { memberIdentifier?: string }) {
-  if (useLocalEngagementFallback()) {
-    const rows = loadEngagementState().shareEvents;
-    if (!options?.memberIdentifier) return rows;
-    return rows.filter((row) => row.memberId === options.memberIdentifier);
-  }
-
-  let memberId: string | null = null;
-  if (options?.memberIdentifier) {
-    memberId = await resolveMemberDatabaseId(options.memberIdentifier);
-    if (!memberId) return [];
-  }
-
-  let query = supabase
-    .from("social_share_events")
-    .select("id,member_id,referral_id,referral_code,channel,achievement,tier_at_share,badge_label,share_text,destination_url,conversion_count,last_converted_at,created_at")
-    .order("created_at", { ascending: false });
-
-  if (memberId) {
-    query = query.eq("member_id", memberId);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    if (isMissingRelationError(error, "social_share_events")) return [];
-    throw error;
-  }
-
-  const rows = (data || []) as SocialShareEventRow[];
-  if (rows.length === 0) return [];
-
-  const memberIds = [...new Set(rows.map((row) => String(row.member_id)).filter(Boolean))];
-  const { data: memberRows, error: memberError } = await supabase
-    .from("loyalty_members")
-    .select("id,member_id,member_number,first_name,last_name,tier")
-    .in("id", memberIds);
-
-  if (memberError) throw memberError;
-
-  const memberMap = new Map(
-    ((memberRows || []) as ShareEventMemberRow[]).map((row) => [String(row.id), row])
+  const params = new URLSearchParams();
+  if (options?.memberIdentifier) params.set("memberIdentifier", options.memberIdentifier);
+  const response = await requestJson<{ ok: true; events: ShareEvent[] }>(
+    `/api/social-share-events${params.toString() ? `?${params.toString()}` : ""}`,
   );
-
-  return rows.map((row) => {
-    const member = memberMap.get(String(row.member_id));
-    return {
-      id: String(row.id),
-      memberId: String(member?.member_id || row.member_id),
-      memberName: formatShareEventMemberName(member, row.member_id),
-      tier: String(row.tier_at_share || member?.tier || "Bronze"),
-      channel: normalizeSocialChannel(row.channel),
-      achievement: String(row.achievement || "Shared achievement"),
-      referralCode: String(row.referral_code || ""),
-      conversions: Math.max(0, Number(row.conversion_count || 0)),
-      createdAt: String(row.created_at),
-    } satisfies ShareEvent;
-  });
+  return (response.events || []).map((event) => ({
+    ...event,
+    channel: normalizeSocialChannel(event.channel),
+    conversions: Math.max(0, Number(event.conversions || 0)),
+  }));
 }
 
 export async function recordSocialShareEvent(input: {
@@ -831,146 +556,33 @@ export async function recordSocialShareEvent(input: {
   shareText?: string;
   destinationUrl?: string;
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    const event: ShareEvent = {
-      id: crypto.randomUUID(),
-      memberId: input.memberIdentifier,
-      memberName: input.memberName,
-      tier: input.tier,
-      channel: input.channel,
-      achievement: input.achievement,
-      referralCode: input.referralCode || "",
-      conversions: 0,
-      createdAt: new Date().toISOString(),
-    };
-    saveEngagementState({ ...state, shareEvents: [event, ...state.shareEvents] });
-    return event;
-  }
-
-  const memberId = await resolveMemberDatabaseId(input.memberIdentifier);
-  if (!memberId) throw new Error("Unable to resolve the sharing member.");
-
-  let referralId: string | null = null;
-  if (input.referralCode) {
-    const { data: referralRow } = await supabase
-      .from("member_referrals")
-      .select("id")
-      .eq("referrer_member_id", memberId)
-      .eq("referrer_code", input.referralCode)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    referralId = referralRow?.id ? String(referralRow.id) : null;
-  }
-
-  const { data, error } = await supabase
-    .from("social_share_events")
-    .insert({
-      member_id: memberId,
-      referral_id: referralId,
-      referral_code: input.referralCode || null,
-      channel: input.channel,
-      achievement: input.achievement,
-      tier_at_share: input.tier,
-      badge_label: input.badgeLabel || null,
-      share_text: input.shareText || null,
-      destination_url: input.destinationUrl || null,
-    })
-    .select("id,member_id,referral_code,channel,achievement,tier_at_share,conversion_count,created_at")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "social_share_events")) return null;
-    throw error;
-  }
-
-  const row = data as SocialShareEventRow;
-  return {
-    id: String(row.id),
-    memberId: input.memberIdentifier,
-    memberName: input.memberName,
-    tier: input.tier,
-    channel: normalizeSocialChannel(row.channel),
-    achievement: input.achievement,
-    referralCode: String(row.referral_code || input.referralCode || ""),
-    conversions: Math.max(0, Number(row.conversion_count || 0)),
-    createdAt: String(row.created_at),
-  } satisfies ShareEvent;
+  const response = await requestJson<{ ok: true; event: ShareEvent | null }>("/api/social-share-events", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return response.event
+    ? {
+        ...response.event,
+        memberName: response.event.memberName || input.memberName,
+        tier: response.event.tier || input.tier,
+        channel: normalizeSocialChannel(response.event.channel),
+      }
+    : null;
 }
 
 export async function incrementSocialShareConversion(shareEventId: string) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    let updated: ShareEvent | null = null;
-    const shareEvents = state.shareEvents.map((event) => {
-      if (event.id !== shareEventId) return event;
-      updated = { ...event, conversions: event.conversions + 1 };
-      return updated;
-    });
-    if (updated) saveEngagementState({ ...state, shareEvents });
-    return updated;
-  }
-
-  const numericId = Number(shareEventId);
-  if (!Number.isFinite(numericId)) return null;
-
-  const { data: existing, error: existingError } = await supabase
-    .from("social_share_events")
-    .select("conversion_count")
-    .eq("id", numericId)
-    .maybeSingle();
-
-  if (existingError) {
-    if (isMissingRelationError(existingError, "social_share_events")) return null;
-    throw existingError;
-  }
-
-  if (!existing) return null;
-
-  const nextCount = Math.max(0, Number(existing.conversion_count || 0)) + 1;
-  const { data, error } = await supabase
-    .from("social_share_events")
-    .update({
-      conversion_count: nextCount,
-      last_converted_at: new Date().toISOString(),
-    })
-    .eq("id", numericId)
-    .select("id,member_id,referral_code,channel,achievement,tier_at_share,conversion_count,created_at")
-    .single();
-
-  if (error) throw error;
-
-  const row = data as SocialShareEventRow;
-  return {
-    id: String(row.id),
-    memberId: String(row.member_id),
-    memberName: "",
-    tier: String(row.tier_at_share || "Bronze"),
-    channel: normalizeSocialChannel(row.channel),
-    achievement: String(row.achievement || "Shared achievement"),
-    referralCode: String(row.referral_code || ""),
-    conversions: Math.max(0, Number(row.conversion_count || 0)),
-    createdAt: String(row.created_at),
-  } satisfies ShareEvent;
+  const response = await requestJson<{ ok: true; event: ShareEvent | null }>(
+    `/api/social-share-events/${encodeURIComponent(shareEventId)}/conversion`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return response.event
+    ? { ...response.event, channel: normalizeSocialChannel(response.event.channel) }
+    : null;
 }
 
 export async function loadNotificationTemplates() {
-  if (useLocalEngagementFallback()) return notificationTemplates;
-
-  const { data, error } = await supabase
-    .from("notification_templates")
-    .select("id,template_name,trigger_event,subject,message")
-    .eq("is_active", true)
-    .order("template_name", { ascending: true });
-
-  if (error) {
-    if (isMissingRelationError(error, "notification_templates")) return [];
-    throw error;
-  }
-
-  return ((data || []) as NotificationTemplateRow[]).map((row) => ({
+  const response = await requestJson<{ ok: true; templates: NotificationTemplateRow[] }>("/api/notification-templates");
+  return ((response.templates || []) as NotificationTemplateRow[]).map((row) => ({
     id: row.id,
     name: String(row.template_name || "Template"),
     trigger: normalizeNotificationTrigger(row.trigger_event),
@@ -980,19 +592,8 @@ export async function loadNotificationTemplates() {
 }
 
 export async function loadNotificationCampaigns() {
-  if (useLocalEngagementFallback()) return loadEngagementState().notificationCampaigns;
-
-  const { data, error } = await supabase
-    .from("notification_campaigns")
-    .select("id,campaign_name,trigger_event,segment,scheduled_for,status,audience_size,sent_count,delivered_count,opened_count,variant_a,variant_b,winning_variant")
-    .order("scheduled_for", { ascending: false });
-
-  if (error) {
-    if (isMissingRelationError(error, "notification_campaigns")) return [];
-    throw error;
-  }
-
-  return ((data || []) as NotificationCampaignRow[]).map((row) => ({
+  const response = await requestJson<{ ok: true; campaigns: NotificationCampaignRow[] }>("/api/notification-campaigns");
+  return ((response.campaigns || []) as NotificationCampaignRow[]).map((row) => ({
     id: row.id,
     name: String(row.campaign_name || "Campaign"),
     trigger: normalizeNotificationTrigger(row.trigger_event),
@@ -1018,49 +619,12 @@ export async function createNotificationCampaignRecord(input: {
   variantA: string;
   variantB: string;
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    const record: NotificationCampaign = {
-      id: `notification-${Date.now()}`,
-      name: input.name,
-      trigger: input.trigger,
-      segment: input.segment,
-      scheduledFor: input.scheduledFor,
-      status: "scheduled",
-      audienceSize: input.audienceSize,
-      sentCount: 0,
-      deliveredCount: 0,
-      openedCount: 0,
-      variantA: input.variantA,
-      variantB: input.variantB,
-      winner: "Pending",
-    };
-    saveEngagementState({ ...state, notificationCampaigns: [record, ...state.notificationCampaigns] });
-    return record;
-  }
-
-  const campaignCode = `NC-${Date.now()}`;
-  const { data, error } = await supabase
-    .from("notification_campaigns")
-    .insert({
-      campaign_code: campaignCode,
-      campaign_name: input.name,
-      trigger_event: input.trigger,
-      segment: input.segment,
-      scheduled_for: input.scheduledFor,
-      audience_size: input.audienceSize,
-      variant_a: input.variantA,
-      variant_b: input.variantB,
-    })
-    .select("id,campaign_name,trigger_event,segment,scheduled_for,status,audience_size,sent_count,delivered_count,opened_count,variant_a,variant_b,winning_variant")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "notification_campaigns")) return null;
-    throw error;
-  }
-
-  const row = data as NotificationCampaignRow;
+  const response = await requestJson<{ ok: true; campaign: NotificationCampaignRow | null }>("/api/notification-campaigns", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.campaign) return null;
+  const row = response.campaign as NotificationCampaignRow;
   return {
     id: row.id,
     name: String(row.campaign_name),
@@ -1085,37 +649,15 @@ export async function launchNotificationCampaignRecord(campaignId: string, patch
   openedCount: number;
   winner: "A" | "B";
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    let updated: NotificationCampaign | null = null;
-    const notificationCampaigns = state.notificationCampaigns.map((campaign) => {
-      if (campaign.id !== campaignId) return campaign;
-      updated = { ...campaign, ...patch };
-      return updated;
-    });
-    if (updated) saveEngagementState({ ...state, notificationCampaigns });
-    return updated;
-  }
-
-  const { data, error } = await supabase
-    .from("notification_campaigns")
-    .update({
-      status: patch.status,
-      sent_count: patch.sentCount,
-      delivered_count: patch.deliveredCount,
-      opened_count: patch.openedCount,
-      winning_variant: patch.winner,
-    })
-    .eq("id", campaignId)
-    .select("id,campaign_name,trigger_event,segment,scheduled_for,status,audience_size,sent_count,delivered_count,opened_count,variant_a,variant_b,winning_variant")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "notification_campaigns")) return null;
-    throw error;
-  }
-
-  const row = data as NotificationCampaignRow;
+  const response = await requestJson<{ ok: true; campaign: NotificationCampaignRow | null }>(
+    `/api/notification-campaigns/${encodeURIComponent(campaignId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!response.campaign) return null;
+  const row = response.campaign as NotificationCampaignRow;
   return {
     id: row.id,
     name: String(row.campaign_name || "Campaign"),
@@ -1134,88 +676,8 @@ export async function launchNotificationCampaignRecord(campaignId: string, patch
 }
 
 export async function loadSurveyDefinitions() {
-  if (useLocalEngagementFallback()) return loadEngagementState().surveys;
-
-  const { data: surveyData, error: surveyError } = await supabase
-    .from("surveys")
-    .select("id,title,description,segment,bonus_points,status,created_at")
-    .order("created_at", { ascending: false });
-
-  if (surveyError) {
-    if (isMissingRelationError(surveyError, "surveys")) return [];
-    throw surveyError;
-  }
-
-  const surveys = (surveyData || []) as SurveyRow[];
-  if (surveys.length === 0) return [];
-
-  const surveyIds = surveys.map((survey) => survey.id);
-  const [{ data: questionData, error: questionError }, { data: responseData, error: responseError }] = await Promise.all([
-    supabase
-      .from("survey_questions")
-      .select("id,survey_id,prompt,question_type,options,display_order")
-      .in("survey_id", surveyIds)
-      .order("display_order", { ascending: true }),
-    supabase
-      .from("survey_responses")
-      .select("survey_id,member_id,submitted_at,answers")
-      .in("survey_id", surveyIds)
-      .order("submitted_at", { ascending: false }),
-  ]);
-
-  if (questionError) throw questionError;
-  if (responseError) throw responseError;
-
-  const responseRows = (responseData || []) as SurveyResponseRow[];
-  const responseMemberIds = [...new Set(responseRows.map((row) => String(row.member_id)).filter(Boolean))];
-  const { data: responseMembers, error: responseMembersError } = responseMemberIds.length
-    ? await supabase
-        .from("loyalty_members")
-        .select("id,member_id,member_number,first_name,last_name")
-        .in("id", responseMemberIds)
-    : { data: [], error: null };
-
-  if (responseMembersError) throw responseMembersError;
-
-  const memberMap = new Map(
-    ((responseMembers || []) as ShareEventMemberRow[]).map((row) => [String(row.id), row])
-  );
-  const questionMap = new Map<string, SurveyQuestion[]>();
-  ((questionData || []) as SurveyQuestionRow[]).forEach((row) => {
-    const list = questionMap.get(row.survey_id) ?? [];
-    list.push({
-      id: row.id,
-      prompt: String(row.prompt || ""),
-      type: normalizeQuestionType(row.question_type),
-      options: Array.isArray(row.options) ? row.options.map((item) => String(item)) : undefined,
-    });
-    questionMap.set(row.survey_id, list);
-  });
-
-  const responseMap = new Map<string, SurveyResponseRecord[]>();
-  responseRows.forEach((row) => {
-    const member = memberMap.get(String(row.member_id));
-    const list = responseMap.get(row.survey_id) ?? [];
-    list.push({
-      memberId: String(member?.member_id || row.member_id),
-      memberName: formatShareEventMemberName(member, row.member_id),
-      answers: row.answers || {},
-      submittedAt: String(row.submitted_at),
-    });
-    responseMap.set(row.survey_id, list);
-  });
-
-  return surveys.map((survey) => ({
-    id: survey.id,
-    title: String(survey.title || "Survey"),
-    description: String(survey.description || ""),
-    segment: normalizeEngagementSegment(survey.segment),
-    bonusPoints: Math.max(0, Number(survey.bonus_points || 0)),
-    status: survey.status === "live" || survey.status === "closed" ? survey.status : "draft",
-    createdAt: String(survey.created_at),
-    questions: questionMap.get(survey.id) ?? [],
-    responses: responseMap.get(survey.id) ?? [],
-  } satisfies SurveyDefinition));
+  const response = await requestJson<{ ok: true; surveys: SurveyDefinition[] }>("/api/engagement/surveys");
+  return response.surveys || [];
 }
 
 export async function createSurveyDefinitionRecord(input: {
@@ -1226,68 +688,13 @@ export async function createSurveyDefinitionRecord(input: {
   status: "draft" | "live" | "closed";
   questions: SurveyQuestion[];
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    const survey: SurveyDefinition = {
-      id: `survey-${Date.now()}`,
-      title: input.title,
-      description: input.description,
-      segment: input.segment,
-      bonusPoints: input.bonusPoints,
-      status: input.status,
-      createdAt: new Date().toISOString(),
-      questions: input.questions,
-      responses: [],
-    };
-    saveEngagementState({ ...state, surveys: [survey, ...state.surveys] });
-    return survey;
-  }
-
-  const surveyCode = `SV-${Date.now()}`;
-  const { data: surveyData, error: surveyError } = await supabase
-    .from("surveys")
-    .insert({
-      survey_code: surveyCode,
-      title: input.title,
-      description: input.description,
-      segment: input.segment,
-      bonus_points: input.bonusPoints,
-      status: input.status,
-    })
-    .select("id,title,description,segment,bonus_points,status,created_at")
-    .single();
-
-  if (surveyError) {
-    if (isMissingRelationError(surveyError, "surveys")) return null;
-    throw surveyError;
-  }
-
-  const survey = surveyData as SurveyRow;
-  if (input.questions.length > 0) {
-    const { error: questionInsertError } = await supabase.from("survey_questions").insert(
-      input.questions.map((question, index) => ({
-        survey_id: survey.id,
-        question_code: `Q-${index + 1}`,
-        prompt: question.prompt,
-        question_type: question.type,
-        options: question.options ?? [],
-        display_order: index + 1,
-      }))
-    );
-
-    if (questionInsertError) throw questionInsertError;
-  }
-
+  const response = await requestJson<{ ok: true; survey: SurveyDefinition }>("/api/engagement/surveys", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
   return {
-    id: survey.id,
-    title: String(survey.title || input.title),
-    description: String(survey.description || input.description),
-    segment: normalizeEngagementSegment(survey.segment),
-    bonusPoints: Math.max(0, Number(survey.bonus_points || input.bonusPoints)),
-    status: survey.status === "live" || survey.status === "closed" ? survey.status : "draft",
-    createdAt: String(survey.created_at),
-    questions: input.questions,
-    responses: [],
+    ...response.survey,
+    segment: normalizeEngagementSegment(response.survey.segment),
   } satisfies SurveyDefinition;
 }
 
@@ -1297,105 +704,44 @@ export async function submitSurveyResponseRecord(input: {
   answers: Record<string, string | number>;
   bonusPoints: number;
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    let response: SurveyResponseRecord | null = null;
-    const surveys = state.surveys.map((survey) => {
-      if (survey.id !== input.surveyId) return survey;
-      response = {
-        memberId: input.memberIdentifier,
-        memberName: input.memberIdentifier,
-        answers: input.answers,
-        submittedAt: new Date().toISOString(),
-      };
-      return { ...survey, responses: [response, ...survey.responses] };
-    });
-    if (response) saveEngagementState({ ...state, surveys });
-    return response;
-  }
-
-  if (!isUuidLike(input.surveyId)) return null;
-
-  const memberId = await resolveMemberDatabaseId(input.memberIdentifier);
-  if (!memberId) throw new Error("Unable to resolve the survey member.");
-
-  const { data, error } = await supabase
-    .from("survey_responses")
-    .insert({
-      survey_id: input.surveyId,
-      member_id: memberId,
-      answers: input.answers,
-      bonus_points_awarded: input.bonusPoints,
-    })
-    .select("survey_id,member_id,submitted_at,answers")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "survey_responses")) return null;
-    throw error;
-  }
-
-  const { data: memberData, error: memberError } = await supabase
-    .from("loyalty_members")
-    .select("id,member_id,member_number,first_name,last_name")
-    .eq("id", memberId)
-    .maybeSingle();
-
-  if (memberError) throw memberError;
-
-  const row = data as SurveyResponseRow;
-  const member = (memberData || null) as ShareEventMemberRow | null;
-  return {
-    memberId: String(member?.member_id || row.member_id),
-    memberName: formatShareEventMemberName(member, row.member_id),
-    answers: row.answers || {},
-    submittedAt: String(row.submitted_at),
-  } satisfies SurveyResponseRecord;
+  const response = await requestJson<{ ok: true; response: SurveyResponseRecord }>(
+    `/api/engagement/surveys/${encodeURIComponent(input.surveyId)}/responses`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return response.response;
 }
 
 export async function deleteSurveyResponseRecord(surveyId: string, memberIdentifier: string) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    const surveys = state.surveys.map((survey) =>
-      survey.id === surveyId
-        ? { ...survey, responses: survey.responses.filter((response) => response.memberId !== memberIdentifier) }
-        : survey
-    );
-    saveEngagementState({ ...state, surveys });
-    return;
-  }
+  await requestJson<{ ok: true }>(`/api/engagement/surveys/${encodeURIComponent(surveyId)}/responses`, {
+    method: "DELETE",
+    body: JSON.stringify({ memberIdentifier }),
+  });
+}
 
-  if (!isUuidLike(surveyId)) return;
+export async function loadMemberPrivacySettings(memberIdentifier: string) {
+  const response = await requestJson<{ ok: true; settings: SharePrivacySettings }>(
+    `/api/engagement/settings/${encodeURIComponent(memberIdentifier)}`,
+  );
+  return response.settings;
+}
 
-  const memberId = await resolveMemberDatabaseId(memberIdentifier);
-  if (!memberId) return;
-
-  const { error } = await supabase
-    .from("survey_responses")
-    .delete()
-    .eq("survey_id", surveyId)
-    .eq("member_id", memberId);
-
-  if (error) {
-    if (isMissingRelationError(error, "survey_responses")) return;
-    throw error;
-  }
+export async function saveMemberPrivacySettings(memberIdentifier: string, settings: SharePrivacySettings) {
+  const response = await requestJson<{ ok: true; settings: SharePrivacySettings }>(
+    `/api/engagement/settings/${encodeURIComponent(memberIdentifier)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    },
+  );
+  return response.settings;
 }
 
 export async function loadWinBackCampaigns() {
-  if (useLocalEngagementFallback()) return loadEngagementState().winBackCampaigns;
-
-  const { data, error } = await supabase
-    .from("winback_campaigns")
-    .select("id,campaign_name,segment,offer_type,offer_value,status,targeted_members,responses,reengaged_members,estimated_revenue,offer_cost,launch_date")
-    .order("launch_date", { ascending: false });
-
-  if (error) {
-    if (isMissingRelationError(error, "winback_campaigns")) return [];
-    throw error;
-  }
-
-  return ((data || []) as WinBackCampaignRow[]).map((row) => ({
+  const response = await requestJson<{ ok: true; campaigns: WinBackCampaignRow[] }>("/api/winback-campaigns");
+  return ((response.campaigns || []) as WinBackCampaignRow[]).map((row) => ({
     id: row.id,
     name: String(row.campaign_name || "Win-back campaign"),
     segment: normalizeEngagementSegment(row.segment),
@@ -1423,52 +769,12 @@ export async function createWinBackCampaignRecord(input: {
   offerCost: number;
   status: "scheduled" | "running" | "completed";
 }) {
-  if (useLocalEngagementFallback()) {
-    const state = loadEngagementState();
-    const campaign: WinBackCampaign = {
-      id: `winback-${Date.now()}`,
-      name: input.name,
-      segment: input.segment,
-      offerType: input.offerType,
-      offerValue: input.offerValue,
-      status: input.status,
-      targetedMembers: input.targetedMembers,
-      responses: input.responses,
-      reengagedMembers: input.reengagedMembers,
-      estimatedRevenue: input.estimatedRevenue,
-      offerCost: input.offerCost,
-      launchDate: new Date().toISOString(),
-    };
-    saveEngagementState({ ...state, winBackCampaigns: [campaign, ...state.winBackCampaigns] });
-    return campaign;
-  }
-
-  const campaignCode = `WB-${Date.now()}`;
-  const { data, error } = await supabase
-    .from("winback_campaigns")
-    .insert({
-      campaign_code: campaignCode,
-      campaign_name: input.name,
-      segment: input.segment,
-      offer_type: input.offerType,
-      offer_value: input.offerValue,
-      status: input.status,
-      targeted_members: input.targetedMembers,
-      responses: input.responses,
-      reengaged_members: input.reengagedMembers,
-      estimated_revenue: input.estimatedRevenue,
-      offer_cost: input.offerCost,
-      launch_date: new Date().toISOString(),
-    })
-    .select("id,campaign_name,segment,offer_type,offer_value,status,targeted_members,responses,reengaged_members,estimated_revenue,offer_cost,launch_date")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "winback_campaigns")) return null;
-    throw error;
-  }
-
-  const row = data as WinBackCampaignRow;
+  const response = await requestJson<{ ok: true; campaign: WinBackCampaignRow | null }>("/api/winback-campaigns", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.campaign) return null;
+  const row = response.campaign as WinBackCampaignRow;
   return {
     id: row.id,
     name: String(row.campaign_name || input.name),

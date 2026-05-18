@@ -72,7 +72,6 @@ export default function Profile() {
     address: user.address || "",
     profileImage: user.profileImage,
   });
-  const memberLookupId = user.memberId || user.email;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -92,6 +91,7 @@ export default function Profile() {
   }, [activeTab]);
 
   useEffect(() => {
+    loadCommunicationPreference(user.memberId, user.email).then(setPreferences).catch(() => {});
     setFormData({
       fullName: user.fullName,
       email: user.email,
@@ -100,15 +100,13 @@ export default function Profile() {
       address: user.address || "",
       profileImage: user.profileImage,
     });
-    if (!memberLookupId) return;
-    loadCommunicationPreference(memberLookupId, user.email).then(setPreferences).catch(() => {});
-    loadTierHistory(memberLookupId, user.email)
+    loadTierHistory(user.memberId, user.email)
       .then((rows) => setTierTimeline(rows.map((r) => ({ id: String(r.id), old_tier: String(r.old_tier || "Bronze"), new_tier: String(r.new_tier || "Bronze"), changed_at: String(r.changed_at || new Date().toISOString()), reason: r.reason ? String(r.reason) : undefined }))))
       .catch(() => setTierTimeline([]));
-    loadBirthdayRewardStatus(memberLookupId, user.email).then((status) => setBirthdayBadge(status.badgeLabel)).catch(() => setBirthdayBadge(null));
-    loadMemberBadgeProgress(memberLookupId, user.email).then(setBadgeProgress).catch(() => setBadgeProgress([]));
+    loadBirthdayRewardStatus(user.memberId, user.email).then((status) => setBirthdayBadge(status.badgeLabel)).catch(() => setBirthdayBadge(null));
+    loadMemberBadgeProgress(user.memberId, user.email).then(setBadgeProgress).catch(() => setBadgeProgress([]));
     loadBadgeLeaderboard(5).then(setBadgeLeaderboard).catch(() => setBadgeLeaderboard([]));
-  }, [memberLookupId, user]);
+  }, [user]);
 
   useEffect(() => {
     fetchTierRules()
@@ -150,9 +148,8 @@ export default function Profile() {
     }
     const { firstName, lastName } = splitName(user.fullName);
     try {
-      if (!memberLookupId) throw new Error("Member ID is still loading. Please wait a moment and try again.");
       const updateResult = await updateMemberProfile({
-        memberIdentifier: memberLookupId,
+        memberIdentifier: user.memberId,
         fallbackEmail: user.email,
         firstName,
         lastName,
@@ -173,7 +170,7 @@ export default function Profile() {
           ? "Profile updated. Confirm your new email address to finish the auth email change."
           : "Profile updated!"
       );
-      await refreshUser({ force: true });
+      await refreshUser();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update profile.");
     }
@@ -184,8 +181,7 @@ export default function Profile() {
     if (!file) return;
     try {
       setIsUploadingPhoto(true);
-      if (!memberLookupId) throw new Error("Member ID is still loading. Please wait a moment and try again.");
-      const photoUrl = await uploadMemberProfilePhoto(memberLookupId, file);
+      const photoUrl = await uploadMemberProfilePhoto(user.memberId, file);
       setFormData((prev) => ({ ...prev, profileImage: photoUrl }));
       toast.success("Profile photo uploaded.", { description: "Save your changes to apply the new photo to your profile." });
     } catch (error) {
@@ -198,8 +194,7 @@ export default function Profile() {
 
   const savePreferences = async () => {
     try {
-      if (!memberLookupId) throw new Error("Member ID is still loading. Please wait a moment and try again.");
-      await saveCommunicationPreference(memberLookupId, preferences, user.email);
+      await saveCommunicationPreference(user.memberId, preferences, user.email);
       toast.success("Communication preferences saved.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save communication preferences.");

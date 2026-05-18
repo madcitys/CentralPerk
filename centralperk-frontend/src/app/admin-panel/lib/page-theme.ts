@@ -1,25 +1,25 @@
-export const adminPageShellClass = "max-w-7xl mx-auto space-y-6";
+export const adminPageShellClass = "max-w-[1400px] w-full mx-auto px-6 py-6 space-y-6";
 
 export const adminPageHeroClass =
-  "overflow-hidden rounded-[28px] border border-[#cfe0f8] bg-[radial-gradient(circle_at_top_left,#dff7f7_0%,#ffffff_34%,#eef3ff_100%)] shadow-[0_18px_60px_rgba(26,43,71,0.1)]";
+  "overflow-hidden rounded-[28px] border border-[#eef3f9] bg-white shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
 
-export const adminPageHeroInnerClass = "px-6 py-6 lg:px-8";
+export const adminPageHeroInnerClass = "p-6";
 
 export const adminEyebrowClass =
-  "inline-flex items-center gap-2 rounded-full border border-[#b9e4ea] bg-white/85 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0f766e]";
+  "inline-flex items-center gap-2 rounded-full border border-[#b9e4ea] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0f766e]";
 
-export const adminPageTitleClass = "mt-4 text-3xl font-bold tracking-tight text-[#10213d] lg:text-4xl";
+export const adminPageTitleClass = "mt-4 text-[2.2rem] font-bold tracking-tight text-[#10213d] lg:text-[2.2rem]";
 
 export const adminPageDescriptionClass = "mt-2 text-sm leading-6 text-[#4b607f] lg:text-base";
 
 export const adminPanelClass =
-  "rounded-[24px] border border-[#d4ddf6] bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-6 shadow-[0_12px_34px_rgba(67,56,202,0.07)]";
+  "rounded-[20px] border border-[#dde6f2] bg-white p-5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
 
 export const adminPanelSoftClass =
-  "rounded-[24px] border border-[#d6e0f7] bg-[linear-gradient(135deg,#ffffff_0%,#f3f9ff_100%)] p-6 shadow-[0_10px_30px_rgba(67,56,202,0.06)]";
+  "rounded-[20px] border border-[#e8eef7] bg-[#f8fbff] p-5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
 
 export const adminMetricPanelClass =
-  "rounded-[22px] border border-[#d4def6] bg-[linear-gradient(135deg,#ffffff_0%,#f4f8ff_100%)] p-5 shadow-[0_10px_28px_rgba(67,56,202,0.06)]";
+  "rounded-[20px] border border-[#d4def6] bg-[linear-gradient(135deg,#ffffff_0%,#f4f8ff_100%)] p-5 shadow-[0_10px_28px_rgba(16,33,58,0.06)]";
 
 export function adminMetricVariantClass(index: number) {
   const variants = [

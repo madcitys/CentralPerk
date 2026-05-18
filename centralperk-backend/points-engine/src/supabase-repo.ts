@@ -2,6 +2,8 @@ import type { PointsRepository } from "./core/repo.js";
 import type { AwardInput, RedeemInput, Member, TierRule, ExpiryResult } from "./core/types.js";
 import { supabase } from "./supabase-client.js";
 import { normalizeTierRules } from "./core/utils.js";
+import { config } from "./config.js";
+import { findMemberViaMemberService, updateMemberBalanceViaMemberService } from "./member-client.js";
 
 function mapMember(row: any): Member {
   return {
@@ -14,6 +16,10 @@ function mapMember(row: any): Member {
 }
 
 async function findMember(identifier: string, fallbackEmail?: string): Promise<Member | null> {
+  if (config.splitMode) {
+    return findMemberViaMemberService(identifier, fallbackEmail);
+  }
+
   const trimmed = identifier.trim();
   const { data, error } = await supabase
     .from("loyalty_members")
@@ -43,11 +49,18 @@ async function insertLedger(entry: any) {
 }
 
 async function insertTransaction(entry: any) {
+  if (config.splitMode) return;
+
   const { error } = await supabase.from("loyalty_transactions").insert(entry);
   if (error) throw error;
 }
 
 async function updateMemberBalance(memberId: number, newBalance: number, newTier: string) {
+  if (config.splitMode) {
+    await updateMemberBalanceViaMemberService(memberId, newBalance, newTier);
+    return;
+  }
+
   const { error } = await supabase
     .from("loyalty_members")
     .update({ points_balance: newBalance, tier: newTier })
@@ -117,6 +130,8 @@ async function insertRedemption(member: Member, input: RedeemInput, newBalance: 
     reward_catalog_id: ledgerEntry.reward_catalog_id,
     points_ledger_id: ledger.id,
   });
+
+  // Consume FIFO lots if the helper exists
   try {
     const { error: fifoError } = await supabase.rpc("loyalty_consume_points_fifo", {
       p_member_id: member.id,
@@ -124,6 +139,7 @@ async function insertRedemption(member: Member, input: RedeemInput, newBalance: 
     });
     if (fifoError) throw fifoError;
   } catch (err) {
+    // Ignore missing function or other non-fatal FIFO issues to keep redemption flowing.
   }
 
   await updateMemberBalance(member.id, newBalance, newTier);

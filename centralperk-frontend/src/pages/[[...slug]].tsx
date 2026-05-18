@@ -1,4 +1,6 @@
 import dynamic from "next/dynamic";
+import Script from "next/script";
+import type { GetServerSidePropsContext } from "next";
 
 function LoadingShell() {
   return (
@@ -19,12 +21,62 @@ const LegacySpaApp = dynamic(
   },
 );
 
-export default function CatchAllPage() {
-  return <LegacySpaApp />;
+type CatchAllPageProps = {
+  runtimeConfig: {
+    supabaseUrl: string;
+    projectId: string;
+    publicAnonKey: string;
+  };
+};
+
+export default function CatchAllPage({ runtimeConfig }: CatchAllPageProps) {
+  return (
+    <>
+      <Script
+        id="centralperk-runtime-config"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{
+          __html: `window.__CENTRALPERK_RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
+        }}
+      />
+      <LegacySpaApp />
+    </>
+  );
 }
 
-export async function getServerSideProps() {
+export async function getServerSideProps(context: GetServerSidePropsContext) {
+  context.res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  context.res.setHeader("Pragma", "no-cache");
+  context.res.setHeader("Expires", "0");
+
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+    process.env.MEMBER_SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    process.env.SUPABASE_URL?.trim() ||
+    "";
+  const projectId =
+    process.env.NEXT_PUBLIC_SUPABASE_PROJECT_ID?.trim() ||
+    process.env.VITE_SUPABASE_PROJECT_ID?.trim() ||
+    supabaseUrl.replace(/^https?:\/\//, "").replace(".supabase.co", "").split(".")[0] ||
+    "";
+  const publicAnonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
+    process.env.MEMBER_SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    "";
+
   return {
-    props: {},
+    props: {
+      runtimeConfig: {
+        supabaseUrl,
+        projectId,
+        publicAnonKey,
+      },
+    },
   };
 }

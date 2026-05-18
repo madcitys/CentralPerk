@@ -1,6 +1,5 @@
 export type CampaignType = "bonus_points" | "flash_sale" | "multiplier_event";
 export type CampaignStatus = "draft" | "scheduled" | "active" | "paused" | "completed" | "archived";
-export type CampaignVariant = "A" | "B";
 
 export type Campaign = {
   id: string;
@@ -19,11 +18,14 @@ export type Campaign = {
   flashSaleClaimedCount: number;
   startsAt: string;
   endsAt: string;
+  countdownLabel: string | null;
+  bannerTitle: string | null;
+  bannerMessage: string | null;
+  bannerColor: string;
+  pushNotificationEnabled: boolean;
   budgetLimit: number | null;
   budgetSpent: number;
   autoPause: boolean;
-  winningVariant?: CampaignVariant | null;
-  winnerDeclaredAt?: string | null;
 };
 
 export type CampaignInput = {
@@ -42,6 +44,11 @@ export type CampaignInput = {
   flashSaleQuantityLimit?: number | null;
   startsAt: string;
   endsAt: string;
+  countdownLabel?: string | null;
+  bannerTitle?: string | null;
+  bannerMessage?: string | null;
+  bannerColor?: string;
+  pushNotificationEnabled?: boolean;
   budgetLimit?: number | null;
   autoPause?: boolean;
 };
@@ -57,19 +64,12 @@ export type MultiplierLookupResult = {
   active: boolean;
   campaignId: string | null;
   multiplier: number;
-  variant: CampaignVariant;
+  variant: "A" | "B";
   bonusPoints: number;
 };
 
 export type VariantAssignment = {
   campaignId: string;
   memberId: number;
-  variant: CampaignVariant;
-};
-
-export type CampaignWinnerResult = {
-  campaignId: string;
-  winner: CampaignVariant;
-  declaredAt: string;
-  scores: Record<CampaignVariant, number>;
+  variant: "A" | "B";
 };

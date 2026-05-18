@@ -1,101 +1,13 @@
 import Fastify from "fastify";
-import path from "path";
-import { fileURLToPath } from "url";
 import { z } from "zod";
 import { awardPoints, redeemPoints, runExpiry } from "./core/engine.js";
 import { supabaseRepo } from "./supabase-repo.js";
 import { checkIdempotency, storeIdempotency } from "./idempotency.js";
 import { config } from "./config.js";
-import { memoryRepo } from "./memory-repo.js";
+import { supabase } from "./supabase-client.js";
 
-function canUseLocalFallback(error: unknown) {
-  const message = String(error instanceof Error ? error.message : error || "").toLowerCase();
-  return (
-    process.env.USE_LOCAL_LOYALTY_API === "true" ||
-    process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
-    !config.supabaseUrl ||
-    !config.supabaseServiceKey ||
-    message.includes("invalid api key") ||
-    message.includes("fetch failed") ||
-    message.includes("failed to fetch") ||
-    message.includes("network")
-  );
-}
-
-function useMemoryPrimary() {
-  return config.useLocalFallback || !config.supabaseUrl || !config.supabaseServiceKey;
-}
-
-export function createServer() {
 const fastify = Fastify({
   logger: true,
-});
-
-fastify.addContentTypeParser("text/plain", { parseAs: "string" }, (_request, body, done) => {
-  const text = String(body || "").trim();
-  if (!text) {
-    done(null, {});
-    return;
-  }
-  try {
-    done(null, JSON.parse(text));
-  } catch {
-    done(null, text);
-  }
-});
-
-fastify.addContentTypeParser("application/octet-stream", { parseAs: "string" }, (_request, body, done) => {
-  const text = String(body || "").trim();
-  if (!text) {
-    done(null, {});
-    return;
-  }
-  try {
-    done(null, JSON.parse(text));
-  } catch {
-    done(null, text);
-  }
-});
-
-fastify.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
-  const text = String(body || "").trim();
-  if (!text) {
-    done(null, {});
-    return;
-  }
-  try {
-    done(null, JSON.parse(text));
-  } catch {
-    done(null, text);
-  }
-});
-
-fastify.setErrorHandler((error, _request, reply) => {
-  const message = String(error.message || "Unexpected points service error.");
-  const lowerMessage = message.toLowerCase();
-  const statusCode = Number((error as Error & { statusCode?: number }).statusCode || 500);
-
-  if (error instanceof z.ZodError) {
-    reply.code(400).send({ ok: false, error: "Validation failed.", details: error.flatten() });
-    return;
-  }
-
-  if (lowerMessage.includes("not enough points") || lowerMessage.includes("insufficient")) {
-    reply.code(409).send({ ok: false, code: "INSUFFICIENT_POINTS", error: "Insufficient points balance." });
-    return;
-  }
-
-  if (lowerMessage.includes("member not found")) {
-    reply.code(404).send({ ok: false, code: "MEMBER_NOT_FOUND", error: "Member not found." });
-    return;
-  }
-
-  if (statusCode === 409) {
-    reply.code(409).send({ ok: false, code: (error as Error & { code?: string }).code || "CONFLICT", error: message });
-    return;
-  }
-
-  reply.code(statusCode >= 400 && statusCode < 600 ? statusCode : 500).send({ ok: false, error: message });
 });
 
 const awardSchema = z.object({
@@ -123,21 +35,63 @@ const redeemSchema = z.object({
   promotionCampaignId: z.string().trim().max(80).nullable().optional(),
 });
 
-fastify.post("/points/award", async (request) => {
+const activityQuerySchema = z.object({
+  memberIdentifier: z.string().trim().min(1).max(120),
+  fallbackEmail: z.string().trim().email().optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(500),
+});
+
+const ledgerQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(5000).default(1000),
+});
+
+const tierRulesSchema = z.object({
+  rules: z.array(
+    z.object({
+      tier_label: z.string().trim().min(1).max(40),
+      min_points: z.coerce.number().int().min(0),
+      is_active: z.boolean().optional(),
+    }),
+  ),
+});
+
+const earningRulesSchema = z.object({
+  rules: z.array(
+    z.object({
+      tier_label: z.string().trim().min(1).max(40),
+      peso_per_point: z.coerce.number().min(0.01),
+      multiplier: z.coerce.number().min(0.01),
+      is_active: z.boolean().optional(),
+    }),
+  ),
+});
+
+function mapLedgerRow(row: Record<string, any>) {
+  return {
+    id: row.id,
+    member_id: row.member_id,
+    transaction_id: row.id,
+    transaction_type: row.change_type,
+    points: Number(row.points_delta || 0),
+    balance: row.balance_after === null || row.balance_after === undefined ? null : Number(row.balance_after),
+    transaction_date: row.created_at,
+    expiry_date: row.expiry_date ?? null,
+    reason: row.reason ?? "",
+    reward_catalog_id: row.reward_catalog_id ?? null,
+    promotion_campaign_id: row.promotion_campaign_id ?? null,
+  };
+}
+
+fastify.post("/points/award", async (request, reply) => {
   const parsed = awardSchema.parse(request.body);
   const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
-  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
 
   if (idempotencyKey) {
     const existing = await checkIdempotency("/points/award", idempotencyKey, parsed);
     if (existing) return existing.response;
   }
 
-  const result = await awardPoints(repo, parsed).catch((error) => {
-    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
-    request.log.warn({ err: error }, "Using local points fallback for award.");
-    return awardPoints(memoryRepo, parsed);
-  });
+  const result = await awardPoints(supabaseRepo, parsed);
   const response = { ok: true, result };
 
   if (idempotencyKey) {
@@ -147,10 +101,9 @@ fastify.post("/points/award", async (request) => {
   return response;
 });
 
-fastify.post("/points/redeem", async (request) => {
+fastify.post("/points/redeem", async (request, reply) => {
   const parsed = redeemSchema.parse(request.body);
   const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
-  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
 
   if (idempotencyKey) {
     const existing = await checkIdempotency("/points/redeem", idempotencyKey, parsed);
@@ -158,11 +111,7 @@ fastify.post("/points/redeem", async (request) => {
   }
 
   const normalized = { ...parsed, rewardCatalogId: parsed.rewardCatalogId ?? undefined };
-  const result = await redeemPoints(repo, normalized).catch((error) => {
-    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
-    request.log.warn({ err: error }, "Using local points fallback for redemption.");
-    return redeemPoints(memoryRepo, normalized);
-  });
+  const result = await redeemPoints(supabaseRepo, normalized);
   const response = { ok: true, result };
 
   if (idempotencyKey) {
@@ -173,36 +122,155 @@ fastify.post("/points/redeem", async (request) => {
 });
 
 fastify.post("/points/expiry/run", async () => {
-  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
-  const result = await runExpiry(repo).catch((error) => {
-    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
-    return runExpiry(memoryRepo);
-  });
+  const result = await runExpiry(supabaseRepo);
   return { ok: true, result };
 });
 
 fastify.get("/points/tiers", async () => {
-  const repo = useMemoryPrimary() ? memoryRepo : supabaseRepo;
-  const rules = await repo.fetchTierRules().catch((error) => {
-    if (repo === memoryRepo || !canUseLocalFallback(error)) throw error;
-    return memoryRepo.fetchTierRules();
-  });
+  const rules = await supabaseRepo.fetchTierRules();
   return { ok: true, tiers: rules };
 });
 
-fastify.get("/health", async () => ({ ok: true }));
+fastify.put("/points/tiers", async (request) => {
+  const parsed = tierRulesSchema.parse(request.body);
+  const rows = parsed.rules.map((rule) => ({
+    tier_label: rule.tier_label,
+    min_points: Math.max(0, Math.floor(Number(rule.min_points) || 0)),
+    is_active: rule.is_active ?? true,
+  }));
 
-return fastify;
-}
+  const { error } = await supabase.from("points_tiers").upsert(rows, { onConflict: "tier_label" });
+  if (error) throw error;
 
-function isEntrypoint() {
-  return process.argv[1] ? path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]) : false;
-}
+  return { ok: true, tiers: rows };
+});
 
-if (isEntrypoint()) {
-const fastify = createServer();
+fastify.get("/points/earning-rules", async () => {
+  const { data, error } = await supabase
+    .from("earning_rules")
+    .select("tier_label,peso_per_point,multiplier,is_active,effective_at")
+    .eq("is_active", true)
+    .order("effective_at", { ascending: false });
+
+  if (error) throw error;
+  return { ok: true, earningRules: data || [] };
+});
+
+fastify.put("/points/earning-rules", async (request) => {
+  const parsed = earningRulesSchema.parse(request.body);
+
+  for (const rule of parsed.rules) {
+    const tier = rule.tier_label.trim();
+    const { error: deactivateError } = await supabase
+      .from("earning_rules")
+      .update({ is_active: false })
+      .eq("tier_label", tier)
+      .eq("is_active", true);
+    if (deactivateError) throw deactivateError;
+
+    const { error: insertError } = await supabase.from("earning_rules").insert({
+      tier_label: tier,
+      peso_per_point: Math.max(0.01, Number(rule.peso_per_point) || 10),
+      multiplier: Math.max(0.01, Number(rule.multiplier) || 1),
+      is_active: rule.is_active ?? true,
+      effective_at: new Date().toISOString(),
+    });
+    if (insertError) throw insertError;
+  }
+
+  return { ok: true };
+});
+
+fastify.get("/points/earn-tasks", async () => {
+  const { data, error } = await supabase
+    .from("earn_tasks")
+    .select("*")
+    .eq("is_active", true)
+    .order("points", { ascending: false });
+
+  if (error) throw error;
+  return { ok: true, earnTasks: data || [] };
+});
+
+fastify.get("/points/activity", async (request, reply) => {
+  const query = activityQuerySchema.parse(request.query);
+  const member = await supabaseRepo.findMember(query.memberIdentifier, query.fallbackEmail);
+  if (!member) {
+    reply.code(404).send({ ok: false, error: "member_not_found" });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("points_ledger")
+    .select(
+      "id,member_id,change_type,points_delta,balance_after,reason,reward_catalog_id,promotion_campaign_id,expiry_date,created_at",
+    )
+    .eq("member_id", member.id)
+    .order("created_at", { ascending: false })
+    .limit(query.limit);
+
+  if (error) throw error;
+
+  return {
+    ok: true,
+    balance: {
+      member_id: member.member_number ?? query.memberIdentifier,
+      points_balance: member.points_balance,
+      tier: member.tier ?? "Bronze",
+    },
+    history: (data || []).map((row) => mapLedgerRow(row as Record<string, any>)),
+  };
+});
+
+fastify.get("/points/ledger", async (request) => {
+  const query = ledgerQuerySchema.parse(request.query);
+  const { data, error } = await supabase
+    .from("points_ledger")
+    .select(
+      "id,member_id,change_type,points_delta,balance_after,reason,reward_catalog_id,promotion_campaign_id,expiry_date,created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(query.limit);
+
+  if (error) throw error;
+
+  return {
+    ok: true,
+    transactions: (data || []).map((row) => mapLedgerRow(row as Record<string, any>)),
+  };
+});
+
+fastify.get("/health", async () => ({
+  status: "ok",
+  service: config.serviceName,
+  dbMode: config.dbMode,
+  schema: config.schema,
+}));
+
+fastify.get("/health/db", async (_request, reply) => {
+  const { supabase } = await import("./supabase-client.js");
+  const { error } = await supabase.from("points_ledger").select("id").limit(1);
+  if (error) {
+    reply.code(503).send({
+      status: "error",
+      service: config.serviceName,
+      dbMode: config.dbMode,
+      schema: config.schema,
+      database: { connected: false, check: "points_ledger" },
+    });
+    return;
+  }
+
+  return {
+    status: "ok",
+    service: config.serviceName,
+    dbMode: config.dbMode,
+    schema: config.schema,
+    database: { connected: true, check: "points_ledger" },
+  };
+});
+
 fastify.listen({ host: "0.0.0.0", port: config.port }).catch((err) => {
   fastify.log.error(err);
   process.exit(1);
 });
-}

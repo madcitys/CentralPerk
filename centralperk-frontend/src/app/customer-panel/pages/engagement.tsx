@@ -1,10 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router-dom";
-import { Award, Download, Facebook, Instagram, Share2, Star, Trophy } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
+import QRCode from "qrcode";
+import {
+  ArrowRight,
+  Award,
+  BadgeCheck,
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardCheck,
+  Copy,
+  Gift,
+  HeartPulse,
+  Lock,
+  MessageSquareText,
+  Pill,
+  QrCode,
+  Send,
+  Share2,
+  ShieldPlus,
+  Sparkles,
+  Star,
+  Target,
+  Trophy,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Card } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { Card } from "../../../components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -18,57 +43,46 @@ import { Label } from "../../../components/ui/label";
 import { Progress } from "../../../components/ui/progress";
 import { Textarea } from "../../../components/ui/textarea";
 import type { AppOutletContext } from "../../types/app-context";
-import { awardMemberPoints } from "../../lib/loyalty-supabase";
-import { supabase } from "../../../utils/supabase/client";
-import type { LoyaltyTransaction, Member } from "../../admin-panel/types";
+import { awardPointsViaApi } from "../../lib/api";
+import {
+  getChallengeProgress,
+  loadChallengeDefinitions,
+  loadMemberPrivacySettings,
+  loadSocialShareEvents,
+  loadSurveyDefinitions,
+  recordSocialShareEvent,
+  saveMemberPrivacySettings,
+  submitSurveyResponseRecord,
+  type ChallengeDefinition,
+  type ShareEvent,
+  type SharePrivacySettings,
+  type SurveyDefinition,
+} from "../../lib/member-engagement";
 import {
   claimBirthdayReward,
   createReferral,
-  getMemberReferralCode,
   getBirthdayRewardPoints,
+  getMemberReferralCode,
   hasBirthdayClaimedThisYear,
   isBirthdayMonth,
-  loadBirthdayRewardSettings,
+  loadBirthdayRewardSettingsFromApi,
   loadBirthdayRewardStatus,
   loadReferrals,
   queueManagerFeedbackNotification,
   shouldAutoCreditBirthdayReward,
   submitFeedback,
+  type BirthdayRewardSettings,
   type ReferralRecord,
 } from "../../lib/member-lifecycle";
-import {
-  buildShareAssetDataUrl,
-  deleteSurveyResponseRecord,
-  getChallengeLeaderboard,
-  getChallengeProgress,
-  getMemberPrivacySettings,
-  incrementSocialShareConversion,
-  loadChallengeDefinitions,
-  loadChallengeLeaderboard as loadChallengeLeaderboardFromDb,
-  loadChallengeProgressByMember,
-  loadEngagementState,
-  loadSurveyDefinitions,
-  loadSocialShareEvents,
-  recordSocialShareEvent,
-  saveEngagementState,
-  submitSurveyResponseRecord,
-  triggerImageDownload,
-  type ShareEvent,
-  type ChallengeLeaderboardEntry,
-  type ChallengeProgressSnapshot,
-  type EngagementState,
-  type SharePrivacySettings,
-  type SocialChannel,
-} from "../../lib/member-engagement";
-import {
-  customerEyebrowClass,
-  customerPageDescriptionClass,
-  customerPageHeroClass,
-  customerPageHeroInnerClass,
-  customerPageTitleClass,
-} from "../lib/page-theme";
 
 type EngagementTab = "overview" | "rewards" | "challenges" | "sharing" | "surveys";
+
+type BirthdayStatus = {
+  hasReward: boolean;
+  voucherCode: string | null;
+  pointsAwarded: number;
+  badgeLabel: string | null;
+};
 
 const engagementTabs: { value: EngagementTab; label: string; hash: string }[] = [
   { value: "overview", label: "Overview", hash: "#engagement-overview" },
@@ -78,473 +92,354 @@ const engagementTabs: { value: EngagementTab; label: string; hash: string }[] = 
   { value: "surveys", label: "Surveys", hash: "#engagement-surveys" },
 ];
 
+const defaultBirthdaySettings: BirthdayRewardSettings = {
+  amounts: { Bronze: 100, Silver: 500, Gold: 1000 },
+  releaseTiming: "first_day_of_birthday_month",
+  fulfillmentMode: "auto_credit",
+  claimWindow: "birthday_month_only",
+};
+
+const defaultPrivacySettings: SharePrivacySettings = {
+  showName: true,
+  showReferralCode: true,
+  publicProfile: true,
+};
+
+function resolveInitialEngagementTab(): EngagementTab {
+  if (typeof window === "undefined") return "overview";
+  const hash = window.location.hash;
+  return engagementTabs.find((tab) => tab.hash === hash)?.value ?? "overview";
+}
+
+function numberFormat(value: number) {
+  return Math.max(0, Math.floor(Number(value) || 0)).toLocaleString();
+}
+
+function dateLabel(value?: string | null) {
+  if (!value) return "Ongoing";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Ongoing";
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function isLiveChallenge(challenge: ChallengeDefinition) {
+  const now = Date.now();
+  const start = new Date(challenge.startAt).getTime();
+  const end = new Date(challenge.endAt).getTime();
+  return (Number.isNaN(start) || start <= now) && (Number.isNaN(end) || end >= now);
+}
+
+function challengeIcon(challenge: ChallengeDefinition): LucideIcon {
+  if (challenge.type === "survey-completion") return ClipboardCheck;
+  if (challenge.type === "points-earned") return Trophy;
+  return HeartPulse;
+}
+
+function statusPillClass(status: "available" | "complete" | "locked" | "active") {
+  if (status === "complete") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "locked") return "bg-slate-100 text-slate-600 border-slate-200";
+  if (status === "active") return "bg-blue-50 text-blue-700 border-blue-200";
+  return "bg-teal-50 text-teal-700 border-teal-200";
+}
+
+function EngagementHeroArt() {
+  return (
+    <div className="relative hidden min-h-[120px] overflow-hidden rounded-3xl bg-[linear-gradient(135deg,#e9f8ff,#f8fcff)] p-5 lg:block">
+      <div className="absolute -right-8 -top-10 h-36 w-36 rounded-full bg-cyan-100/70" />
+      <div className="absolute bottom-4 right-10 h-16 w-28 rounded-2xl bg-[#03a6b0] shadow-lg" />
+      <div className="absolute bottom-14 right-[68px] h-8 w-20 rounded-xl bg-[#0d3d64]" />
+      <div className="absolute bottom-9 right-[72px] h-14 w-4 rounded-full bg-cyan-300" />
+      <Gift className="absolute bottom-7 right-[92px] h-10 w-10 text-white" />
+      <ShieldPlus className="absolute bottom-8 right-[156px] h-12 w-12 rounded-2xl bg-white p-2 text-[#03a6b0] shadow" />
+      <Sparkles className="absolute right-8 top-8 h-5 w-5 text-sky-400" />
+    </div>
+  );
+}
+
+function SectionCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <Card className={`border-[#dce7f3] bg-white shadow-[0_10px_24px_rgba(15,35,60,0.05)] ${className}`}>
+      {children}
+    </Card>
+  );
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  accent = "teal",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  detail: string;
+  accent?: "teal" | "blue" | "purple" | "green";
+}) {
+  const accentClass =
+    accent === "purple"
+      ? "bg-violet-50 text-violet-700"
+      : accent === "blue"
+        ? "bg-blue-50 text-blue-700"
+        : accent === "green"
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-cyan-50 text-[#008d97]";
+
+  return (
+    <SectionCard className="p-5">
+      <div className="flex items-center gap-4">
+        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${accentClass}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#64748b]">{label}</p>
+          <p className="mt-1 text-2xl font-bold text-[#10213a]">{value}</p>
+          <p className="text-xs text-[#667085]">{detail}</p>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  body,
+  actionLabel,
+  onAction,
+}: {
+  icon: LucideIcon;
+  title: string;
+  body: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#c8d8eb] bg-[#f8fbff] p-6 text-center">
+      <Icon className="mx-auto h-9 w-9 text-[#008d97]" />
+      <p className="mt-3 text-sm font-semibold text-[#10213a]">{title}</p>
+      <p className="mt-1 text-sm text-[#667085]">{body}</p>
+      {actionLabel && onAction ? (
+        <Button className="mt-4 bg-[#008d97] text-white hover:bg-[#007982]" onClick={onAction}>
+          {actionLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CustomerEngagementPage() {
   const { user, refreshUser, setUser } = useOutletContext<AppOutletContext>();
-  const [activeTab, setActiveTab] = useState<EngagementTab>("overview");
-  const [state, setState] = useState<EngagementState>(() => loadEngagementState());
-  const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const [selectedAchievement, setSelectedAchievement] = useState("Tier upgrade unlocked");
-  const [birthdaySettings] = useState(() => loadBirthdayRewardSettings());
-  const [surveyAnswers, setSurveyAnswers] = useState<Record<string, Record<string, string>>>({});
-  const [submittingSurveyId, setSubmittingSurveyId] = useState<string | null>(null);
-  const [claimingChallengeId, setClaimingChallengeId] = useState<string | null>(null);
-  const [referralEmail, setReferralEmail] = useState("");
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<EngagementTab>(resolveInitialEngagementTab);
+  const [challenges, setChallenges] = useState<ChallengeDefinition[]>([]);
+  const [surveys, setSurveys] = useState<SurveyDefinition[]>([]);
+  const [shareEvents, setShareEvents] = useState<ShareEvent[]>([]);
+  const [referrals, setReferrals] = useState<ReferralRecord[]>([]);
   const [referralCode, setReferralCode] = useState("");
-  const [myReferrals, setMyReferrals] = useState<ReferralRecord[]>([]);
-  const [birthdayStatus, setBirthdayStatus] = useState<{ hasReward: boolean; voucherCode: string | null; pointsAwarded: number; badgeLabel: string | null; voucherExpiresAt?: string }>({
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [birthdaySettings, setBirthdaySettings] = useState<BirthdayRewardSettings>(defaultBirthdaySettings);
+  const [birthdayStatus, setBirthdayStatus] = useState<BirthdayStatus>({
     hasReward: false,
     voucherCode: null,
     pointsAwarded: 0,
     badgeLabel: null,
   });
-  const [completedSurveyIds, setCompletedSurveyIds] = useState<string[]>([]);
+  const [privacySettings, setPrivacySettings] = useState<SharePrivacySettings>(defaultPrivacySettings);
+  const [showTier, setShowTier] = useState(true);
+  const [selectedAchievement, setSelectedAchievement] = useState("Shared a wellness rewards update");
+  const [shareCaption, setShareCaption] = useState("");
+  const [referralEmail, setReferralEmail] = useState("");
   const [feedbackCategory, setFeedbackCategory] = useState<"points" | "rewards" | "service" | "app">("service");
   const [feedbackRating, setFeedbackRating] = useState<1 | 2 | 3 | 4 | 5>(5);
   const [feedbackComment, setFeedbackComment] = useState("");
   const [feedbackContactOptIn, setFeedbackContactOptIn] = useState(false);
   const [feedbackContactInfo, setFeedbackContactInfo] = useState("");
-  const [shareSheetOpen, setShareSheetOpen] = useState(false);
-  const [leaderboardMembers, setLeaderboardMembers] = useState<Member[]>([]);
-  const [leaderboardTransactions, setLeaderboardTransactions] = useState<LoyaltyTransaction[]>([]);
-  const [challengeProgressMap, setChallengeProgressMap] = useState<Map<string, ChallengeProgressSnapshot>>(new Map());
-  const [dbChallengeLeaderboard, setDbChallengeLeaderboard] = useState<ChallengeLeaderboardEntry[]>([]);
-  const [dbShareEvents, setDbShareEvents] = useState<ShareEvent[]>([]);
-  const [shareEventsBackedByDb, setShareEventsBackedByDb] = useState(false);
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
+  const [surveyAnswers, setSurveyAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [completedSurveyIds, setCompletedSurveyIds] = useState<string[]>([]);
+  const [submittingSurveyId, setSubmittingSurveyId] = useState<string | null>(null);
+  const [loadingError, setLoadingError] = useState(false);
 
   useEffect(() => {
-    saveEngagementState(state);
-  }, [state]);
-
-  useEffect(() => {
-    let alive = true;
-    loadChallengeDefinitions()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, challenges: rows }));
-      })
-      .catch(() => {
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadSurveyDefinitions()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, surveys: rows }));
-      })
-      .catch(() => {
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => setCountdownNow(Date.now()), 1000);
-    return () => window.clearInterval(intervalId);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    const matchedTab = engagementTabs.find((tab) => tab.hash === hash);
-    if (matchedTab) {
-      setActiveTab(matchedTab.value);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     const current = engagementTabs.find((tab) => tab.value === activeTab);
-    if (!current) return;
-    const nextUrl = `${window.location.pathname}${window.location.search}${current.hash}`;
-    window.history.replaceState(null, "", nextUrl);
+    if (!current || typeof window === "undefined") return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${current.hash}`);
   }, [activeTab]);
 
-  const privacySettings = useMemo<SharePrivacySettings>(
-    () => getMemberPrivacySettings(state, user.memberId),
-    [state, user.memberId]
-  );
-  useEffect(() => {
-    getMemberReferralCode(user.memberId, user.email)
-      .then(setReferralCode)
-      .catch(() => setReferralCode(""));
-    loadReferrals(user.memberId)
-      .then(setMyReferrals)
-      .catch(() => setMyReferrals([]));
-    loadBirthdayRewardStatus(user.memberId, user.email)
-      .then(setBirthdayStatus)
-      .catch(() => setBirthdayStatus({ hasReward: false, voucherCode: null, pointsAwarded: 0, badgeLabel: null }));
-  }, [user.memberId, user.email]);
-
   useEffect(() => {
     let alive = true;
-    loadChallengeProgressByMember(user.memberId)
-      .then((rows) => {
-        if (alive) setChallengeProgressMap(rows);
-      })
-      .catch(() => {
-        if (alive) setChallengeProgressMap(new Map());
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [user.memberId]);
-
-  useEffect(() => {
-    let alive = true;
-    loadSocialShareEvents({ memberIdentifier: user.memberId })
-      .then((rows) => {
-        if (!alive) return;
-        setDbShareEvents(rows);
-        setShareEventsBackedByDb(true);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setDbShareEvents([]);
-        setShareEventsBackedByDb(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [user.memberId]);
-
-  useEffect(() => {
-    let alive = true;
+    setLoadingError(false);
 
     Promise.all([
-      supabase
-        .from("loyalty_members")
-        .select("member_id,id,member_number,first_name,last_name,email,phone,enrollment_date,points_balance,tier,last_activity_at"),
-      supabase
-        .from("loyalty_transactions")
-        .select("transaction_id,member_id,points,transaction_type,transaction_date,amount_spent,receipt_id,expiry_date,reward_catalog_id,promotion_campaign_id,product_code,product_category,reason,description"),
+      loadChallengeDefinitions(),
+      loadSurveyDefinitions(),
+      loadSocialShareEvents({ memberIdentifier: user.memberId }),
+      loadReferrals(user.memberId),
+      getMemberReferralCode(user.memberId, user.email),
+      loadBirthdayRewardSettingsFromApi(),
+      loadBirthdayRewardStatus(user.memberId, user.email),
+      loadMemberPrivacySettings(user.memberId),
     ])
-      .then(([membersRes, transactionsRes]) => {
+      .then(([challengeRows, surveyRows, shares, referralRows, code, settings, status, privacy]) => {
         if (!alive) return;
-        setLeaderboardMembers((membersRes.data as Member[] | null) ?? []);
-        setLeaderboardTransactions((transactionsRes.data as LoyaltyTransaction[] | null) ?? []);
+        setChallenges(challengeRows);
+        setSurveys(surveyRows);
+        setShareEvents(shares);
+        setReferrals(referralRows);
+        setReferralCode(code);
+        setBirthdaySettings(settings);
+        setBirthdayStatus(status);
+        setPrivacySettings(privacy);
       })
-      .catch(() => {
-        if (!alive) return;
-        setLeaderboardMembers([]);
-        setLeaderboardTransactions([]);
+      .catch((error) => {
+        console.error("Customer engagement data failed to load", error);
+        if (alive) setLoadingError(true);
       });
 
     return () => {
       alive = false;
     };
-  }, []);
-  const claimedChallenges = new Set(state.claimedChallengeRewardsByMember[user.memberId] ?? []);
-  const activeSurveys = state.surveys.filter((survey) => survey.status === "live");
-  const completedSurveyIdSet = useMemo(() => {
-    const completed = new Set(completedSurveyIds);
-    state.surveys.forEach((survey) => {
-      const hasResponseFromCurrentMember = survey.responses.some(
-        (response) => response.memberId === user.memberId || response.memberName === user.fullName
-      );
-      if (hasResponseFromCurrentMember) completed.add(survey.id);
-    });
-    return completed;
-  }, [completedSurveyIds, state.surveys, user.fullName, user.memberId]);
-  const memberShareEvents = shareEventsBackedByDb
-    ? dbShareEvents
-    : state.shareEvents.filter((item) => item.memberId === user.memberId);
-  const competitiveChallenge = state.challenges.find((challenge) => challenge.competitive);
-  const activeChallenges = state.challenges.filter((challenge) => new Date(challenge.endAt).getTime() > countdownNow);
-  const resolveChallengeProgress = (challenge: (typeof state.challenges)[number]) =>
-    challengeProgressMap.get(challenge.id) ?? getChallengeProgress(challenge, user);
-  const completedChallengesCount = activeChallenges.filter((challenge) => resolveChallengeProgress(challenge).completed).length;
-  const nextChallenge = activeChallenges
-    .map((challenge) => ({ challenge, progress: resolveChallengeProgress(challenge) }))
-    .sort((left, right) => right.progress.percent - left.progress.percent)[0];
-  const recentShare = memberShareEvents[0];
+  }, [user.email, user.memberId]);
+
+  const referralLink = useMemo(() => {
+    if (!referralCode || typeof window === "undefined") return "";
+    return `${window.location.origin}/register?ref=${encodeURIComponent(referralCode)}`;
+  }, [referralCode]);
 
   useEffect(() => {
-    let alive = true;
-    if (!competitiveChallenge) {
-      setDbChallengeLeaderboard([]);
-      return () => {
-        alive = false;
-      };
+    if (!referralLink) {
+      setQrDataUrl("");
+      return;
     }
-
-    loadChallengeLeaderboardFromDb(competitiveChallenge.id)
-      .then((rows) => {
-        if (alive) setDbChallengeLeaderboard(rows);
+    let alive = true;
+    QRCode.toDataURL(referralLink, { margin: 1, width: 176 })
+      .then((url) => {
+        if (alive) setQrDataUrl(url);
       })
       .catch(() => {
-        if (alive) setDbChallengeLeaderboard([]);
+        if (alive) setQrDataUrl("");
       });
-
     return () => {
       alive = false;
     };
-  }, [competitiveChallenge?.id]);
+  }, [referralLink]);
 
-  const challengeLeaderboard = useMemo(
-    () =>
-      dbChallengeLeaderboard.length > 0
-        ? dbChallengeLeaderboard
-        : competitiveChallenge
-          ? getChallengeLeaderboard(competitiveChallenge, leaderboardMembers, leaderboardTransactions)
-          : [],
-    [competitiveChallenge, dbChallengeLeaderboard, leaderboardMembers, leaderboardTransactions]
-  );
-  const highlightedLeaderboard = useMemo(() => {
-    const topRows = challengeLeaderboard.slice(0, 5);
-    const currentMemberRow = challengeLeaderboard.find((row) => row.memberId === user.memberId);
-    if (!currentMemberRow || topRows.some((row) => row.memberId === currentMemberRow.memberId)) {
-      return topRows;
-    }
-    return [...topRows, currentMemberRow];
-  }, [challengeLeaderboard, user.memberId]);
-  const currentMemberRank = useMemo(() => {
-    const index = challengeLeaderboard.findIndex((row) => row.memberId === user.memberId);
-    return index >= 0 ? index + 1 : null;
-  }, [challengeLeaderboard, user.memberId]);
-  const shareBadgeLabel = useMemo(() => {
-    if (currentMemberRank === 1) return "Champion Circle";
-    if (currentMemberRank === 2) return "Silver Spotlight";
-    if (currentMemberRank === 3) return "Bronze Breakout";
-    if (user.tier === "Gold") return "Gold Status";
-    if (user.tier === "Silver") return "Silver Momentum";
-    return "Bronze Builder";
-  }, [currentMemberRank, user.tier]);
-  const sharePreview = useMemo(
-    () =>
-      buildShareAssetDataUrl({
-        memberName: user.fullName,
-        tier: user.tier,
-        achievement: selectedAchievement,
-        referralCode,
-        badgeLabel: shareBadgeLabel,
-        ranking: currentMemberRank,
-        privacy: privacySettings,
-      }),
-    [currentMemberRank, privacySettings, referralCode, selectedAchievement, shareBadgeLabel, user.fullName, user.tier]
-  );
-
-  const formatTimeRemaining = (targetDate: string) => {
-    const diffMs = new Date(targetDate).getTime() - countdownNow;
-    if (diffMs <= 0) return "Ended";
-
-    const totalSeconds = Math.floor(diffMs / 1000);
-    const days = Math.floor(totalSeconds / 86400);
-    const hours = Math.floor((totalSeconds % 86400) / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s remaining`;
-    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s remaining`;
-    return `${minutes}m ${seconds}s remaining`;
-  };
-
-  const updatePrivacy = (patch: Partial<SharePrivacySettings>) => {
-    setState((prev) => ({
-      ...prev,
-      privacySettingsByMember: {
-        ...prev.privacySettingsByMember,
-        [user.memberId]: {
-          ...getMemberPrivacySettings(prev, user.memberId),
-          ...patch,
-        },
-      },
-    }));
-  };
-
-  const handleShare = async (channel: SocialChannel) => {
-    setShareSheetOpen(false);
-    try {
-      if (channel === "facebook") {
-        const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent("https://centralperk.example/member")}&quote=${encodeURIComponent(`${selectedAchievement} | Referral code: ${referralCode}`)}`;
-        const popup = window.open(shareUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          throw new Error("Facebook share popup was blocked. Allow popups and try again.");
-        }
-      } else {
-        await triggerImageDownload(sharePreview, `centralperk-${user.memberId}-story-card.png`);
-        toast.success("Instagram share asset downloaded.", {
-          description: "Upload the generated image to your story or post.",
-        });
-      }
-
-      const nextEvent: ShareEvent = {
-        id: crypto.randomUUID(),
-        memberId: user.memberId,
-        memberName: user.fullName,
-        tier: user.tier,
-        channel,
-        achievement: selectedAchievement,
-        referralCode,
-        conversions: 0,
-        createdAt: new Date().toISOString(),
-      };
-
-      setState((prev) => ({
-        ...prev,
-        shareEvents: [nextEvent, ...prev.shareEvents],
-      }));
-
-      const savedEvent = await recordSocialShareEvent({
-        memberIdentifier: user.memberId,
-        memberName: user.fullName,
-        tier: user.tier,
-        channel,
-        achievement: selectedAchievement,
-        referralCode,
-        badgeLabel: shareBadgeLabel,
-        shareText: shareMessage,
-        destinationUrl: referralLink,
-      });
-
-      if (savedEvent) {
-        setShareEventsBackedByDb(true);
-        setDbShareEvents((prev) => [savedEvent, ...prev.filter((item) => item.id !== savedEvent.id)]);
-        setState((prev) => ({
-          ...prev,
-          shareEvents: prev.shareEvents.map((item) => (item.id === nextEvent.id ? savedEvent : item)),
-        }));
-      }
-      toast.success(`Shared to ${channel === "facebook" ? "Facebook" : "Instagram"}.`);
-    } catch (error) {
-      console.error("Failed to complete social share flow", error);
-      toast.error(error instanceof Error ? error.message : "Failed to complete this share action.");
-    }
-  };
-
-  const handleMockConversion = async (shareId: string) => {
-    setState((prev) => ({
-      ...prev,
-      shareEvents: prev.shareEvents.map((item) =>
-        item.id === shareId ? { ...item, conversions: item.conversions + 1 } : item
-      ),
-    }));
-
-    setDbShareEvents((prev) =>
-      prev.map((item) => (item.id === shareId ? { ...item, conversions: item.conversions + 1 } : item))
+  const liveChallenges = useMemo(() => challenges.filter(isLiveChallenge), [challenges]);
+  const activeSurveys = useMemo(() => surveys.filter((survey) => survey.status === "live"), [surveys]);
+  const completedSurveyRecords = useMemo(() => {
+    return surveys.flatMap((survey) =>
+      survey.responses
+        .filter((response) => response.memberId === user.memberId || response.memberName === user.fullName)
+        .map((response) => ({ survey, response })),
     );
+  }, [surveys, user.fullName, user.memberId]);
+  const completedSurveyIdSet = useMemo(() => {
+    const set = new Set(completedSurveyIds);
+    completedSurveyRecords.forEach((row) => set.add(row.survey.id));
+    return set;
+  }, [completedSurveyIds, completedSurveyRecords]);
+  const referralJoins = referrals.filter((referral) => referral.status === "joined").length;
+  const completedChallenges = liveChallenges.filter((challenge) => getChallengeProgress(challenge, user).completed);
+  const availableChallengePoints = liveChallenges
+    .filter((challenge) => !getChallengeProgress(challenge, user).completed)
+    .reduce((sum, challenge) => sum + Math.max(0, Number(challenge.rewardPoints || 0)), 0);
+  const endingSoon = liveChallenges.filter((challenge) => {
+    const end = new Date(challenge.endAt).getTime();
+    return Number.isFinite(end) && end - Date.now() <= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+  const surveyPointsEarned = completedSurveyRecords.reduce((sum, row) => sum + Math.max(0, Number(row.survey.bonusPoints || 0)), 0);
+  const birthdayPoints = birthdayStatus.pointsAwarded || getBirthdayRewardPoints(user.tier);
 
-    try {
-      const updatedEvent = await incrementSocialShareConversion(shareId);
-      if (updatedEvent) {
-        setShareEventsBackedByDb(true);
-        setDbShareEvents((prev) =>
-          prev.map((item) =>
-            item.id === shareId
-              ? { ...item, conversions: updatedEvent.conversions }
-              : item
-          )
-        );
-        setState((prev) => ({
-          ...prev,
-          shareEvents: prev.shareEvents.map((item) =>
-            item.id === shareId ? { ...item, conversions: updatedEvent.conversions } : item
-          ),
-        }));
-      }
-    } catch (error) {
-      console.error("Failed to update social share conversion", error);
-      toast.error(error instanceof Error ? error.message : "Failed to update the tracked conversion count.");
-    }
-  };
-
-  const handleClaimChallenge = async (challengeId: string, rewardPoints: number, title: string) => {
-    try {
-      setClaimingChallengeId(challengeId);
-      await awardMemberPoints({
-        memberIdentifier: user.memberId,
-        fallbackEmail: user.email,
-        points: rewardPoints,
-        transactionType: "MANUAL_AWARD",
-        reason: `Challenge reward (${challengeId}): ${title}`,
-      });
-
-      setState((prev) => ({
-        ...prev,
-        claimedChallengeRewardsByMember: {
-          ...prev.claimedChallengeRewardsByMember,
-          [user.memberId]: [...new Set([...(prev.claimedChallengeRewardsByMember[user.memberId] ?? []), challengeId])],
+  const nextBestAction = useMemo(() => {
+    const openSurvey = activeSurveys.find((survey) => !completedSurveyIdSet.has(survey.id));
+    if (openSurvey) {
+      return {
+        title: "Answer today's survey",
+        body: `${openSurvey.bonusPoints} bonus points are available after submission.`,
+        actionLabel: "Start Survey",
+        action: () => {
+          setActiveTab("surveys");
+          setSelectedSurveyId(openSurvey.id);
         },
-      }));
-
-      await refreshUser({ force: true });
-      toast.success(`Challenge reward claimed. +${rewardPoints} points`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to claim challenge reward.");
-    } finally {
-      setClaimingChallengeId(null);
+      };
     }
+
+    if (!referralCode || referrals.length === 0) {
+      return {
+        title: "Invite a friend",
+        body: "Create a referral invite and track joins from your member hub.",
+        actionLabel: "Send Invite",
+        action: () => setActiveTab("rewards"),
+      };
+    }
+
+    const openChallenge = liveChallenges.find((challenge) => !getChallengeProgress(challenge, user).completed);
+    if (openChallenge) {
+      return {
+        title: "Continue challenge",
+        body: `${openChallenge.rewardPoints} points available in ${openChallenge.title}.`,
+        actionLabel: "View Challenges",
+        action: () => setActiveTab("challenges"),
+      };
+    }
+
+    return {
+      title: birthdayStatus.hasReward ? "Birthday perk recorded" : "Check birthday perk",
+      body: birthdayStatus.hasReward
+        ? `${birthdayPoints} birthday points are recorded for this year.`
+        : "Your yearly birthday benefit status is available here.",
+      actionLabel: "Check Status",
+      action: () => setActiveTab("rewards"),
+    };
+  }, [activeSurveys, birthdayPoints, birthdayStatus.hasReward, completedSurveyIdSet, liveChallenges, referralCode, referrals.length, user]);
+
+  const selectedSurvey = selectedSurveyId ? surveys.find((survey) => survey.id === selectedSurveyId) ?? null : null;
+  const shareMessage =
+    shareCaption.trim() ||
+    `${privacySettings.showName ? user.fullName : "A PharmaRewards member"} is earning pharmacy rewards. Use referral code ${privacySettings.showReferralCode ? referralCode || "pending" : "hidden"}.`;
+
+  const copyText = async (value: string, success: string) => {
+    if (!value) {
+      toast.error("Nothing to copy yet.");
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+    toast.success(success);
   };
 
-
-
-  const handleCreateReferral = () => {
-    const email = referralEmail.trim().toLowerCase();
-    if (!email || !email.includes("@")) {
-      toast.error("Enter a valid friend email.");
-      return;
-    }
-
-    createReferral({
-      referrerMemberId: user.memberId,
-      refereeEmail: email,
-    })
-      .then(() => loadReferrals(user.memberId))
-      .then((rows) => {
-        setMyReferrals(rows);
-        setReferralEmail("");
-        toast.success("Referral created. Share your code via SMS, email, or QR flow.");
-      })
-      .catch((error) => toast.error(error instanceof Error ? error.message : "Failed to create referral."));
-  };
-
-  const handleBirthdayClaim = async () => {
-    if (birthdaySettings.fulfillmentMode === "auto_credit") {
-      await refreshUser({ force: true });
-      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
-      setBirthdayStatus(status);
-      toast.success(
-        status.hasReward
-          ? `Birthday reward already credited: +${status.pointsAwarded || getBirthdayRewardPoints(user.tier)} points.`
-          : "Birthday rewards are credited automatically once your schedule window starts."
-      );
-      return;
-    }
-    if (!isBirthdayMonth(user)) {
-      toast.error("Birthday rewards unlock on your birthday month.");
-      return;
-    }
-    const alreadyClaimed = await hasBirthdayClaimedThisYear(user.memberId, user.email);
-    if (alreadyClaimed) {
-      toast.error("Birthday reward already claimed this year.");
-      return;
-    }
+  const updatePrivacy = async (patch: Partial<SharePrivacySettings>) => {
+    const next = { ...privacySettings, ...patch };
+    setPrivacySettings(next);
     try {
-      const result = await claimBirthdayReward(user.memberId, user.email);
-      await refreshUser({ force: true });
-      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
-      setBirthdayStatus(status);
-      toast.success(
-        result.granted
-          ? `Birthday reward credited: +${result.pointsAwarded || getBirthdayRewardPoints(user.tier)} points.`
-          : "Birthday reward is already granted for this year."
-      );
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to claim birthday reward.");
+      await saveMemberPrivacySettings(user.memberId, next);
+    } catch {
+      toast.error("Sharing settings could not be saved.");
     }
   };
 
-  const referralLink = referralCode ? `${window.location.origin}/register?ref=${encodeURIComponent(referralCode)}` : "";
-  const shareMessage = `${selectedAchievement} | Referral code: ${referralCode || "pending"} | Join here: ${referralLink || "link pending"}`;
+  const refreshReferralRows = async () => {
+    const rows = await loadReferrals(user.memberId);
+    setReferrals(rows);
+  };
+
+  const handleCreateReferral = async () => {
+    const email = referralEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Friend email is required.");
+      return;
+    }
+
+    try {
+      await createReferral({ referrerMemberId: user.memberId, refereeEmail: email });
+      await refreshReferralRows();
+      setReferralEmail("");
+      toast.success("Referral created.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Referral could not be created.");
+    }
+  };
 
   const handleFeedbackSubmit = async () => {
     const comment = feedbackComment.trim();
@@ -553,7 +448,7 @@ export default function CustomerEngagementPage() {
       return;
     }
     if (comment.length > 500) {
-      toast.error("Feedback must be 500 characters or less.");
+      toast.error("Feedback comment must be 500 characters or less.");
       return;
     }
 
@@ -567,19 +462,73 @@ export default function CustomerEngagementPage() {
         contactOptIn: feedbackContactOptIn,
         contactInfo: feedbackContactInfo.trim() || null,
       });
-      try {
-        await queueManagerFeedbackNotification(saved);
-      } catch {
-      }
+      await queueManagerFeedbackNotification(saved);
+      setFeedbackComment("");
+      setFeedbackContactOptIn(false);
+      setFeedbackContactInfo("");
+      toast.success("Feedback submitted.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to submit feedback.");
-      return;
+      toast.error(error instanceof Error ? error.message : "Feedback could not be submitted.");
     }
+  };
 
-    setFeedbackComment("");
-    setFeedbackContactOptIn(false);
-    setFeedbackContactInfo("");
-    toast.success("Feedback submitted. Thank you!");
+  const handleBirthdayClaim = async () => {
+    try {
+      if (birthdaySettings.fulfillmentMode === "manual_claim") {
+        if (!isBirthdayMonth(user)) {
+          toast.error("Birthday rewards unlock during your birthday month.");
+          return;
+        }
+        if (await hasBirthdayClaimedThisYear(user.memberId, user.email)) {
+          toast.error("Birthday reward already claimed this year.");
+          return;
+        }
+        await claimBirthdayReward(user.memberId, user.email);
+      } else if (!shouldAutoCreditBirthdayReward(user, birthdaySettings)) {
+        toast.error("Birthday reward is not available yet.");
+        return;
+      }
+
+      await refreshUser();
+      const status = await loadBirthdayRewardStatus(user.memberId, user.email);
+      setBirthdayStatus(status);
+      toast.success("Birthday reward status updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Birthday reward could not be checked.");
+    }
+  };
+
+  const handleShare = async () => {
+    const payload = {
+      title: "PharmaRewards",
+      text: shareMessage,
+      url: referralLink || window.location.origin,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(payload);
+      } else {
+        await navigator.clipboard.writeText(`${payload.text} ${payload.url}`);
+        toast.success("Share text copied.");
+      }
+
+      const savedEvent = await recordSocialShareEvent({
+        memberIdentifier: user.memberId,
+        memberName: user.fullName,
+        tier: user.tier,
+        channel: "facebook",
+        achievement: selectedAchievement,
+        referralCode,
+        badgeLabel: user.tier,
+        shareText: shareMessage,
+        destinationUrl: referralLink,
+      });
+      if (savedEvent) setShareEvents((prev) => [savedEvent, ...prev.filter((event) => event.id !== savedEvent.id)]);
+      toast.success("Share tracked.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Share could not be completed.");
+    }
   };
 
   const handleSurveyAnswerChange = (surveyId: string, questionId: string, value: string) => {
@@ -592,803 +541,759 @@ export default function CustomerEngagementPage() {
     }));
   };
 
-  const handleSubmitSurvey = async (surveyId: string) => {
-    const survey = state.surveys.find((item) => item.id === surveyId);
-    if (!survey) return;
-
-    const answers = surveyAnswers[surveyId] ?? {};
-    const missing = survey.questions.some((question) => !String(answers[question.id] ?? "").trim());
-    if (missing) {
+  const handleSubmitSurvey = async () => {
+    if (!selectedSurvey) return;
+    const answers = surveyAnswers[selectedSurvey.id] ?? {};
+    const missingAnswer = selectedSurvey.questions.some((question) => !String(answers[question.id] || "").trim());
+    if (missingAnswer) {
       toast.error("Please complete every survey question.");
       return;
     }
-
-    const alreadySubmitted = completedSurveyIdSet.has(survey.id);
-    if (alreadySubmitted) {
+    if (completedSurveyIdSet.has(selectedSurvey.id)) {
       toast.error("You already completed this survey.");
       return;
     }
 
     try {
-      setSubmittingSurveyId(surveyId);
-      const savedResponse = await submitSurveyResponseRecord({
-        surveyId,
+      setSubmittingSurveyId(selectedSurvey.id);
+      const response = await submitSurveyResponseRecord({
+        surveyId: selectedSurvey.id,
         memberIdentifier: user.memberId,
         answers,
-        bonusPoints: survey.bonusPoints,
+        bonusPoints: selectedSurvey.bonusPoints,
+      });
+      await awardPointsViaApi({
+        memberIdentifier: user.memberId,
+        fallbackEmail: user.email,
+        points: selectedSurvey.bonusPoints,
+        transactionType: "MANUAL_AWARD",
+        reason: `Survey completion (${selectedSurvey.id}): ${selectedSurvey.title}`,
       });
 
-      try {
-        await awardMemberPoints({
-          memberIdentifier: user.memberId,
-          fallbackEmail: user.email,
-          points: survey.bonusPoints,
-          transactionType: "MANUAL_AWARD",
-          reason: `Survey completion (${surveyId}): ${survey.title}`,
-        });
-      } catch (awardError) {
-        if (savedResponse) {
-          await deleteSurveyResponseRecord(surveyId, user.memberId);
-        }
-        throw awardError;
-      }
-
-      setState((prev) => ({
-        ...prev,
-        surveys: prev.surveys.map((item) =>
-          item.id === surveyId
+      setSurveys((prev) =>
+        prev.map((survey) =>
+          survey.id === selectedSurvey.id
             ? {
-                ...item,
-                responses: [
-                  ...item.responses,
-                  savedResponse ?? {
-                    memberId: user.memberId,
-                    memberName: user.fullName,
-                    answers,
-                    submittedAt: new Date().toISOString(),
-                  },
-                ],
+                ...survey,
+                responses: [...survey.responses, response],
               }
-            : item
+            : survey,
         ),
-      }));
-      setCompletedSurveyIds((prev) => (prev.includes(surveyId) ? prev : [...prev, surveyId]));
+      );
+      setCompletedSurveyIds((prev) => (prev.includes(selectedSurvey.id) ? prev : [...prev, selectedSurvey.id]));
       setSurveyAnswers((prev) => {
         const next = { ...prev };
-        delete next[surveyId];
+        delete next[selectedSurvey.id];
         return next;
       });
-
       setUser((prev) => ({ ...prev, surveysCompleted: prev.surveysCompleted + 1 }));
-      await refreshUser({ force: true });
-      toast.success(`Survey submitted. +${survey.bonusPoints} points added.`);
+      await refreshUser();
+      setSelectedSurveyId(null);
+      toast.success(`Survey submitted. +${selectedSurvey.bonusPoints} points added.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to submit survey.");
+      toast.error(error instanceof Error ? error.message : "Survey could not be submitted.");
     } finally {
       setSubmittingSurveyId(null);
     }
   };
 
+  const goToChallengeAction = (challenge: ChallengeDefinition) => {
+    if (challenge.type === "survey-completion") {
+      setActiveTab("surveys");
+      return;
+    }
+    navigate("/customer/earn");
+  };
+
   return (
-    <div className="space-y-6">
-      <div className={customerPageHeroClass}>
-        <div className={customerPageHeroInnerClass}>
-          <div className={customerEyebrowClass}>Engagement Hub</div>
-          <h1 className={customerPageTitleClass}>Member Engagement</h1>
-          <p className={customerPageDescriptionClass}>Explore challenges, referrals, sharing, birthday perks, and surveys in a portal that now feels more consistent with the admin experience.</p>
+    <div className="mx-auto max-w-7xl space-y-5 pb-4">
+      <section className="grid gap-4 rounded-[24px] border border-[#b9d7f4] bg-[linear-gradient(135deg,#f8fcff,#edf7ff)] p-5 shadow-[0_12px_30px_rgba(15,35,60,0.06)] lg:grid-cols-[1fr_360px]">
+        <div>
+          <div className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">
+            Engagement Hub
+          </div>
+          <h1 className="mt-3 text-2xl font-bold text-[#10213a] md:text-[32px]">Member Engagement</h1>
+          <p className="mt-2 max-w-2xl text-sm text-[#344054] md:text-[15px]">
+            Join challenges, share referrals, answer surveys, and unlock member perks.
+          </p>
+        </div>
+        <EngagementHeroArt />
+      </section>
+
+      <div className="overflow-x-auto border-b border-[#dce7f3]">
+        <div className="flex min-w-max gap-6">
+          {engagementTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setActiveTab(tab.value)}
+              className={`border-b-2 px-1 py-3 text-sm font-semibold transition ${
+                activeTab === tab.value
+                  ? "border-[#008d97] text-[#008d97]"
+                  : "border-transparent text-[#475467] hover:text-[#10213a]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="overflow-x-auto pb-1">
-      <div className="inline-flex min-w-max items-center gap-1 rounded-full bg-[#eef3fb] p-1">
-        {engagementTabs.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setActiveTab(tab.value)}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-              activeTab === tab.value
-                ? "bg-white text-[#1A2B47] ring-2 ring-[#2b4468]"
-                : "bg-transparent text-gray-700 hover:bg-white/70"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      </div>
-
-      {activeTab === "overview" ? (
-      <div className="space-y-6">
-        <Card className="overflow-hidden border-[#9ed8ff] bg-gradient-to-br from-[#10213a] via-[#153457] to-[#00a3ad] p-6 text-white">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.24em] text-[#b9f6ff]">Engagement Hub</p>
-              <h2 className="mt-3 text-3xl font-bold">Keep members active, visible, and coming back.</h2>
-              <p className="mt-2 max-w-2xl text-sm text-[#ddfbff]">
-                Track your challenge streaks, share milestone cards, and unlock more value from surveys,
-                referrals, and birthday perks.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
-                  {activeChallenges.length} live challenges
-                </Badge>
-                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
-                  {activeSurveys.length} active surveys
-                </Badge>
-                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">
-                  {myReferrals.filter((referral) => referral.status === "joined").length} referral joins
-                </Badge>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[320px]">
-              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
-                <p className="text-[#b9f6ff]">Surveys done</p>
-                <p className="mt-1 text-2xl font-bold">{user.surveysCompleted}</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
-                <p className="text-[#b9f6ff]">Shares tracked</p>
-                <p className="mt-1 text-2xl font-bold">{memberShareEvents.length}</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
-                <p className="text-[#b9f6ff]">Challenges done</p>
-                <p className="mt-1 text-2xl font-bold">{completedChallengesCount}</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
-                <p className="text-[#b9f6ff]">Birthday perk</p>
-                <p className="mt-1 text-base font-bold">{birthdayStatus.hasReward ? "Claimed" : "Ready soon"}</p>
-              </div>
-            </div>
-          </div>
+      {loadingError ? (
+        <Card className="border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          Engagement data could not load. Please try again.
         </Card>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            <Card className="border-[#dce9f7] p-5">
-              <p className="text-sm font-medium text-gray-500">Referral conversions</p>
-              <p className="mt-3 text-3xl font-bold text-[#10213a]">
-                {myReferrals.filter((referral) => referral.status === "joined").length}
-              </p>
-              <p className="mt-2 text-sm text-gray-600">Friends who already joined using your code.</p>
-            </Card>
-            <Card className="border-[#dce9f7] p-5">
-              <p className="text-sm font-medium text-gray-500">Challenge completion</p>
-              <p className="mt-3 text-3xl font-bold text-[#10213a]">
-                {activeChallenges.length ? Math.round((completedChallengesCount / activeChallenges.length) * 100) : 0}%
-              </p>
-              <p className="mt-2 text-sm text-gray-600">How much of your live challenge board is already done.</p>
-            </Card>
-            <Card className="border-[#dce9f7] p-5">
-              <p className="text-sm font-medium text-gray-500">Survey momentum</p>
-              <p className="mt-3 text-3xl font-bold text-[#10213a]">{activeSurveys.length}</p>
-              <p className="mt-2 text-sm text-gray-600">Live feedback opportunities you can answer for bonus points.</p>
-            </Card>
-          </div>
-
-          <Card className="border-[#dce9f7] bg-[#f8fbff] p-5">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-[#5f6f86]">Next best move</p>
-            {nextChallenge ? (
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-semibold text-[#10213a]">{nextChallenge.challenge.title}</h3>
-                  <Badge className="bg-[#10213a] text-white">{nextChallenge.challenge.rewardPoints} pts</Badge>
-                </div>
-                <p className="text-sm text-gray-600">{nextChallenge.challenge.description}</p>
-                <Progress value={nextChallenge.progress.percent} className="h-2" />
-                <p className="text-sm text-[#1A2B47]">
-                  {nextChallenge.progress.current}/{nextChallenge.progress.target} {nextChallenge.challenge.unitLabel}
-                </p>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-dashed border-[#c8d8eb] bg-white p-4 text-sm text-gray-600">
-                No live challenge is available right now. Check the other tabs for surveys and referrals.
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card className="p-5">
-            <h3 className="text-lg font-semibold text-gray-900">Referral Snapshot</h3>
-            <p className="mt-1 text-sm text-gray-500">Bring in friends and grow your point balance faster.</p>
-            <div className="mt-4 rounded-2xl bg-[#f7fbff] p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Your code</p>
-              <p className="mt-2 text-2xl font-bold text-[#10213a]">{referralCode || "Loading..."}</p>
-            </div>
-            <p className="mt-4 text-sm text-gray-600">
-              {myReferrals.length} tracked referral{myReferrals.length === 1 ? "" : "s"} and{" "}
-              {myReferrals.filter((referral) => referral.status === "joined").length} completed join
-              {myReferrals.filter((referral) => referral.status === "joined").length === 1 ? "" : "s"}.
-            </p>
-          </Card>
-
-          <Card className="p-5">
-            <h3 className="text-lg font-semibold text-gray-900">Sharing Snapshot</h3>
-            <p className="mt-1 text-sm text-gray-500">See how your latest member moment is performing.</p>
-            {recentShare ? (
-              <div className="mt-4 rounded-2xl border border-gray-200 p-4">
-                <p className="font-medium text-[#10213a]">{recentShare.achievement}</p>
-                <p className="mt-2 text-sm text-gray-600">
-                  Shared on {recentShare.channel} with {recentShare.conversions} conversion
-                  {recentShare.conversions === 1 ? "" : "s"}.
-                </p>
-                <p className="mt-2 text-xs text-gray-500">{new Date(recentShare.createdAt).toLocaleString()}</p>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-600">
-                No shares yet. Create your first member moment in the Sharing tab.
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5">
-            <h3 className="text-lg font-semibold text-gray-900">Birthday Reward</h3>
-            <p className="mt-1 text-sm text-gray-500">A yearly surprise tied to your current tier.</p>
-            <div className="mt-4 rounded-2xl bg-[#fff8eb] p-4">
-              <p className="text-sm text-[#9a6700]">Current bonus</p>
-              <p className="mt-2 text-2xl font-bold text-[#7c4a00]">{getBirthdayRewardPoints(user.tier)} points</p>
-              <p className="mt-2 text-sm text-[#9a6700]">
-                {birthdayStatus.hasReward
-                  ? "Already credited this year."
-                  : birthdaySettings.fulfillmentMode === "auto_credit"
-                    ? "Auto-credited during your birthday schedule."
-                    : "Claimable during your birthday month."}
-              </p>
-            </div>
-          </Card>
-        </div>
-      </div>
       ) : null}
 
+      {activeTab === "overview" ? (
+        <div className="space-y-5">
+          <section className="rounded-[24px] bg-[linear-gradient(135deg,#061f3f,#008d97)] p-5 text-white shadow-[0_18px_36px_rgba(6,31,63,0.18)]">
+            <div className="grid gap-5 lg:grid-cols-[1fr_520px]">
+              <div>
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/12">
+                  <UsersRound className="h-6 w-6" />
+                </div>
+                <h2 className="mt-4 text-2xl font-bold md:text-3xl">Keep your rewards active and visible.</h2>
+                <p className="mt-2 max-w-2xl text-sm text-cyan-50">
+                  Drive engagement with referrals, member challenges, wellness sharing, surveys, and birthday perks.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">{liveChallenges.length} live challenges</span>
+                  <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">{activeSurveys.length} active surveys</span>
+                  <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">{referrals.length} referrals sent</span>
+                  <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">Birthday reward {birthdayStatus.hasReward ? "ready" : "tracked"}</span>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
+                  <p className="text-sm text-cyan-50">Surveys completed</p>
+                  <p className="mt-1 text-2xl font-bold">{numberFormat(completedSurveyRecords.length)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
+                  <p className="text-sm text-cyan-50">Shares tracked</p>
+                  <p className="mt-1 text-2xl font-bold">{numberFormat(shareEvents.length)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
+                  <p className="text-sm text-cyan-50">Challenges done</p>
+                  <p className="mt-1 text-2xl font-bold">{numberFormat(completedChallenges.length)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("rewards")}
+                  className="rounded-2xl border border-white/15 bg-white/10 p-4 text-left transition hover:bg-white/15"
+                >
+                  <p className="text-sm text-cyan-50">Birthday perk</p>
+                  <p className="mt-1 text-2xl font-bold">{birthdayStatus.hasReward ? "Ready" : "Pending"}</p>
+                  <p className="mt-1 text-xs text-cyan-50">View your reward</p>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 md:grid-cols-4">
+            <MetricCard icon={UsersRound} label="Referral joins" value={numberFormat(referralJoins)} detail={`${referrals.length} invites tracked`} />
+            <MetricCard icon={Trophy} label="Active challenges" value={numberFormat(liveChallenges.length)} detail={`${availableChallengePoints} points available`} accent="purple" />
+            <MetricCard icon={ClipboardCheck} label="Surveys completed" value={numberFormat(completedSurveyRecords.length)} detail={`${activeSurveys.length} available now`} accent="blue" />
+            <MetricCard icon={Share2} label="Shares tracked" value={numberFormat(shareEvents.length)} detail="Referral sharing history" accent="green" />
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-[1fr_390px]">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <SectionCard className="p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base font-bold text-[#10213a]">Referral Snapshot</h3>
+                  <Button variant="outline" size="sm" onClick={() => copyText(referralCode, "Referral code copied.")}>
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy code
+                  </Button>
+                </div>
+                <p className="mt-4 text-xs uppercase tracking-[0.12em] text-[#667085]">Your referral code</p>
+                <div className="mt-2 rounded-2xl border border-dashed border-[#9edce0] bg-[#f8fcff] px-4 py-3 text-center text-xl font-bold text-[#008d97]">
+                  {referralCode || "Loading"}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div><p className="font-bold text-[#10213a]">{numberFormat(referrals.length)}</p><p className="text-[#667085]">Invites</p></div>
+                  <div><p className="font-bold text-[#10213a]">{numberFormat(referralJoins)}</p><p className="text-[#667085]">Joined</p></div>
+                </div>
+                <Button className="mt-4 w-full bg-[#008d97] text-white hover:bg-[#007982]" onClick={() => setActiveTab("rewards")}>
+                  Invite Friend
+                </Button>
+              </SectionCard>
+
+              <SectionCard className="p-5">
+                <h3 className="text-base font-bold text-[#10213a]">Challenge Progress</h3>
+                {liveChallenges.length > 0 ? (
+                  <div className="mt-4 space-y-4">
+                    {liveChallenges.slice(0, 1).map((challenge) => {
+                      const progress = getChallengeProgress(challenge, user);
+                      return (
+                        <div key={challenge.id}>
+                          <p className="font-semibold text-[#10213a]">{challenge.title}</p>
+                          <p className="mt-1 text-sm text-[#667085]">{challenge.description}</p>
+                          <Progress className="mt-3 h-2" value={progress.percent} />
+                          <p className="mt-2 text-xs text-[#667085]">{progress.current}/{progress.target} {challenge.unitLabel}</p>
+                        </div>
+                      );
+                    })}
+                    <Button variant="outline" className="w-full border-[#bfd3ea]" onClick={() => setActiveTab("challenges")}>
+                      View Challenges
+                    </Button>
+                  </div>
+                ) : (
+                  <EmptyState icon={Target} title="No live challenges" body="New pharmacy rewards challenges will appear here." actionLabel="View Earn Points" onAction={() => navigate("/customer/earn")} />
+                )}
+              </SectionCard>
+
+              <SectionCard className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="text-base font-bold text-[#10213a]">Birthday Reward</h3>
+                  <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">{birthdayStatus.hasReward ? "Ready" : "Tracked"}</Badge>
+                </div>
+                <p className="mt-4 text-sm text-[#667085]">Your birthday bonus</p>
+                <p className="mt-1 text-2xl font-bold text-[#008d97]">{numberFormat(birthdayPoints)} points</p>
+                <p className="mt-2 text-sm text-[#667085]">
+                  {birthdayStatus.hasReward ? "Recorded for this year." : "Availability depends on your birthday schedule."}
+                </p>
+                <Button variant="outline" className="mt-4 w-full border-[#bfd3ea]" onClick={() => setActiveTab("rewards")}>
+                  Check Status
+                </Button>
+              </SectionCard>
+            </div>
+
+            <SectionCard className="border-emerald-100 bg-emerald-50/70 p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-emerald-700">
+                  <ArrowRight className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Next best action</p>
+                  <h3 className="mt-1 text-lg font-bold text-[#10213a]">{nextBestAction.title}</h3>
+                  <p className="mt-1 text-sm text-[#667085]">{nextBestAction.body}</p>
+                </div>
+              </div>
+              <Button className="mt-5 w-full bg-emerald-700 text-white hover:bg-emerald-800" onClick={nextBestAction.action}>
+                {nextBestAction.actionLabel}
+              </Button>
+            </SectionCard>
+          </section>
+        </div>
+      ) : null}
 
       {activeTab === "rewards" ? (
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900">Referral Program</h2>
-          <p className="text-sm text-gray-500 mt-1">Share your code and earn 500 points when friends join. Friends earn 200 points.</p>
-          <p className="mt-3 text-sm">Your referral code: <span className="font-bold text-[#10213a]">{referralCode}</span></p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => window.open(`sms:?body=${encodeURIComponent(`Join Central Perk Rewards with my code ${referralCode}: ${referralLink}`)}`, "_self")}
-            >
-              Share via SMS
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => window.open(`mailto:?subject=${encodeURIComponent("Join Central Perk Rewards")}&body=${encodeURIComponent(`Use my referral code ${referralCode} and sign up here: ${referralLink}`)}`, "_self")}
-            >
-              Share via Email
-            </Button>
-            <Button type="button" variant="outline" onClick={() => navigator.clipboard.writeText(referralLink)}>
-              Copy QR Link
-            </Button>
-          </div>
-          {referralLink ? (
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(referralLink)}`}
-              alt="Referral QR code"
-              className="mt-3 h-24 w-24 rounded border border-gray-200"
-            />
-          ) : null}
-          <div className="mt-3 space-y-2">
-            <Label htmlFor="referral-email">Friend email</Label>
-            <Input id="referral-email" value={referralEmail} onChange={(e) => setReferralEmail(e.target.value)} placeholder="friend@email.com" />
-            <Button onClick={handleCreateReferral} className="bg-[#1A2B47] text-white hover:bg-[#152238]">Create Referral</Button>
-          </div>
-          <p className="mt-4 text-xs text-gray-500">Tracked referrals: {myReferrals.length} • Conversions: {myReferrals.filter((r) => r.status === "joined").length}</p>
-        </Card>
-
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900">Birthday Rewards</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            {birthdaySettings.fulfillmentMode === "auto_credit"
-              ? birthdaySettings.releaseTiming === "birthday_date"
-                ? "Auto-credited on your birthday date once per year."
-                : "Auto-credited starting on the 1st of your birthday month once per year."
-              : "Available to claim once per year during your birthday month."}
-          </p>
-          <p className="mt-3 text-sm">Current tier bonus: <span className="font-semibold">{getBirthdayRewardPoints(user.tier)} points</span></p>
-          <p className="mt-1 text-xs text-gray-500">
-            Voucher + birthday badge are included in your month benefits.
-            {birthdayStatus.voucherCode ? ` Voucher: ${birthdayStatus.voucherCode}` : ""}
-          </p>
-          {birthdayStatus.badgeLabel ? <Badge className="mt-2">{birthdayStatus.badgeLabel}</Badge> : null}
-          <div className="mt-4 rounded-2xl border border-[#fde68a] bg-[#fffdf4] p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#9a6700]">Birthday email preview</p>
-            <p className="mt-2 font-semibold text-gray-900">Happy birthday, {user.fullName.split(" ")[0] || "member"}.</p>
-            <p className="mt-1 text-sm text-gray-600">
-              Your {getBirthdayRewardPoints(user.tier)}-point surprise is ready, with your
-              {birthdayStatus.voucherCode ? ` voucher ${birthdayStatus.voucherCode}` : " birthday voucher"} and badge included.
-            </p>
-            <p className="mt-2 text-xs text-gray-500">Subject: Happy Birthday from Central Perk Rewards</p>
-          </div>
-          <Button
-            onClick={handleBirthdayClaim}
-            className="mt-3 bg-[#00A3AD] text-white hover:bg-[#08939c]"
-            disabled={
-              birthdayStatus.hasReward ||
-              (birthdaySettings.fulfillmentMode === "manual_claim"
-                ? !isBirthdayMonth(user)
-                : !shouldAutoCreditBirthdayReward(user, birthdaySettings))
-            }
-          >
-            {birthdayStatus.hasReward
-              ? "Credited this year"
-              : birthdaySettings.fulfillmentMode === "auto_credit"
-                ? "Check Birthday Reward Status"
-                : "Claim Birthday Reward"}
-          </Button>
-        </Card>
-
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900">Feedback</h2>
-          <p className="text-sm text-gray-500 mt-1">Rate your experience and help us improve.</p>
-          <div className="mt-3 space-y-2">
-            <Label>Category</Label>
-            <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={feedbackCategory} onChange={(e) => setFeedbackCategory(e.target.value as any)}>
-              <option value="points">Points</option><option value="rewards">Rewards</option><option value="service">Service</option><option value="app">App</option>
-            </select>
-            <Label>Star Rating</Label>
-            <div className="flex items-center gap-2">
-              {[1, 2, 3, 4, 5].map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-label={`${value} star${value > 1 ? "s" : ""}`}
-                  onClick={() => setFeedbackRating(value as 1 | 2 | 3 | 4 | 5)}
-                  className={`rounded-xl border px-3 py-2 transition-colors ${
-                    feedbackRating >= value
-                      ? "border-[#f59e0b] bg-[#fff7ed] text-[#b45309]"
-                      : "border-gray-200 bg-white text-gray-400"
-                  }`}
-                >
-                  <Star className={`h-5 w-5 ${feedbackRating >= value ? "fill-current" : ""}`} />
-                </button>
-              ))}
-              <span className="text-sm text-gray-500">{feedbackRating}/5</span>
+        <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+          <SectionCard className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-[#008d97]">
+                <UsersRound className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#008d97]">Referral Program</p>
+                <h2 className="text-xl font-bold text-[#10213a]">Invite. Earn. Repeat.</h2>
+                <p className="text-sm text-[#667085]">Share your code and track referral joins from the backend.</p>
+              </div>
             </div>
-            <Label>Comments</Label>
-            <Textarea maxLength={500} value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="Share your suggestions (max 500 chars)" />
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={feedbackContactOptIn} onChange={(e) => setFeedbackContactOptIn(e.target.checked)} /> Contact me for follow-up</label>
-            <Label>Optional contact</Label>
-            <Input
-              value={feedbackContactInfo}
-              onChange={(e) => setFeedbackContactInfo(e.target.value)}
-              placeholder="Email or phone for follow-up"
-            />
-            <Button onClick={handleFeedbackSubmit}>Submit Feedback</Button>
-          </div>
-        </Card>
-      </div>
+
+            <div className="mt-5 rounded-2xl border border-dashed border-[#9edce0] bg-[#f8fcff] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-[#667085]">Your referral code</p>
+                  <p className="mt-1 text-2xl font-bold text-[#008d97]">{referralCode || "Loading"}</p>
+                </div>
+                <Button variant="outline" className="border-[#bfd3ea]" onClick={() => copyText(referralCode, "Referral code copied.")}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy Code
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-[#dce7f3] p-4"><p className="text-xs text-[#667085]">Referrals Sent</p><p className="mt-1 text-xl font-bold text-[#10213a]">{numberFormat(referrals.length)}</p></div>
+              <div className="rounded-2xl border border-[#dce7f3] p-4"><p className="text-xs text-[#667085]">Successful Joins</p><p className="mt-1 text-xl font-bold text-[#10213a]">{numberFormat(referralJoins)}</p></div>
+              <div className="rounded-2xl border border-[#dce7f3] p-4"><p className="text-xs text-[#667085]">Reward Status</p><p className="mt-1 text-xl font-bold text-[#10213a]">{referralJoins > 0 ? "Active" : "Ready"}</p></div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Button variant="outline" className="border-[#bfd3ea]" onClick={() => copyText(referralLink, "Referral link copied.")}>
+                <Copy className="mr-2 h-4 w-4" />
+                Share Link
+              </Button>
+              <Button variant="outline" className="border-[#bfd3ea]" onClick={() => copyText(referralLink, "QR link copied.")}>
+                <QrCode className="mr-2 h-4 w-4" />
+                Copy QR Link
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_180px]">
+              <div>
+                <Label htmlFor="referral-email">Invite a friend directly</Label>
+                <div className="mt-2 flex gap-2">
+                  <Input id="referral-email" type="email" value={referralEmail} onChange={(event) => setReferralEmail(event.target.value)} placeholder="friend@email.com" />
+                  <Button className="bg-[#008d97] text-white hover:bg-[#007982]" onClick={handleCreateReferral}>
+                    Create Referral
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-[#dce7f3] bg-white p-3 text-center">
+                <p className="mb-2 text-xs font-semibold text-[#667085]">Scan to share</p>
+                {qrDataUrl ? <img src={qrDataUrl} alt="Referral QR code" className="mx-auto h-32 w-32" /> : <QrCode className="mx-auto h-24 w-24 text-[#98a2b3]" />}
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#dce7f3]">
+              {referrals.slice(0, 5).map((referral) => (
+                <div key={referral.id} className="flex items-center justify-between gap-3 border-b border-[#e5edf6] px-4 py-3 last:border-b-0">
+                  <div>
+                    <p className="text-sm font-semibold text-[#10213a]">{referral.refereeEmail}</p>
+                    <p className="text-xs text-[#667085]">{dateLabel(referral.createdAt)}</p>
+                  </div>
+                  <Badge variant="outline" className={statusPillClass(referral.status === "joined" ? "complete" : "available")}>
+                    {referral.status === "joined" ? "Joined" : "Pending"}
+                  </Badge>
+                </div>
+              ))}
+              {referrals.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState icon={UsersRound} title="No referrals yet" body="Create a referral invite to start tracking joins." />
+                </div>
+              ) : null}
+            </div>
+          </SectionCard>
+
+          <SectionCard className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                <MessageSquareText className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-blue-700">Feedback</p>
+                <h2 className="text-xl font-bold text-[#10213a]">Tell us what you think</h2>
+                <p className="text-sm text-[#667085]">Your feedback helps improve the pharmacy rewards experience.</p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <Label>Category</Label>
+                <select className="mt-2 w-full rounded-xl border border-[#d0d8e5] bg-white px-3 py-2 text-sm" value={feedbackCategory} onChange={(event) => setFeedbackCategory(event.target.value as any)}>
+                  <option value="points">Points</option>
+                  <option value="rewards">Rewards</option>
+                  <option value="service">Service</option>
+                  <option value="app">App</option>
+                </select>
+              </div>
+              <div>
+                <Label>Rating</Label>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setFeedbackRating(value as 1 | 2 | 3 | 4 | 5)}
+                      className={`rounded-xl border p-2 transition ${feedbackRating >= value ? "border-amber-300 bg-amber-50 text-amber-600" : "border-[#dce7f3] text-[#98a2b3]"}`}
+                    >
+                      <Star className={`h-5 w-5 ${feedbackRating >= value ? "fill-current" : ""}`} />
+                    </button>
+                  ))}
+                  <span className="text-sm text-[#667085]">{feedbackRating}/5</span>
+                </div>
+              </div>
+              <div>
+                <Label>Comments</Label>
+                <Textarea className="mt-2 min-h-[132px]" maxLength={500} value={feedbackComment} onChange={(event) => setFeedbackComment(event.target.value)} placeholder="Share your feedback..." />
+                <p className="mt-1 text-right text-xs text-[#667085]">{feedbackComment.length}/500</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-[#475467]">
+                <input type="checkbox" checked={feedbackContactOptIn} onChange={(event) => setFeedbackContactOptIn(event.target.checked)} />
+                Stay in touch for follow-up
+              </label>
+              {feedbackContactOptIn ? (
+                <Input value={feedbackContactInfo} onChange={(event) => setFeedbackContactInfo(event.target.value)} placeholder="Email or phone" />
+              ) : null}
+              <Button className="w-full bg-[#008d97] text-white hover:bg-[#007982]" onClick={handleFeedbackSubmit}>
+                Submit Feedback
+              </Button>
+              <p className="flex items-center justify-center gap-2 text-xs text-[#667085]">
+                <Lock className="h-3.5 w-3.5" />
+                Your feedback is private and secure.
+              </p>
+            </div>
+          </SectionCard>
+        </div>
       ) : null}
 
       {activeTab === "challenges" ? (
-      <div className="grid grid-cols-1 gap-6">
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-[#e6f8fa] p-3">
-              <Trophy className="h-5 w-5 text-[#0f5f65]" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Active Challenges</h2>
-              <p className="text-sm text-gray-500">Track progress, unlock badges, and claim bonus points.</p>
-            </div>
-          </div>
+        <div className="space-y-5">
+          <section className="grid gap-4 md:grid-cols-4">
+            <MetricCard icon={Trophy} label="Active challenges" value={numberFormat(liveChallenges.length)} detail="Keep going" accent="blue" />
+            <MetricCard icon={CheckCircle2} label="Completed" value={numberFormat(completedChallenges.length)} detail="Challenge wins" accent="green" />
+            <MetricCard icon={Gift} label="Points available" value={numberFormat(availableChallengePoints)} detail="Unfinished rewards" accent="purple" />
+            <MetricCard icon={CalendarDays} label="Ending soon" value={numberFormat(endingSoon)} detail="Within 7 days" />
+          </section>
 
-          <div className="mt-5 space-y-4">
-            {state.challenges.map((challenge) => {
-              const progress = resolveChallengeProgress(challenge);
-              const claimed = claimedChallenges.has(challenge.id);
-              return (
-                <div key={challenge.id} className="rounded-2xl border border-gray-200 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">{challenge.title}</h3>
-                        <Badge variant="secondary">{challenge.segment}</Badge>
-                        {challenge.competitive ? <Badge className="bg-[#10213a] text-white">Leaderboard</Badge> : null}
-                      </div>
-                      <p className="mt-1 text-sm text-gray-600">{challenge.description}</p>
-                      <p className="mt-1 text-xs font-medium text-[#0f5f65]">
-                        Time remaining: {formatTimeRemaining(challenge.endAt)}
-                      </p>
-                      <p className="mt-2 text-xs text-gray-500">
-                        Runs until {new Date(challenge.endAt).toLocaleDateString()} • Reward {challenge.rewardPoints} pts • {challenge.rewardBadge}
-                      </p>
-                    </div>
-                    <div className="rounded-xl bg-[#f8fcff] px-4 py-3 text-right">
-                      <p className="text-xs text-gray-500">Progress</p>
-                      <p className="text-xl font-bold text-[#10213a]">
-                        {progress.current}/{progress.target}
-                      </p>
-                      <p className="text-xs text-gray-500">{challenge.unitLabel}</p>
-                    </div>
-                  </div>
-                  <Progress className="mt-4 h-2" value={progress.percent} />
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-gray-600">
-                      {progress.completed ? "Challenge completed. Reward ready to claim." : "Stay active to finish this challenge on time."}
-                    </p>
-                    <Button
-                      disabled={!progress.completed || claimed || claimingChallengeId === challenge.id}
-                      className="bg-[#10213a] text-white hover:bg-[#1b3153]"
-                      onClick={() => handleClaimChallenge(challenge.id, challenge.rewardPoints, challenge.title)}
-                    >
-                      {claimed ? "Reward Claimed" : claimingChallengeId === challenge.id ? "Claiming..." : "Claim Reward"}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {competitiveChallenge ? (
-            <div className="mt-6 rounded-2xl border border-[#d8e4f4] bg-[#f8fbff] p-4">
-              <div className="flex items-center justify-between gap-3">
+          <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+            <SectionCard className="p-5">
+              <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-gray-900">Member Leaderboard</h3>
-                  <p className="text-sm text-gray-500">{competitiveChallenge.title}</p>
+                  <h2 className="text-xl font-bold text-[#10213a]">Active Challenges</h2>
+                  <p className="text-sm text-[#667085]">Build healthy habits and earn bonus points.</p>
                 </div>
-                <Badge className="bg-[#10213a] text-white">Current member highlighted</Badge>
+                <Button variant="outline" className="border-[#bfd3ea]" onClick={() => navigate("/customer/earn")}>
+                  View Earn Points
+                </Button>
               </div>
-              <div className="mt-4 space-y-3">
-                {highlightedLeaderboard.map((entry, index) => {
-                  const isCurrentMember = entry.memberId === user.memberId;
-                  const rank = challengeLeaderboard.findIndex((row) => row.memberId === entry.memberId) + 1 || index + 1;
-                  return (
-                    <div
-                      key={entry.memberId}
-                      className={`rounded-2xl border p-4 ${
-                        isCurrentMember ? "border-[#00A3AD] bg-[#e6f8fa]" : "border-gray-200 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white ${
-                            isCurrentMember ? "bg-[#00A3AD]" : "bg-[#10213a]"
-                          }`}>
-                            {rank}
+
+              {liveChallenges.length > 0 ? (
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {liveChallenges.map((challenge) => {
+                    const progress = getChallengeProgress(challenge, user);
+                    const Icon = challengeIcon(challenge);
+                    const complete = progress.completed;
+                    return (
+                      <div key={challenge.id} className="rounded-2xl border border-[#dce7f3] bg-[#fbfdff] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                            <Icon className="h-7 w-7" />
                           </div>
-                          <div>
-                            <p className="font-semibold text-gray-900">
-                              {entry.memberName}
-                              {isCurrentMember ? " (You)" : ""}
-                            </p>
-                            <p className="text-xs text-gray-500">{entry.tier}</p>
-                          </div>
+                          <Badge variant="outline" className={statusPillClass(complete ? "complete" : "active")}>
+                            {complete ? "Completed" : "In Progress"}
+                          </Badge>
                         </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-gray-900">{entry.value}</p>
-                          <p className="text-xs text-gray-500">{competitiveChallenge.unitLabel}</p>
+                        <h3 className="mt-4 text-base font-bold text-[#10213a]">{challenge.title}</h3>
+                        <p className="mt-2 text-sm text-[#667085]">{challenge.description}</p>
+                        <div className="mt-4 flex items-center justify-between text-xs text-[#475467]">
+                          <span>{progress.current} of {progress.target} {challenge.unitLabel}</span>
+                          <span>{Math.round(progress.percent)}%</span>
                         </div>
+                        <Progress className="mt-2 h-2" value={progress.percent} />
+                        <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                          <div className="rounded-xl bg-white p-3"><Gift className="mb-1 h-4 w-4 text-[#008d97]" />Reward<br /><b>{challenge.rewardPoints} pts</b></div>
+                          <div className="rounded-xl bg-white p-3"><CalendarDays className="mb-1 h-4 w-4 text-[#008d97]" />Ends<br /><b>{dateLabel(challenge.endAt)}</b></div>
+                        </div>
+                        <Button
+                          disabled={complete}
+                          className="mt-4 w-full bg-[#008d97] text-white hover:bg-[#007982] disabled:bg-slate-200 disabled:text-slate-600"
+                          onClick={() => goToChallengeAction(challenge)}
+                        >
+                          {complete ? "Completed" : progress.current > 0 ? "Continue Challenge" : "Start Challenge"}
+                        </Button>
                       </div>
-                    </div>
-                  );
-                })}
-                {highlightedLeaderboard.length === 0 ? (
-                  <p className="text-sm text-gray-500">Leaderboard data will appear once challenge activity is recorded.</p>
-                ) : null}
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState icon={Trophy} title="No live challenges right now." body="New wellness and pharmacy rewards challenges will appear here." actionLabel="View Earn Points" onAction={() => navigate("/customer/earn")} />
+              )}
+            </SectionCard>
+
+            <SectionCard className="p-5">
+              <h2 className="text-lg font-bold text-[#10213a]">Challenge Benefits</h2>
+              <div className="mt-4 space-y-4">
+                {[
+                  ["Earn bonus points", "Redeem for pharmacy rewards."],
+                  ["Build healthy habits", "One small step at a time."],
+                  ["Stay motivated", "Track progress and streaks."],
+                ].map(([title, body]) => (
+                  <div key={title} className="flex gap-3">
+                    <BadgeCheck className="h-5 w-5 text-[#008d97]" />
+                    <div><p className="text-sm font-semibold text-[#10213a]">{title}</p><p className="text-sm text-[#667085]">{body}</p></div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ) : null}
-        </Card>
-      </div>
+              <div className="mt-6 border-t border-[#e5edf6] pt-5">
+                <h3 className="font-bold text-[#10213a]">How it works</h3>
+                <ol className="mt-3 space-y-3 text-sm text-[#667085]">
+                  <li><b className="text-[#008d97]">1.</b> Join a challenge that fits your goals.</li>
+                  <li><b className="text-[#008d97]">2.</b> Complete activities and track progress.</li>
+                  <li><b className="text-[#008d97]">3.</b> Earn rewards when completed.</li>
+                </ol>
+              </div>
+            </SectionCard>
+          </div>
+        </div>
       ) : null}
 
       {activeTab === "sharing" ? (
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-[#f5f0ff] p-3">
-              <Share2 className="h-5 w-5 text-[#6d28d9]" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Social Sharing</h2>
-              <p className="text-sm text-gray-500">Share tier moments and badges with referral tracking.</p>
-            </div>
-          </div>
+        <div className="space-y-5">
+          <section className="grid gap-4 md:grid-cols-4">
+            <MetricCard icon={Share2} label="Shares tracked" value={numberFormat(shareEvents.length)} detail="All time" />
+            <MetricCard icon={UsersRound} label="Referral clicks" value={numberFormat(shareEvents.reduce((sum, item) => sum + item.conversions, 0))} detail="Tracked conversions" accent="blue" />
+            <MetricCard icon={Trophy} label="Best share" value={shareEvents[0]?.achievement ? "Active" : "None"} detail={shareEvents[0]?.achievement || "No shares yet"} accent="purple" />
+            <MetricCard icon={Gift} label="Referral code" value={referralCode || "Pending"} detail="Embedded in share card" accent="green" />
+          </section>
 
-          <div className="mt-5 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="achievement">Achievement to share</Label>
-              <Input id="achievement" value={selectedAchievement} onChange={(event) => setSelectedAchievement(event.target.value)} />
-            </div>
+          <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+            <SectionCard className="p-5">
+              <h2 className="text-xl font-bold text-[#10213a]">Social Sharing</h2>
+              <p className="mt-1 text-sm text-[#667085]">Create and share a clean rewards or referral card.</p>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
-                <input type="checkbox" checked={privacySettings.showName} onChange={(event) => updatePrivacy({ showName: event.target.checked })} />
-                Show name
-              </label>
-              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
-                <input
-                  type="checkbox"
-                  checked={privacySettings.showReferralCode}
-                  onChange={(event) => updatePrivacy({ showReferralCode: event.target.checked })}
-                />
-                Show referral code
-              </label>
-              <label className="flex items-center gap-2 rounded-2xl border border-[#dbe7f2] bg-[#fbfdff] p-3 text-sm shadow-sm transition hover:border-[#bfd3ea]">
-                <input
-                  type="checkbox"
-                  checked={privacySettings.publicProfile}
-                  onChange={(event) => updatePrivacy({ publicProfile: event.target.checked })}
-                />
-                Public profile
-              </label>
-            </div>
-
-            <div className="rounded-[26px] border border-dashed border-[#c8d8eb] bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-[#10213a]">Share text preview</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-medium text-[#26466f]">Referral ready</span>
-                  <span className="rounded-full bg-[#f6f3ff] px-3 py-1 text-xs font-medium text-[#6a45ba]">{privacySettings.publicProfile ? "Public profile" : "Private profile"}</span>
+              <div className="mt-5 space-y-4">
+                <div>
+                  <Label>Achievement to share</Label>
+                  <select className="mt-2 w-full rounded-xl border border-[#d0d8e5] bg-white px-3 py-2 text-sm" value={selectedAchievement} onChange={(event) => setSelectedAchievement(event.target.value)}>
+                    <option>Shared a wellness rewards update</option>
+                    <option>Completed a health survey</option>
+                    <option>Invited a friend to pharmacy rewards</option>
+                    <option>Reached a new reward tier</option>
+                  </select>
                 </div>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-gray-600">{shareMessage}</p>
-            </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Button className="bg-[#10213a] text-white hover:bg-[#1b3153]" onClick={() => setShareSheetOpen(true)}>
-                <Share2 className="mr-2 h-4 w-4" />
-                Open Share Sheet
-              </Button>
-              <Button
-                variant="outline"
-                className="border-[#d1deeb] bg-white hover:bg-[#f8fbff]"
-                onClick={() => void triggerImageDownload(sharePreview, `centralperk-${user.memberId}-achievement.png`)}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Download PNG
-              </Button>
-            </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-2xl border border-[#dce7f3] p-3 text-sm"><input type="checkbox" checked={privacySettings.showName} onChange={(event) => updatePrivacy({ showName: event.target.checked })} />Show name</label>
+                  <label className="flex items-center gap-2 rounded-2xl border border-[#dce7f3] p-3 text-sm"><input type="checkbox" checked={showTier} onChange={(event) => setShowTier(event.target.checked)} />Show tier</label>
+                  <label className="flex items-center gap-2 rounded-2xl border border-[#dce7f3] p-3 text-sm"><input type="checkbox" checked={privacySettings.showReferralCode} onChange={(event) => updatePrivacy({ showReferralCode: event.target.checked })} />Show referral code</label>
+                  <label className="flex items-center gap-2 rounded-2xl border border-[#dce7f3] p-3 text-sm"><input type="checkbox" checked={privacySettings.publicProfile} onChange={(event) => updatePrivacy({ publicProfile: event.target.checked })} />Public profile</label>
+                </div>
 
-            <div className="space-y-3">
-              {memberShareEvents.slice(0, 3).map((event) => (
-                <div key={event.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="font-medium text-gray-900">{event.achievement}</p>
-                    <p className="text-sm text-gray-500">
-                      {event.channel} • {new Date(event.createdAt).toLocaleString()} • {event.conversions} conversion(s)
-                    </p>
-                  </div>
-                  <Button variant="outline" onClick={() => handleMockConversion(event.id)}>
-                    Simulate conversion
+                <div>
+                  <Label>Text preview</Label>
+                  <Textarea className="mt-2" value={shareCaption} onChange={(event) => setShareCaption(event.target.value)} maxLength={220} placeholder="Customize your share caption..." />
+                  <p className="mt-1 text-right text-xs text-[#667085]">{shareCaption.length}/220</p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Button className="bg-[#008d97] text-white hover:bg-[#007982]" onClick={handleShare}>
+                    <Share2 className="mr-2 h-4 w-4" />
+                    Open Share Sheet
+                  </Button>
+                  <Button variant="outline" className="border-[#bfd3ea]" disabled title="Coming soon">
+                    PNG Coming Soon
+                  </Button>
+                  <Button variant="outline" className="border-[#bfd3ea]" onClick={() => copyText(referralLink, "Referral link copied.")}>
+                    Copy Link
                   </Button>
                 </div>
-              ))}
-              {memberShareEvents.length === 0 ? <p className="text-sm text-gray-500">Your tracked shares will appear here.</p> : null}
-            </div>
-          </div>
-        </Card>
 
-        <Card className="overflow-hidden border-[#dce9f7] bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.95),_rgba(240,247,255,0.92)_55%,_rgba(230,240,250,0.88))] p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-[#5f6f86]">Preview</p>
-              <h3 className="mt-2 text-xl font-semibold text-[#10213a]">Share card</h3>
-              <p className="mt-1 text-sm text-gray-600">Styled for polished posting, quick downloads, and cleaner share moments.</p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              <Badge variant="outline" className="border-[#c8d8eb] bg-white text-[#10213a]">
-                {privacySettings.publicProfile ? "Public" : "Private"}
-              </Badge>
-              <Badge variant="outline" className="border-[#d6dff1] bg-white text-[#445979]">
-                PNG export
-              </Badge>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Tier</p>
-              <p className="mt-2 text-lg font-semibold text-[#10213a]">{user.tier}</p>
-            </div>
-            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Badge</p>
-              <p className="mt-2 text-lg font-semibold text-[#10213a]">{shareBadgeLabel}</p>
-            </div>
-            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Referral</p>
-              <p className="mt-2 text-lg font-semibold text-[#10213a]">
-                {privacySettings.showReferralCode ? referralCode || "Pending" : "Hidden"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-[#dce9f7] bg-white/80 px-4 py-3 text-sm text-[#445979] shadow-sm">
-            Best for sharing achievements, referral perks, and badge moments with a cleaner card-first presentation.
-          </div>
-
-          <div className="mt-6 flex justify-center">
-            <div className="w-full max-w-[420px] rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(241,247,255,0.92))] p-4 shadow-[0_22px_46px_rgba(16,33,58,0.12)]">
-              <div className="mb-3 flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#5f6f86]">
-                <span>Live preview</span>
-                <span>{privacySettings.showReferralCode ? "Referral visible" : "Referral hidden"}</span>
+                <div>
+                  <h3 className="text-sm font-bold text-[#10213a]">Share History</h3>
+                  <div className="mt-3 space-y-2">
+                    {shareEvents.slice(0, 5).map((event) => (
+                      <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[#e5edf6] p-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[#10213a]">{event.achievement}</p>
+                          <p className="text-xs text-[#667085]">{dateLabel(event.createdAt)} - {event.conversions} tracked conversion(s)</p>
+                        </div>
+                        <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Published</Badge>
+                      </div>
+                    ))}
+                    {shareEvents.length === 0 ? <EmptyState icon={Share2} title="No recent shares yet." body="Open the share sheet to create your first tracked share." /> : null}
+                  </div>
+                </div>
               </div>
-              <div className="overflow-hidden rounded-[24px] border border-[#d5e4f2] bg-white shadow-[0_16px_36px_rgba(16,33,58,0.12)]">
-                <img src={sharePreview} alt="Share card preview" className="block h-auto w-full object-contain" />
+            </SectionCard>
+
+            <SectionCard className="p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-[#10213a]">Preview</h2>
+                  <p className="text-sm text-[#667085]">This is how your share card will look.</p>
+                </div>
+                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                  {privacySettings.publicProfile ? "Public" : "Private"}
+                </Badge>
               </div>
-            </div>
+
+              <div className="rounded-[28px] bg-[linear-gradient(135deg,#f4fbff,#eaf5ff)] p-6">
+                <div className="mx-auto max-w-[620px] overflow-hidden rounded-[28px] border border-[#bcd5ee] bg-white shadow-[0_24px_48px_rgba(15,35,60,0.14)]">
+                  <div className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-2 text-[#008d97]">
+                        <ShieldPlus className="h-8 w-8" />
+                        <div>
+                          <p className="text-xl font-bold text-[#10213a]">PharmaRewards</p>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#008d97]">Pharmacy Rewards</p>
+                        </div>
+                      </div>
+                      {showTier ? <Badge className="bg-[#10213a] text-white hover:bg-[#10213a]">{user.tier} Member</Badge> : null}
+                    </div>
+                    <div className="mt-8 grid gap-6 md:grid-cols-[1fr_190px] md:items-center">
+                      <div>
+                        <p className="text-3xl font-bold text-[#10213a]">
+                          {privacySettings.showName ? `I'm ${user.fullName}` : "I'm a rewards member"}
+                        </p>
+                        <p className="mt-2 text-lg text-[#344054]">{selectedAchievement}</p>
+                        <div className="mt-5 flex flex-wrap gap-4 text-sm">
+                          <span><b>{numberFormat(user.points)}</b> points</span>
+                          <span><b>{numberFormat(completedChallenges.length)}</b> challenges</span>
+                          <span><b>{numberFormat(referralJoins)}</b> joins</span>
+                        </div>
+                      </div>
+                      <div className="flex h-44 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                        <ShieldPlus className="h-24 w-24" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-[linear-gradient(135deg,#062040,#008d97)] p-6 text-white">
+                    <p className="text-xl font-bold">Join me and earn pharmacy rewards.</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <span>Referral code:</span>
+                      <span className="rounded-xl bg-white px-4 py-2 font-bold text-[#10213a]">
+                        {privacySettings.showReferralCode ? referralCode || "Pending" : "Hidden"}
+                      </span>
+                    </div>
+                    <p className="mt-4 text-sm text-cyan-50">Better health. Better rewards.</p>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
           </div>
-        </Card>
-      </div>
+        </div>
       ) : null}
 
-      <Dialog open={shareSheetOpen} onOpenChange={setShareSheetOpen}>
-        <DialogContent className="sm:max-w-xl !bg-white !text-gray-900 border border-gray-200 shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-gray-900">Share member moment</DialogTitle>
-            <DialogDescription className="text-gray-500">
-              Choose a channel and share your achievement with the referral code embedded in the share text.
-            </DialogDescription>
-          </DialogHeader>
+      {activeTab === "surveys" ? (
+        <div className="space-y-5">
+          <section className="grid gap-4 md:grid-cols-3">
+            <MetricCard icon={ClipboardCheck} label="Available surveys" value={numberFormat(activeSurveys.filter((survey) => !completedSurveyIdSet.has(survey.id)).length)} detail="Ready for you" />
+            <MetricCard icon={CheckCircle2} label="Completed surveys" value={numberFormat(completedSurveyRecords.length)} detail="Submitted responses" accent="green" />
+            <MetricCard icon={Gift} label="Survey points earned" value={`${numberFormat(surveyPointsEarned)} pts`} detail="From survey history" accent="purple" />
+          </section>
 
-          <div className="space-y-5">
-            <div className="rounded-2xl border border-[#dce9f7] bg-[#f8fbff] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5f6f86]">Share text</p>
-              <p className="mt-3 text-sm leading-6 text-[#10213a]">{shareMessage}</p>
-            </div>
+          <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+            <SectionCard className="p-5">
+              <h2 className="text-xl font-bold text-[#10213a]">Available Surveys</h2>
+              <p className="mt-1 text-sm text-[#667085]">Answer customer feedback surveys and earn points after submit.</p>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => void handleShare("facebook")}
-                className="rounded-2xl border border-[#dce9f7] bg-[#f7fbff] p-5 text-left transition hover:border-[#1877f2] hover:bg-[#eef5ff]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="rounded-xl bg-[#1877f2] p-3 text-white">
-                    <Facebook className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-[#10213a]">Facebook</p>
-                    <p className="text-sm text-gray-500">Opens a share window with your referral text.</p>
-                  </div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void handleShare("instagram")}
-                className="rounded-2xl border border-[#dce9f7] bg-[#fdf7fb] p-5 text-left transition hover:border-[#d62976] hover:bg-[#fff0f7]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="rounded-xl bg-[#d62976] p-3 text-white">
-                    <Instagram className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-[#10213a]">Instagram</p>
-                    <p className="text-sm text-gray-500">Downloads the card for your story or post.</p>
-                  </div>
-                </div>
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 p-4">
-              <p className="text-sm font-medium text-[#10213a]">Embedded referral details</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-[#f7fbff] p-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Referral code</p>
-                  <p className="mt-2 font-semibold text-[#10213a]">{referralCode || "Pending"}</p>
-                </div>
-                <div className="rounded-xl bg-[#f7fbff] p-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-[#5f6f86]">Destination</p>
-                  <p className="mt-2 break-all text-sm font-medium text-[#10213a]">{referralLink || "Link pending"}</p>
-                </div>
+              <div className="mt-5 space-y-3">
+                {activeSurveys.map((survey) => {
+                  const completed = completedSurveyIdSet.has(survey.id);
+                  return (
+                    <div key={survey.id} className="grid gap-4 rounded-2xl border border-[#dce7f3] p-4 md:grid-cols-[1fr_auto] md:items-center">
+                      <div className="flex gap-4">
+                        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-cyan-50 text-[#008d97]">
+                          <ClipboardCheck className="h-7 w-7" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-[#10213a]">{survey.title}</h3>
+                          <p className="mt-1 text-sm text-[#667085]">{survey.description}</p>
+                          <div className="mt-3 flex flex-wrap gap-3 text-xs text-[#475467]">
+                            <span>Category: {survey.segment}</span>
+                            <span>Est. time: {Math.max(3, survey.questions.length * 2)}-{Math.max(5, survey.questions.length * 3)} min</span>
+                            <span>Reward: {survey.bonusPoints} pts</span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        disabled={completed}
+                        className="bg-[#008d97] text-white hover:bg-[#007982] disabled:bg-slate-200 disabled:text-slate-600"
+                        onClick={() => setSelectedSurveyId(survey.id)}
+                      >
+                        {completed ? "Completed" : "Start Survey"}
+                      </Button>
+                    </div>
+                  );
+                })}
+                {activeSurveys.length === 0 ? (
+                  <EmptyState
+                    icon={ClipboardCheck}
+                    title="No surveys available right now."
+                    body="New feedback opportunities will appear here."
+                    actionLabel="Back to Earn Points"
+                    onAction={() => navigate("/customer/earn")}
+                  />
+                ) : null}
               </div>
+            </SectionCard>
+
+            <div className="space-y-5">
+              <SectionCard className="p-5">
+                <h2 className="text-lg font-bold text-[#10213a]">Completed Survey History</h2>
+                <div className="mt-4 space-y-3">
+                  {completedSurveyRecords.slice(0, 5).map(({ survey, response }) => (
+                    <div key={`${survey.id}-${response.submittedAt}`} className="flex items-center justify-between gap-3 rounded-2xl border border-[#e5edf6] p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[#10213a]">{survey.title}</p>
+                        <p className="text-xs text-[#667085]">{dateLabel(response.submittedAt)}</p>
+                      </div>
+                      <span className="text-sm font-bold text-emerald-700">+{survey.bonusPoints} pts</span>
+                    </div>
+                  ))}
+                  {completedSurveyRecords.length === 0 ? (
+                    <p className="text-sm text-[#667085]">Completed surveys will appear here after submission.</p>
+                  ) : null}
+                </div>
+              </SectionCard>
+
+              <SectionCard className="p-5">
+                <div className="flex items-center gap-3">
+                  <Bell className="h-6 w-6 text-[#008d97]" />
+                  <div>
+                    <h3 className="font-bold text-[#10213a]">Survey availability</h3>
+                    <p className="text-sm text-[#667085]">Check back when new pharmacy feedback opportunities are published.</p>
+                  </div>
+                </div>
+              </SectionCard>
             </div>
           </div>
+        </div>
+      ) : null}
 
-          <DialogFooter className="gap-2 sm:gap-3">
-            <Button variant="outline" onClick={() => setShareSheetOpen(false)}>Close</Button>
+      <Dialog open={Boolean(selectedSurvey)} onOpenChange={(open) => !open && setSelectedSurveyId(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedSurvey?.title || "Survey"}</DialogTitle>
+            <DialogDescription>{selectedSurvey?.description || "Complete every question before submitting."}</DialogDescription>
+          </DialogHeader>
+
+          {selectedSurvey ? (
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+              {selectedSurvey.questions.map((question) => (
+                <div key={question.id} className="rounded-2xl border border-[#dce7f3] p-4">
+                  <Label>{question.prompt}</Label>
+                  {question.type === "rating" ? (
+                    <div className="mt-3 flex gap-2">
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => handleSurveyAnswerChange(selectedSurvey.id, question.id, String(value))}
+                          className={`h-10 w-10 rounded-xl border text-sm font-bold ${
+                            surveyAnswers[selectedSurvey.id]?.[question.id] === String(value)
+                              ? "border-[#008d97] bg-[#008d97] text-white"
+                              : "border-[#dce7f3] bg-white text-[#475467]"
+                          }`}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                  ) : question.type === "multiple-choice" ? (
+                    <div className="mt-3 grid gap-2">
+                      {(question.options || []).map((option) => (
+                        <label key={option} className="flex items-center gap-2 rounded-xl border border-[#dce7f3] px-3 py-2 text-sm">
+                          <input
+                            type="radio"
+                            name={`${selectedSurvey.id}-${question.id}`}
+                            checked={surveyAnswers[selectedSurvey.id]?.[question.id] === option}
+                            onChange={() => handleSurveyAnswerChange(selectedSurvey.id, question.id, option)}
+                          />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <Textarea
+                      className="mt-3"
+                      value={surveyAnswers[selectedSurvey.id]?.[question.id] || ""}
+                      onChange={(event) => handleSurveyAnswerChange(selectedSurvey.id, question.id, event.target.value)}
+                      placeholder="Share your answer"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedSurveyId(null)}>Cancel</Button>
+            <Button
+              className="bg-[#008d97] text-white hover:bg-[#007982]"
+              disabled={!selectedSurvey || submittingSurveyId === selectedSurvey.id}
+              onClick={handleSubmitSurvey}
+            >
+              {submittingSurveyId ? "Submitting..." : `Submit for ${selectedSurvey?.bonusPoints || 0} pts`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {activeTab === "surveys" ? (
-      <Card className="p-6">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-[#fff7ed] p-3">
-            <Award className="h-5 w-5 text-[#c2410c]" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Member Surveys</h2>
-            <p className="text-sm text-gray-500">Complete surveys, earn bonus points, and help shape future perks.</p>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {activeSurveys.map((survey) => {
-            const alreadySubmitted = completedSurveyIdSet.has(survey.id);
-            return (
-              <div key={survey.id} className="rounded-2xl border border-gray-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{survey.title}</h3>
-                    <p className="mt-1 text-sm text-gray-600">{survey.description}</p>
-                    <p className="mt-2 text-xs text-gray-500">
-                      {survey.questions.length} questions • Segment {survey.segment} • Reward {survey.bonusPoints} points
-                    </p>
-                  </div>
-                  <Badge className="bg-[#fff7ed] text-[#c2410c]">{survey.status}</Badge>
-                </div>
-
-                <div className="mt-4 space-y-4">
-                  {survey.questions.map((question) => (
-                    <div key={question.id} className="space-y-2">
-                      <Label>{question.prompt}</Label>
-                      {question.type === "rating" ? (
-                        <div className="flex gap-2">
-                          {[1, 2, 3, 4, 5].map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              disabled={alreadySubmitted}
-                              onClick={() => handleSurveyAnswerChange(survey.id, question.id, String(value))}
-                              className={`h-10 w-10 rounded-lg border text-sm font-semibold ${
-                                (surveyAnswers[survey.id]?.[question.id] ?? "") === String(value)
-                                  ? "border-[#10213a] bg-[#10213a] text-white"
-                                  : "border-gray-200 bg-white text-gray-700"
-                              }`}
-                            >
-                              {value}
-                            </button>
-                          ))}
-                        </div>
-                      ) : question.type === "multiple-choice" ? (
-                        <div className="grid gap-2">
-                          {(question.options ?? []).map((option) => (
-                            <label key={option} className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm">
-                              <input
-                                type="radio"
-                                name={`${survey.id}-${question.id}`}
-                                checked={(surveyAnswers[survey.id]?.[question.id] ?? "") === option}
-                                onChange={() => handleSurveyAnswerChange(survey.id, question.id, option)}
-                                disabled={alreadySubmitted}
-                              />
-                              {option}
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <Textarea
-                          rows={4}
-                          disabled={alreadySubmitted}
-                          value={surveyAnswers[survey.id]?.[question.id] ?? ""}
-                          onChange={(event) => handleSurveyAnswerChange(survey.id, question.id, event.target.value)}
-                          placeholder="Share your feedback"
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-gray-600">
-                    {alreadySubmitted ? "Survey already submitted. Thanks for the feedback." : "Submit once to earn your bonus points."}
-                  </p>
-                  <Button
-                    disabled={alreadySubmitted || submittingSurveyId === survey.id}
-                    className="bg-[#10213a] text-white hover:bg-[#1b3153]"
-                    onClick={() => handleSubmitSurvey(survey.id)}
-                  >
-                    {alreadySubmitted ? "Completed" : submittingSurveyId === survey.id ? "Submitting..." : `Submit for ${survey.bonusPoints} pts`}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-          {activeSurveys.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#d7e7f8] bg-[#f8fbff] p-6 text-center text-sm text-[#5f6f86] lg:col-span-2">
-              No live surveys are available right now. The built-in survey set will appear here until new survey records are published.
-            </div>
-          ) : null}
-        </div>
-      </Card>
-      ) : null}
     </div>
   );
 }

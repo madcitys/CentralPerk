@@ -1,5 +1,7 @@
 import { supabase } from "../../utils/supabase/client";
 import { loadMemberActivity } from "./loyalty-supabase";
+import { requestJson } from "./api";
+import { resolveMemberViaMemberApi } from "./member-service-api";
 
 export type StatementRow = {
   type: string;
@@ -79,24 +81,23 @@ export async function emailStatement(memberId: string, pdfBlob: Blob) {
   const { data } = supabase.storage.from("statements").getPublicUrl(path);
   const statementUrl = data.publicUrl;
 
-  const memberLookup = await supabase
-    .from("loyalty_members")
-    .select("id,email")
-    .eq("member_number", memberId)
-    .limit(1)
-    .maybeSingle();
-  if (memberLookup.error) throw memberLookup.error;
+  const member = await resolveMemberViaMemberApi({ identifier: memberId });
 
   const authRes = await supabase.auth.getUser();
   const authenticatedUserId = authRes.data.user?.id ?? null;
 
-  const { error } = await supabase.from("notification_outbox").insert({
+  await requestJson<{ ok: true }>("/api/notifications", {
+    method: "POST",
+    body: JSON.stringify({
     channel: "email",
     subject: "Your Loyalty Statement",
-    message: `Your statement is ready. Download it here: ${statementUrl}`,
+    body: `Your statement is ready. Download it here: ${statementUrl}`,
     user_id: authenticatedUserId,
+    userId: authenticatedUserId,
+    memberId,
+    isPromotional: false,
+    }),
   });
-  if (error) throw error;
 
-  return { statementUrl, member: memberLookup.data };
+  return { statementUrl, member };
 }

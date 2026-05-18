@@ -3,19 +3,12 @@ import { queueMemberNotification } from "../app/lib/notifications";
 import { HttpError } from "./http-error";
 import { createApiHandler } from "./route-utils";
 import { resolveAudienceMembers } from "./segment-preview";
-import { createServerSupabaseClient } from "./supabase-admin";
-import {
-  listLocalNotifications,
-  markLocalNotificationRead,
-  queueLocalMemberNotification,
-} from "./local-notifications";
-import { gatewayJson, requireGatewayUpstream, useRemoteMicroservices } from "./microservice-client";
+import { serviceBaseUrl } from "./service-proxy";
 
 const audienceSchema = z
   .object({
-    subject: z.string().trim().min(1).max(160).optional(),
+    subject: z.string().trim().min(1).max(160),
     message: z.string().trim().min(1).max(2_000),
-    trigger: z.string().trim().max(80).optional(),
     segment: z.string().trim().max(80).optional(),
     memberId: z.string().trim().max(80).optional(),
     email: z.string().trim().email().max(254).optional(),
@@ -24,39 +17,26 @@ const audienceSchema = z
 
 const markReadSchema = z.object({}).strict();
 
-function useLocalRuntimeFirst() {
-  return (
-    process.env.USE_REMOTE_LOYALTY_API !== "true" &&
-    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.USE_LOCAL_LOYALTY_API === "true")
-  );
-}
-
-async function lookupMemberPk(input: { memberId?: string; email?: string }) {
-  const supabase = createServerSupabaseClient();
-
-  if (input.memberId) {
-    const member = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .eq("member_number", input.memberId)
-      .limit(1)
-      .maybeSingle();
-    if (member.error) throw member.error;
-    if (member.data?.id !== undefined) return Number(member.data.id);
+async function requestNotificationService<T>(path: string, init?: RequestInit) {
+  const response = await fetch(`${serviceBaseUrl("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:4005")}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      typeof payload?.error === "string"
+        ? payload.error
+        : typeof payload?.error?.message === "string"
+          ? payload.error.message
+          : `Notification service failed (${response.status}).`;
+    throw new HttpError(response.status, message);
   }
-
-  if (input.email) {
-    const member = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .ilike("email", input.email)
-      .limit(1)
-      .maybeSingle();
-    if (member.error) throw member.error;
-    if (member.data?.id !== undefined) return Number(member.data.id);
-  }
-
-  return null;
+  return payload as T;
 }
 
 async function queueAudience(channel: "sms" | "email", input: z.infer<typeof audienceSchema>) {
@@ -70,29 +50,12 @@ async function queueAudience(channel: "sms" | "email", input: z.infer<typeof aud
     throw new HttpError(404, "No matching audience members were found.");
   }
 
-  if (useLocalRuntimeFirst()) {
-    const subject = input.subject || (input.trigger ? `Loyalty ${input.trigger}` : "Loyalty notification");
-    const results = await Promise.all(
-      members.map((member) =>
-        queueLocalMemberNotification({
-          memberId: member.memberNumber,
-          channel,
-          subject,
-          message: input.message,
-          isTransactional: false,
-        }),
-      ),
-    );
-    return results.filter((result) => result.queued).length;
-  }
-
-  const subject = input.subject || (input.trigger ? `Loyalty ${input.trigger}` : "Loyalty notification");
   const results = await Promise.all(
     members.map((member) =>
       queueMemberNotification({
         memberId: member.memberNumber,
         channel,
-        subject,
+        subject: input.subject,
         message: input.message,
         isTransactional: false,
       }),
@@ -100,16 +63,6 @@ async function queueAudience(channel: "sms" | "email", input: z.infer<typeof aud
   );
 
   return results.filter((result) => result.queued).length;
-}
-
-function normalizeServiceNotification(row: Record<string, unknown>) {
-  return {
-    id: String(row.id ?? ""),
-    subject: String(row.subject ?? row.title ?? "Notification"),
-    message: String(row.message ?? row.title ?? ""),
-    createdAt: String(row.createdAt ?? row.created_at ?? new Date().toISOString()),
-    status: String(row.status ?? "pending"),
-  };
 }
 
 export const notificationsHandler = createApiHandler({
@@ -120,56 +73,10 @@ export const notificationsHandler = createApiHandler({
     const memberId = typeof req.query.memberId === "string" ? req.query.memberId.trim() : undefined;
     const email = typeof req.query.email === "string" ? req.query.email.trim() : undefined;
     const limit = typeof req.query.limit === "string" ? Math.min(100, Math.max(1, Number(req.query.limit) || 20)) : 20;
-    if (useLocalRuntimeFirst()) {
-      return {
-        ok: true as const,
-        notifications: await listLocalNotifications({ memberId, limit }),
-        source: "local_runtime",
-      };
-    }
-
-    if (useRemoteMicroservices()) {
-      const params = new URLSearchParams();
-      if (limit) params.set("limit", String(limit));
-      const response = await gatewayJson<{
-        ok: true;
-        notifications: Array<Record<string, unknown>>;
-      }>(`/notifications${params.toString() ? `?${params.toString()}` : ""}`);
-      return {
-        ok: true as const,
-        notifications: (response.notifications || []).map(normalizeServiceNotification),
-        source: "notification-service",
-      };
-    }
-
-    const memberPk = await lookupMemberPk({ memberId, email });
-    const supabase = createServerSupabaseClient();
-
-    let query = supabase
-      .from("notification_outbox")
-      .select("id,subject,message,created_at,status,member_id")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (memberPk !== null) {
-      query = query.eq("member_id", memberPk);
-    } else if (memberId || email) {
-      query = query.is("member_id", null);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    return {
-      ok: true as const,
-      notifications: (data || []).map((row) => ({
-        id: String(row.id ?? ""),
-        subject: String(row.subject ?? "Notification"),
-        message: String(row.message ?? ""),
-        createdAt: String(row.created_at ?? new Date().toISOString()),
-        status: String(row.status ?? "pending"),
-      })),
-    };
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (memberId) params.set("memberId", memberId);
+    if (email) params.set("email", email);
+    return requestNotificationService(`/notifications?${params.toString()}`);
   },
 });
 
@@ -177,37 +84,17 @@ export const triggerSmsHandler = createApiHandler({
   route: "/api/notifications/sms",
   methods: ["POST"] as const,
   schema: audienceSchema,
-  parseBodyFromQuery: true,
   rateLimit: { limit: 20, windowMs: 60_000 },
   resolveActor: (body) => body.memberId || body.email || body.segment || "audience",
   summarize: (body) => ({
-    trigger: body.trigger || null,
     segment: body.segment || null,
     memberId: body.memberId || null,
     email: body.email || null,
   }),
-  handler: async ({ body }) => {
-    if (useRemoteMicroservices()) {
-      const response = await gatewayJson<{
-        ok: true;
-        queued?: number;
-        result?: { queued?: boolean };
-      }>("/notifications/sms", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      return {
-        ok: true as const,
-        queued: Number(response.queued ?? (response.result?.queued ? 1 : 0)),
-        source: "notification-service",
-      };
-    }
-
-    return {
-      ok: true as const,
-      queued: await queueAudience("sms", body),
-    };
-  },
+  handler: async ({ body }) => ({
+    ok: true as const,
+    queued: await queueAudience("sms", body),
+  }),
 });
 
 export const markNotificationReadHandler = createApiHandler({
@@ -219,17 +106,9 @@ export const markNotificationReadHandler = createApiHandler({
     const id = String(req.query.id || "").trim();
     if (!id) throw new HttpError(400, "Notification ID is required.");
 
-    if (useLocalRuntimeFirst()) {
-      await markLocalNotificationRead(id);
-      return { ok: true as const, source: "local_runtime" };
-    }
-
-    await requireGatewayUpstream("notification", "Notification service");
-
-    const supabase = createServerSupabaseClient();
-    const { error } = await supabase.from("notification_outbox").update({ status: "read" }).eq("id", id);
-    if (error) throw error;
-
-    return { ok: true as const };
+    return requestNotificationService(`/notifications/${encodeURIComponent(id)}/read`, {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    });
   },
 });

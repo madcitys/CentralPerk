@@ -1,18 +1,52 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+const serviceName = "gateway";
+
+function readEnv(name: string) {
+  return process.env[name]?.trim() || "";
+}
+
+function fail(message: string): never {
+  throw new Error(`[${serviceName}] ${message}`);
+}
+
+function parsePort() {
+  const raw = readEnv("PORT");
+  if (!raw) return 4000;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    fail("Invalid port in environment variable: PORT");
+  }
+  return port;
+}
+
+function requireHttpUrl(name: string) {
+  const value = readEnv(name);
+  if (!value) fail(`Missing required environment variable: ${name}`);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail(`Invalid URL in environment variable: ${name}`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    fail(`Invalid URL protocol in environment variable: ${name}`);
+  }
+  return value;
+}
+
 export const config = {
-  port: Number(process.env.PORT || 4000),
-  host: process.env.HOST || "0.0.0.0",
-  pointsUrl: process.env.POINTS_ENGINE_URL || "http://127.0.0.1:4001",
-  campaignUrl: process.env.CAMPAIGN_SERVICE_URL || "http://127.0.0.1:4002",
-  memberUrl: process.env.MEMBER_SERVICE_URL || "http://127.0.0.1:4003",
-  segmentUrl: process.env.SEGMENT_SERVICE_URL || "http://127.0.0.1:4004",
-  notificationUrl: process.env.NOTIFICATION_SERVICE_URL || "http://127.0.0.1:4005",
-  rewardUrl: process.env.REWARD_SERVICE_URL || "http://127.0.0.1:4006",
-  nextApiUrl: process.env.NEXT_API_URL || "http://127.0.0.1:3000/api",
-  backendApiUrl: process.env.BACKEND_API_URL || process.env.NEXT_API_URL || "http://127.0.0.1:3000/api",
-  adminRole: (process.env.ADMIN_ROLE || "admin").toLowerCase(),
-  useLocalRuntime:
-    process.env.USE_LOCAL_LOYALTY_API === "true" || process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true",
+  serviceName,
+  dbMode: "none",
+  port: parsePort(),
+  host: readEnv("HOST") || "0.0.0.0",
+  gatewayUrl: requireHttpUrl("GATEWAY_URL"),
+  memberUrl: requireHttpUrl("MEMBER_SERVICE_URL"),
+  segmentUrl: requireHttpUrl("SEGMENT_SERVICE_URL"),
+  campaignUrl: requireHttpUrl("CAMPAIGN_SERVICE_URL"),
+  notificationUrl: requireHttpUrl("NOTIFICATION_SERVICE_URL"),
+  rewardUrl: requireHttpUrl("REWARD_SERVICE_URL"),
+  pointsUrl: requireHttpUrl("POINTS_SERVICE_URL"),
+  adminRole: (readEnv("ADMIN_ROLE") || "admin").toLowerCase(),
 };

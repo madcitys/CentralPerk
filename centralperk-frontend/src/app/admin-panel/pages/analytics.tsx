@@ -145,7 +145,7 @@ const analyticsTabs: { value: AnalyticsTab; label: string; hash: string }[] = [
 ];
 
 export default function AdminAnalyticsPage() {
-  const { members, transactions, loading, error, tierRules, earningRules, metrics, insights } = useAdminData({ includeInsights: true, scope: "analytics" });
+  const { members, transactions, loading, error, tierRules, earningRules, metrics, insights } = useAdminData();
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
   const [tierFilter, setTierFilter] = useState<AnalyticsTierFilter>("all");
   const [memberSearch, setMemberSearch] = useState("");

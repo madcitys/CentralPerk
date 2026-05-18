@@ -20,7 +20,6 @@ type ApiHandlerOptions<TBody> = {
   };
   resolveActor?: (body: TBody, req: NextApiRequest) => string | null | undefined;
   summarize?: (body: TBody, req: NextApiRequest) => Record<string, unknown>;
-  parseBodyFromQuery?: boolean;
   handler: (ctx: ApiHandlerContext<TBody>) => Promise<unknown>;
 };
 
@@ -34,34 +33,6 @@ function normalizeBody(body: unknown) {
     }
   }
   return body;
-}
-
-function isEmptyObject(value: unknown) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
-}
-
-function routeParamNames(route: string) {
-  return Array.from(route.matchAll(/:([A-Za-z0-9_]+)/g)).map((match) => match[1]).filter(Boolean);
-}
-
-function normalizeQuery(query: NextApiRequest["query"], route: string) {
-  const routeParams = new Set(routeParamNames(route));
-  return Object.fromEntries(
-    Object.entries(query).flatMap(([key, value]) => {
-      if (routeParams.has(key)) return [];
-      const raw = Array.isArray(value) ? value[0] : value;
-      if (typeof raw !== "string") return [[key, raw]];
-      const trimmed = raw.trim();
-      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-        try {
-          return [[key, JSON.parse(trimmed)]];
-        } catch {
-          return [[key, raw]];
-        }
-      }
-      return [[key, raw]];
-    })
-  );
 }
 
 export function getClientIp(req: NextApiRequest) {
@@ -102,15 +73,9 @@ export function createApiHandler<TBody = Record<string, never>>(
         throw new HttpError(405, `Method ${method} is not allowed for ${options.route}.`);
       }
 
-      const normalizedBody = normalizeBody(req.body);
-      const bodyForParsing =
-        options.parseBodyFromQuery && isEmptyObject(normalizedBody)
-          ? normalizeQuery(req.query, options.route)
-          : normalizedBody;
-
       parsedBody = options.schema
-        ? options.schema.parse(bodyForParsing)
-        : (bodyForParsing as TBody);
+        ? options.schema.parse(normalizeBody(req.body))
+        : (normalizeBody(req.body) as TBody);
 
       actor = options.resolveActor?.(parsedBody, req) ?? null;
       auditSummary = options.summarize?.(parsedBody, req) ?? {};
@@ -177,7 +142,7 @@ export function createApiHandler<TBody = Record<string, never>>(
         });
       }
     } finally {
-      void appendAuditLog({
+      await appendAuditLog({
         route: options.route,
         method,
         ip,

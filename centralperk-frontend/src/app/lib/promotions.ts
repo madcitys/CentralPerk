@@ -1,17 +1,14 @@
-import {
-  listCampaigns as serviceListCampaigns,
-  listActiveCampaigns as serviceListActiveCampaigns,
-  saveCampaign as serviceSaveCampaign,
-  loadCampaignPerformance as serviceLoadPerformance,
-  queueCampaignNotifications as serviceQueueNotifications,
-} from "./campaign-service-client";
-import { supabase } from "../../utils/supabase/client";
+import { requestJson } from "./api";
+import { loadBadgeLeaderboardViaApi, loadBadgeProgressViaApi } from "./member-service-api";
 
 type AnyRecord = Record<string, any>;
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type PromotionCampaignType = "bonus_points" | "flash_sale" | "multiplier_event";
 
-export type PromotionCampaignStatus = "draft" | "scheduled" | "active" | "paused" | "completed" | "archived";
+export type PromotionCampaignStatus = "draft" | "scheduled" | "active" | "completed" | "archived";
 
 export type PromotionCampaign = {
   id: string;
@@ -38,9 +35,6 @@ export type PromotionCampaign = {
   bannerMessage: string | null;
   bannerColor: string;
   pushNotificationEnabled: boolean;
-  budgetLimit?: number | null;
-  budgetSpent?: number;
-  autoPause?: boolean;
 };
 
 export type PromotionCampaignInput = {
@@ -64,8 +58,6 @@ export type PromotionCampaignInput = {
   bannerMessage?: string | null;
   bannerColor?: string;
   pushNotificationEnabled?: boolean;
-  budgetLimit?: number | null;
-  autoPause?: boolean;
 };
 
 export type CampaignPerformance = {
@@ -133,6 +125,12 @@ export type BadgeLeaderboardEntry = {
   badgeCount: number;
 };
 
+function createStatusError(message: string, statusCode: number) {
+  const error = new Error(message);
+  (error as Error & { statusCode?: number }).statusCode = statusCode;
+  return error;
+}
+
 function normalizeCampaign(row: AnyRecord): PromotionCampaign {
   const reward = row.rewards_catalog as AnyRecord | null;
 
@@ -153,30 +151,21 @@ function normalizeCampaign(row: AnyRecord): PromotionCampaign {
       ? (row.eligibleTiers ?? row.eligible_tiers).map((entry: unknown) => String(entry))
       : [],
     rewardId: row.rewardId !== undefined && row.rewardId !== null ? String(row.rewardId) : reward?.reward_id ? String(reward.reward_id) : null,
-    rewardName: reward?.name ? String(reward.name) : null,
-    rewardPointsCost: reward?.points_cost !== undefined ? Number(reward.points_cost ?? 0) : null,
-    rewardImageUrl: reward?.image_url ? String(reward.image_url) : null,
+    rewardName: row.rewardName ? String(row.rewardName) : reward?.name ? String(reward.name) : null,
+    rewardPointsCost: row.rewardPointsCost !== undefined ? Number(row.rewardPointsCost ?? 0) : reward?.points_cost !== undefined ? Number(reward.points_cost ?? 0) : null,
+    rewardImageUrl: row.rewardImageUrl ? String(row.rewardImageUrl) : reward?.image_url ? String(reward.image_url) : null,
     flashSaleQuantityLimit:
-      (row.flashSaleQuantityLimit ?? row.flash_sale_quantity_limit) === null ||
-      (row.flashSaleQuantityLimit ?? row.flash_sale_quantity_limit) === undefined
+      (row.flashSaleQuantityLimit ?? row.flash_sale_quantity_limit) === null || (row.flashSaleQuantityLimit ?? row.flash_sale_quantity_limit) === undefined
         ? null
         : Number(row.flashSaleQuantityLimit ?? row.flash_sale_quantity_limit),
     flashSaleClaimedCount: Number(row.flashSaleClaimedCount ?? row.flash_sale_claimed_count ?? 0),
     startsAt: String(row.startsAt ?? row.starts_at ?? new Date().toISOString()),
     endsAt: String(row.endsAt ?? row.ends_at ?? new Date().toISOString()),
-    countdownLabel: row.countdownLabel ?? row.countdown_label ? String(row.countdownLabel ?? row.countdown_label) : null,
-    bannerTitle: row.bannerTitle ?? row.banner_title ? String(row.bannerTitle ?? row.banner_title) : null,
-    bannerMessage: row.bannerMessage ?? row.banner_message ? String(row.bannerMessage ?? row.banner_message) : null,
+    countdownLabel: row.countdownLabel ? String(row.countdownLabel) : row.countdown_label ? String(row.countdown_label) : null,
+    bannerTitle: row.bannerTitle ? String(row.bannerTitle) : row.banner_title ? String(row.banner_title) : null,
+    bannerMessage: row.bannerMessage ? String(row.bannerMessage) : row.banner_message ? String(row.banner_message) : null,
     bannerColor: String(row.bannerColor ?? row.banner_color ?? "#1A2B47"),
     pushNotificationEnabled: Boolean(row.pushNotificationEnabled ?? row.push_notification_enabled ?? false),
-    budgetLimit:
-      row.budgetLimit === null || row.budget_limit === null
-        ? null
-        : row.budgetLimit !== undefined || row.budget_limit !== undefined
-          ? Number(row.budgetLimit ?? row.budget_limit)
-          : undefined,
-    budgetSpent: row.budgetSpent !== undefined || row.budget_spent !== undefined ? Number(row.budgetSpent ?? row.budget_spent) : undefined,
-    autoPause: row.autoPause ?? row.auto_pause,
   };
 }
 
@@ -192,228 +181,158 @@ function normalizePartner(row: AnyRecord): RewardPartner {
   };
 }
 
-async function lookupMemberId(_memberIdentifier?: string, _fallbackEmail?: string) {
-  return null;
-}
+export async function resolvePromotionCampaignId(reference: string) {
+  const trimmedReference = reference.trim();
+  if (!trimmedReference) return null;
 
-function useLocalPromotionFallback() {
-  return (
-    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API !== "true" &&
-    (process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" ||
-      process.env.NEXT_PUBLIC_USE_LOCAL_LOYALTY_API === "true" ||
-      process.env.USE_LOCAL_LOYALTY_API === "true")
+  const campaigns = await loadPromotionCampaigns();
+  const match = campaigns.find((campaign) =>
+    UUID_PATTERN.test(trimmedReference)
+      ? campaign.id === trimmedReference
+      : campaign.campaignCode.toLowerCase() === trimmedReference.toLowerCase()
   );
-}
-
-const PROMOTION_READ_CACHE_TTL_MS = 20_000;
-const promotionReadCache = new Map<string, { loadedAt: number; value: unknown }>();
-const promotionReadInFlight = new Map<string, Promise<unknown>>();
-
-async function withPromotionReadCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
-  const cached = promotionReadCache.get(key);
-  if (cached && Date.now() - cached.loadedAt < PROMOTION_READ_CACHE_TTL_MS) {
-    return cached.value as T;
-  }
-
-  const inFlight = promotionReadInFlight.get(key);
-  if (inFlight) return inFlight as Promise<T>;
-
-  const request = loader()
-    .then((value) => {
-      promotionReadCache.set(key, { loadedAt: Date.now(), value });
-      return value;
-    })
-    .finally(() => {
-      promotionReadInFlight.delete(key);
-    });
-
-  promotionReadInFlight.set(key, request);
-  return request;
-}
-
-function clearPromotionReadCache(prefix?: string) {
-  if (!prefix) {
-    promotionReadCache.clear();
-    promotionReadInFlight.clear();
-    return;
-  }
-
-  for (const key of Array.from(promotionReadCache.keys())) {
-    if (key.startsWith(prefix)) promotionReadCache.delete(key);
-  }
-  for (const key of Array.from(promotionReadInFlight.keys())) {
-    if (key.startsWith(prefix)) promotionReadInFlight.delete(key);
-  }
+  return match?.id ?? null;
 }
 
 export async function loadPromotionCampaigns(): Promise<PromotionCampaign[]> {
-  return withPromotionReadCache("campaigns:all", async () => {
-    const response = await serviceListCampaigns();
-    if (!response.ok) throw new Error("Campaign service list failed");
-    return (response.campaigns || []).map((row) => normalizeCampaign(row as AnyRecord));
-  });
+  const response = await requestJson<{ ok: true; campaigns: AnyRecord[] }>("/api/campaigns");
+  return (response.campaigns || []).map((row) => normalizeCampaign(row as AnyRecord));
 }
 
 export async function loadActivePromotionCampaigns(memberTier?: string): Promise<PromotionCampaign[]> {
-  const cacheKey = `campaigns:active:${String(memberTier || "").toLowerCase()}`;
-  return withPromotionReadCache(cacheKey, async () => {
-    const response = await serviceListActiveCampaigns();
-    if (!response.ok) throw new Error("Campaign service active list failed");
-    const campaigns = (response.campaigns || []).map((row) => normalizeCampaign(row as AnyRecord));
-    if (!memberTier) return campaigns;
-    return campaigns.filter(
-      (c) =>
-        c.eligibleTiers.length === 0 ||
-        c.eligibleTiers.some((entry) => entry.toLowerCase() === memberTier.toLowerCase())
-    );
+  const all = await loadPromotionCampaigns();
+  const now = Date.now();
+
+  return all.filter((campaign) => {
+    const startsAt = new Date(campaign.startsAt).getTime();
+    const endsAt = new Date(campaign.endsAt).getTime();
+    const isWindowOpen = startsAt <= now && endsAt >= now;
+    const tierAllowed =
+      !memberTier ||
+      campaign.eligibleTiers.length === 0 ||
+      campaign.eligibleTiers.some((entry) => entry.toLowerCase() === memberTier.toLowerCase());
+
+    return isWindowOpen && tierAllowed && campaign.status !== "archived";
   });
 }
 
 export async function savePromotionCampaign(input: PromotionCampaignInput) {
-  const response = await serviceSaveCampaign(input);
-  if (!response.ok) throw new Error("Campaign service save failed");
-  clearPromotionReadCache("campaigns:");
-  clearPromotionReadCache("campaign-performance");
+  const response = await requestJson<{ ok: true; campaign: AnyRecord }>("/api/campaigns", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
   return normalizeCampaign(response.campaign as AnyRecord);
 }
 
 export async function queueCampaignNotifications(campaignId: string) {
-  const response = await serviceQueueNotifications(campaignId);
-  if (!response.ok) throw new Error("Campaign service notify failed");
-  clearPromotionReadCache("campaign-performance");
-  return response.notificationsQueued;
+  const resolvedCampaignId = await resolvePromotionCampaignId(campaignId);
+  if (!resolvedCampaignId) {
+    const error = new Error("Campaign not found.");
+    (error as Error & { statusCode?: number }).statusCode = 404;
+    throw error;
+  }
+
+  const response = await requestJson<{ ok: true; notificationsQueued: number }>("/api/campaigns/notifications/queue", {
+    method: "POST",
+    body: JSON.stringify({ campaignId: resolvedCampaignId }),
+  });
+  return Number(response.notificationsQueued || 0);
+}
+
+export async function claimFlashSaleCampaign(campaignReference: string) {
+  const resolvedCampaignId = await resolvePromotionCampaignId(campaignReference);
+  if (!resolvedCampaignId) {
+    throw createStatusError("Campaign not found.", 404);
+  }
+
+  const response = await requestJson<{ ok: true; claim: AnyRecord }>("/api/campaigns/flash-sale/claim", {
+    method: "POST",
+    body: JSON.stringify({ campaignId: resolvedCampaignId }),
+  });
+  return response.claim;
 }
 
 export async function loadCampaignPerformance(): Promise<CampaignPerformance[]> {
-  return withPromotionReadCache("campaign-performance", async () => {
-    const response = await serviceLoadPerformance();
-    if (!response.ok) throw new Error("Campaign service performance failed");
-
-    return ((response.performance || []) as AnyRecord[]).map((row) => ({
-      campaignId: String(row.campaign_id ?? ""),
-      campaignCode: String(row.campaign_code ?? ""),
-      campaignName: String(row.campaign_name ?? ""),
-      campaignType: String(row.campaign_type ?? "bonus_points") as PromotionCampaignType,
-      status: String(row.status ?? "scheduled") as PromotionCampaignStatus,
-      startsAt: String(row.starts_at ?? new Date().toISOString()),
-      endsAt: String(row.ends_at ?? new Date().toISOString()),
-      notificationsSent: Number(row.notifications_sent ?? 0),
-      trackedTransactions: Number(row.tracked_transactions ?? 0),
-      pointsAwarded: Number(row.points_awarded ?? 0),
-      redemptionCount: Number(row.redemption_count ?? 0),
-      quantityLimit:
-        row.quantity_limit === null || row.quantity_limit === undefined ? null : Number(row.quantity_limit),
-      quantityClaimed: Number(row.quantity_claimed ?? 0),
-      sellThrough: row.sell_through === null || row.sell_through === undefined ? null : Number(row.sell_through),
-      redemptionSpeedPerHour: Number(row.redemption_speed_per_hour ?? 0),
-    }));
-  });
-}
-
-export async function loadRewardPartners(): Promise<RewardPartner[]> {
-  if (useLocalPromotionFallback()) return [];
-  return withPromotionReadCache("partners:list", async () => {
-    const { data, error } = await supabase
-      .from("reward_partners")
-      .select("*")
-      .order("partner_name", { ascending: true });
-
-    if (error) throw error;
-    return (data || []).map((row) => normalizePartner(row as AnyRecord));
-  });
-}
-
-export async function saveRewardPartner(input: RewardPartnerInput) {
-  const payload = {
-    partner_code: input.partnerCode.trim().toUpperCase(),
-    partner_name: input.partnerName.trim(),
-    description: input.description?.trim() || null,
-    logo_url: input.logoUrl?.trim() || null,
-    conversion_rate: Math.max(0.01, Number(input.conversionRate ?? 1)),
-    is_active: Boolean(input.isActive ?? true),
-  };
-
-  const query = input.id
-    ? supabase.from("reward_partners").update(payload).eq("id", input.id).select("*").single()
-    : supabase.from("reward_partners").insert(payload).select("*").single();
-
-  const { data, error } = await query;
-  if (error) throw error;
-  clearPromotionReadCache("partners:");
-  return normalizePartner(data as AnyRecord);
-}
-
-export async function toggleRewardPartner(partnerId: string, isActive: boolean) {
-  const { data, error } = await supabase
-    .from("reward_partners")
-    .update({ is_active: isActive })
-    .eq("id", partnerId)
-    .select("*")
-    .single();
-
-  if (error) throw error;
-  clearPromotionReadCache("partners:");
-  return normalizePartner(data as AnyRecord);
-}
-
-export async function loadPartnerPerformance(): Promise<RewardPartnerPerformance[]> {
-  if (useLocalPromotionFallback()) return [];
-  return withPromotionReadCache("partners:performance", async () => {
-    const { data, error } = await supabase.rpc("loyalty_partner_reward_performance");
-    if (error) throw error;
-
-    return ((data || []) as AnyRecord[]).map((row) => ({
-      id: String(row.partner_id ?? ""),
-      partnerCode: String(row.partner_code ?? ""),
-      partnerName: String(row.partner_name ?? ""),
-      description: null,
-      logoUrl: null,
-      conversionRate: 1,
-      isActive: true,
-      rewardsCount: Number(row.rewards_count ?? 0),
-      redemptionCount: Number(row.redemption_count ?? 0),
-      uniqueRedeemers: Number(row.unique_redeemers ?? 0),
-      pointsRedeemed: Number(row.points_redeemed ?? 0),
-    }));
-  });
-}
-
-export async function loadMemberBadgeProgress(memberIdentifier?: string, fallbackEmail?: string) {
-  if (useLocalPromotionFallback()) return [] as MemberBadgeProgress[];
-
-  const memberId = await lookupMemberId(memberIdentifier, fallbackEmail);
-  if (!memberId) return [] as MemberBadgeProgress[];
-
-  const { data, error } = await supabase.rpc("loyalty_member_badge_progress", {
-    p_member_id: memberId,
-  });
-
-  if (error) throw error;
-
-  return ((data || []) as AnyRecord[]).map((row) => ({
-    badgeId: String(row.badge_id ?? ""),
-    badgeCode: String(row.badge_code ?? ""),
-    badgeName: String(row.badge_name ?? ""),
-    description: String(row.description ?? ""),
-    iconName: String(row.icon_name ?? "Award"),
-    milestoneType: String(row.milestone_type ?? ""),
-    milestoneTarget: Number(row.milestone_target ?? 0),
-    progressValue: Number(row.progress_value ?? 0),
-    isEarned: Boolean(row.is_earned ?? false),
-    earnedAt: row.earned_at ? String(row.earned_at) : null,
+  const response = await requestJson<{ ok: true; performance: AnyRecord[] }>("/api/campaigns/performance");
+  return ((response.performance || []) as AnyRecord[]).map((row) => ({
+    campaignId: String(row.campaign_id ?? ""),
+    campaignCode: String(row.campaign_code ?? ""),
+    campaignName: String(row.campaign_name ?? ""),
+    campaignType: String(row.campaign_type ?? "bonus_points") as PromotionCampaignType,
+    status: String(row.status ?? "scheduled") as PromotionCampaignStatus,
+    startsAt: String(row.starts_at ?? new Date().toISOString()),
+    endsAt: String(row.ends_at ?? new Date().toISOString()),
+    notificationsSent: Number(row.notifications_sent ?? 0),
+    trackedTransactions: Number(row.tracked_transactions ?? 0),
+    pointsAwarded: Number(row.points_awarded ?? 0),
+    redemptionCount: Number(row.redemption_count ?? 0),
+    quantityLimit:
+      row.quantity_limit === null || row.quantity_limit === undefined ? null : Number(row.quantity_limit),
+    quantityClaimed: Number(row.quantity_claimed ?? 0),
+    sellThrough: row.sell_through === null || row.sell_through === undefined ? null : Number(row.sell_through),
+    redemptionSpeedPerHour: Number(row.redemption_speed_per_hour ?? 0),
   }));
 }
 
+export async function loadRewardPartners(): Promise<RewardPartner[]> {
+  const response = await requestJson<{ ok: true; partners: AnyRecord[] }>("/api/reward-partners");
+  return (response.partners || []).map((row) => normalizePartner(row as AnyRecord));
+}
+
+export async function saveRewardPartner(input: RewardPartnerInput) {
+  const response = await requestJson<{ ok: true; partner: AnyRecord }>("/api/reward-partners", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return normalizePartner(response.partner as AnyRecord);
+}
+
+export async function toggleRewardPartner(partnerId: string, isActive: boolean) {
+  const response = await requestJson<{ ok: true; partner: AnyRecord }>(`/api/reward-partners/${encodeURIComponent(partnerId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
+  });
+  return normalizePartner(response.partner as AnyRecord);
+}
+
+export async function loadPartnerPerformance(): Promise<RewardPartnerPerformance[]> {
+  const response = await requestJson<{ ok: true; performance: AnyRecord[] }>("/api/reward-partners/performance");
+  return ((response.performance || []) as AnyRecord[]).map((row) => ({
+    id: String(row.partner_id ?? ""),
+    partnerCode: String(row.partner_code ?? ""),
+    partnerName: String(row.partner_name ?? ""),
+    description: null,
+    logoUrl: null,
+    conversionRate: 1,
+    isActive: true,
+    rewardsCount: Number(row.rewards_count ?? 0),
+    redemptionCount: Number(row.redemption_count ?? 0),
+    uniqueRedeemers: Number(row.unique_redeemers ?? 0),
+    pointsRedeemed: Number(row.points_redeemed ?? 0),
+  }));
+}
+
+export async function loadMemberBadgeProgress(memberIdentifier?: string, fallbackEmail?: string) {
+  if (!memberIdentifier && !fallbackEmail) return [] as MemberBadgeProgress[];
+  return (await loadBadgeProgressViaApi(memberIdentifier, fallbackEmail)).map((row) => ({
+    badgeId: String(row.badgeId ?? row.badge_id ?? ""),
+    badgeCode: String(row.badgeCode ?? row.badge_code ?? ""),
+    badgeName: String(row.badgeName ?? row.badge_name ?? ""),
+    description: String(row.description ?? ""),
+    iconName: String(row.iconName ?? row.icon_name ?? "Award"),
+    milestoneType: String(row.milestoneType ?? row.milestone_type ?? ""),
+    milestoneTarget: Number(row.milestoneTarget ?? row.milestone_target ?? 0),
+    progressValue: Number(row.progressValue ?? row.progress_value ?? 0),
+    isEarned: Boolean(row.isEarned ?? row.is_earned ?? false),
+    earnedAt: row.earnedAt ?? row.earned_at ?? null,
+  })) as MemberBadgeProgress[];
+}
+
 export async function loadBadgeLeaderboard(limit = 10) {
-  if (useLocalPromotionFallback()) return [] as BadgeLeaderboardEntry[];
-
-  const { data, error } = await supabase.rpc("loyalty_badge_leaderboard", { p_limit: limit });
-  if (error) throw error;
-
-  return ((data || []) as AnyRecord[]).map((row) => ({
-    memberId: String(row.member_id ?? ""),
-    memberNumber: String(row.member_number ?? ""),
-    memberName: String(row.member_name ?? ""),
-    badgeCount: Number(row.badge_count ?? 0),
+  return (await loadBadgeLeaderboardViaApi(limit)).map((row) => ({
+    memberId: String(row.memberId ?? row.member_id ?? ""),
+    memberNumber: String(row.memberNumber ?? row.member_number ?? ""),
+    memberName: String(row.memberName ?? row.member_name ?? ""),
+    badgeCount: Number(row.badgeCount ?? row.badge_count ?? 0),
   })) as BadgeLeaderboardEntry[];
 }

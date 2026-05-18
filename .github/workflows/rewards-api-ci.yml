@@ -1,0 +1,63 @@
+name: rewards-api-ci
+
+on:
+  push:
+    paths:
+      - "LOYALTY_SYSTEM-main/CentralPerk/**"
+      - ".github/workflows/rewards-api-ci.yml"
+  pull_request:
+    paths:
+      - "LOYALTY_SYSTEM-main/CentralPerk/**"
+      - ".github/workflows/rewards-api-ci.yml"
+
+jobs:
+  verify-rewards-api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: LOYALTY_SYSTEM-main/CentralPerk
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: LOYALTY_SYSTEM-main/CentralPerk/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Seed test DB
+        if: ${{ secrets.SUPABASE_DB_URL != '' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: npm run db:test:seed
+
+      - name: Run Pact consumer tests
+        run: npm run test:contract
+
+      - name: Run Pact provider verification
+        run: npm run test:provider
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload generated pact files
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-api-pacts
+          path: LOYALTY_SYSTEM-main/CentralPerk/tests/contract/pacts
+
+      - name: Teardown test DB
+        if: ${{ always() && secrets.SUPABASE_DB_URL != '' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: npm run db:test:teardown

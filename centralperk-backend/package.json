@@ -1,29 +1,21 @@
 {
-  "name": "system-3-nest-backend",
-  "version": "0.1.0",
+  "name": "centralperk-backend",
   "private": true,
-  "type": "commonjs",
+  "version": "0.0.1",
+  "type": "module",
   "scripts": {
-    "build": "nest build",
-    "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
-    "health": "powershell -NoProfile -Command \"Invoke-RestMethod http://localhost:4000/health | ConvertTo-Json -Depth 6\""
-  },
-  "dependencies": {
-    "@nestjs/common": "^10.4.20",
-    "@nestjs/core": "^10.4.20",
-    "@nestjs/platform-express": "^10.4.20",
-    "@supabase/supabase-js": "^2.97.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
-    "dotenv": "^17.2.3",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
-  },
-  "devDependencies": {
-    "@nestjs/cli": "^10.4.9",
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.5.2",
-    "typescript": "^5.9.3"
+    "install:services": "npm --prefix member-service install && npm --prefix segment-service install && npm --prefix campaign-service install && npm --prefix notification-service install && npm --prefix reward-service install && npm --prefix points-engine install && npm --prefix gateway install",
+    "build": "npm --prefix member-service run build && npm --prefix segment-service run build && npm --prefix campaign-service run build && npm --prefix notification-service run build && npm --prefix reward-service run build && npm --prefix points-engine run build && npm --prefix gateway run build",
+    "test": "npm --prefix member-service test && npm --prefix segment-service test && npm --prefix campaign-service test && npm --prefix notification-service test && npm --prefix reward-service test && npm --prefix points-engine test && npm --prefix gateway run verify",
+    "validate:split-dbs": "powershell -ExecutionPolicy Bypass -File scripts/validate-split-service-dbs.ps1",
+    "start:member": "node member-service/dist/server.js",
+    "start:segment": "node segment-service/dist/server.js",
+    "start:campaign": "node campaign-service/dist/server.js",
+    "start:notification": "node notification-service/dist/server.js",
+    "start:reward": "node reward-service/dist/server.js",
+    "start:points": "node points-engine/dist/server.js",
+    "start:gateway": "node gateway/dist/server.js",
+    "start:help": "node -e \"console.log('Start backend services in separate terminals: npm run start:member, start:segment, start:campaign, start:notification, start:reward, start:points, start:gateway')\"",
+    "postinstall": "npm run install:services"
   }
 }

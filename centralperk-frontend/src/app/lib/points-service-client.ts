@@ -1,50 +1,35 @@
-import { apiUrl } from "./api-config";
+function resolveBaseUrl() {
+  if (typeof window !== "undefined") return "/api";
 
-const configuredTimeout = Number(process.env.POINTS_SERVICE_TIMEOUT_MS || 900);
-const DEFAULT_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 900;
+  const baseUrl =
+    process.env.GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    process.env.POINTS_ENGINE_URL ||
+    process.env.NEXT_PUBLIC_POINTS_ENGINE_URL;
 
-export class PointsServiceError extends Error {
-  statusCode: number;
-  code?: string;
-
-  constructor(message: string, statusCode: number, code?: string) {
-    super(message);
-    this.name = "PointsServiceError";
-    this.statusCode = statusCode;
-    this.code = code;
+  if (!baseUrl) {
+    throw new Error(
+      "Missing points service configuration. Set GATEWAY_URL, NEXT_PUBLIC_GATEWAY_URL, POINTS_ENGINE_URL, or NEXT_PUBLIC_POINTS_ENGINE_URL."
+    );
   }
+
+  return baseUrl;
 }
 
 function fullUrl(path: string) {
-  const pointsServiceBaseUrl = (process.env.POINTS_ENGINE_URL || "").replace(/\/+$/, "");
-  if (pointsServiceBaseUrl) {
-    return `${pointsServiceBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-  }
-  return apiUrl(path);
+  return `${resolveBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   const res = await fetch(fullUrl(path), {
     ...init,
-    signal: controller.signal,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-  }).finally(() => clearTimeout(timeout));
-  const raw = await res.text();
-  if (raw.includes("<!DOCTYPE html") || raw.includes("__next/static") || raw.includes("<html")) {
-    throw new Error("Points API returned HTML instead of backend JSON.");
-  }
+  });
   if (!res.ok) {
-    let message = raw;
-    try {
-      const parsed = JSON.parse(raw || "{}") as { error?: unknown; message?: unknown };
-      message = String(parsed.error || parsed.message || raw);
-    } catch {
-    }
+    const message = await res.text();
     throw new Error(message || `Points service error (${res.status})`);
   }
-  return (raw ? JSON.parse(raw) : {}) as T;
+  return (await res.json()) as T;
 }
 
 export async function awardPoints(payload: any, idempotencyKey?: string) {
@@ -64,22 +49,78 @@ export async function redeemPoints(payload: any, idempotencyKey?: string) {
 }
 
 export async function fetchTiers() {
-  try {
-    return await call<{ ok: boolean; tiers: any[] }>("/points/tiers", { method: "GET" });
-  } catch (error) {
-    const message = String(error instanceof Error ? error.message : error || "");
-    if (message.includes("404")) {
-      return call<{ ok: boolean; tiers: any[] }>("/tiers", { method: "GET" });
-    }
-    throw error;
-  }
+  return call<{ ok: boolean; tiers: any[] }>("/points/tiers", { method: "GET" });
 }
 
-export async function runExpiry() {
+export async function saveTiers(rules: any[]) {
+  return call<{ ok: boolean; tiers: any[] }>("/points/tiers", {
+    method: "PUT",
+    body: JSON.stringify({ rules }),
+  });
+}
+
+export async function fetchEarningRules() {
+  return call<{ ok: boolean; earningRules: any[] }>("/points/earning-rules", { method: "GET" });
+}
+
+export async function saveEarningRulesViaService(rules: any[]) {
+  return call<{ ok: boolean }>("/points/earning-rules", {
+    method: "PUT",
+    body: JSON.stringify({ rules }),
+  });
+}
+
+export async function fetchEarnTasksViaService() {
+  return call<{ ok: boolean; earnTasks: any[] }>("/points/earn-tasks", { method: "GET" });
+}
+
+export async function fetchPointsActivity(memberIdentifier: string, fallbackEmail?: string) {
+  const params = new URLSearchParams({ memberIdentifier });
+  if (fallbackEmail) params.set("fallbackEmail", fallbackEmail);
+
+  return call<{
+    ok: boolean;
+    balance: {
+      member_id: string;
+      points_balance: number;
+      tier: string;
+    };
+    history: Array<{
+      id?: string | number;
+      member_id?: string | number;
+      transaction_id?: string | number;
+      transaction_type: string;
+      points: number;
+      balance?: number | null;
+      transaction_date?: string;
+      expiry_date?: string | null;
+      reason?: string | null;
+      reward_catalog_id?: string | number | null;
+      promotion_campaign_id?: string | null;
+    }>;
+  }>(`/points/activity?${params.toString()}`, { method: "GET" });
+}
+
+export async function awardPointsViaService(payload: any, idempotencyKey?: string) {
+  return awardPoints(payload, idempotencyKey);
+}
+
+export async function redeemPointsViaService(payload: any, idempotencyKey?: string) {
+  return redeemPoints(payload, idempotencyKey);
+}
+
+export async function fetchTierRulesViaService() {
+  return fetchTiers();
+}
+
+export async function saveTierRulesViaService(rules: any[]) {
+  return saveTiers(rules);
+}
+
+export async function fetchPointsActivityViaService(memberIdentifier: string, fallbackEmail?: string) {
+  return fetchPointsActivity(memberIdentifier, fallbackEmail);
+}
+
+export async function runExpiryViaService() {
   return call<{ ok: boolean; result: any }>("/points/expiry/run", { method: "POST" });
 }
-
-export const awardPointsViaService = awardPoints;
-export const redeemPointsViaService = redeemPoints;
-export const fetchTierRulesViaService = fetchTiers;
-export const runExpiryViaService = runExpiry;

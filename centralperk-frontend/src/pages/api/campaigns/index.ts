@@ -1,12 +1,13 @@
-import type { NextApiHandler } from "next";
-import { campaignsHandler, campaignsListHandler } from "../../../server/campaign-api";
+import type { NextApiRequest, NextApiResponse } from "next";
 
-const handler: NextApiHandler = (req, res) => {
-  if (req.method?.toUpperCase() === "GET") {
-    return campaignsListHandler(req, res);
-  }
+import { proxyToService } from "../../../server/service-proxy";
 
-  return campaignsHandler(req, res);
-};
-
-export default handler;
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  return proxyToService(req, res, {
+    baseUrlEnv: "CAMPAIGN_SERVICE_URL",
+    fallbackBaseUrl: "http://127.0.0.1:4002",
+    targetPath: "/campaigns",
+    methods: ["GET", "POST"] as const,
+    adminWrite: true,
+  });
+}

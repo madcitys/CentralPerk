@@ -1,150 +1,228 @@
 services:
+  member-service:
+    build:
+      context: ./centralperk-backend/member-service
+    container_name: member-service
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4003"
+      MEMBER_SUPABASE_URL: ${MEMBER_SUPABASE_URL:?Set MEMBER_SUPABASE_URL}
+      MEMBER_SUPABASE_SERVICE_ROLE_KEY: ${MEMBER_SUPABASE_SERVICE_ROLE_KEY:?Set MEMBER_SUPABASE_SERVICE_ROLE_KEY}
+      MEMBER_DATABASE_URL: ${MEMBER_DATABASE_URL:?Set MEMBER_DATABASE_URL}
+      MEMBER_DB_SCHEMA: ${MEMBER_DB_SCHEMA:-public}
+    ports:
+      - "4003:4003"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://member-service:4003/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  segment-service:
+    build:
+      context: ./centralperk-backend/segment-service
+    container_name: segment-service
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4004"
+      SEGMENT_SUPABASE_URL: ${SEGMENT_SUPABASE_URL:?Set SEGMENT_SUPABASE_URL}
+      SEGMENT_SUPABASE_SERVICE_ROLE_KEY: ${SEGMENT_SUPABASE_SERVICE_ROLE_KEY:?Set SEGMENT_SUPABASE_SERVICE_ROLE_KEY}
+      SEGMENT_DATABASE_URL: ${SEGMENT_DATABASE_URL:?Set SEGMENT_DATABASE_URL}
+      SEGMENT_DB_SCHEMA: ${SEGMENT_DB_SCHEMA:-public}
+      MEMBER_SERVICE_URL: http://member-service:4003
+    ports:
+      - "4004:4004"
+    depends_on:
+      member-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://segment-service:4004/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  campaign-service:
+    build:
+      context: ./centralperk-backend/campaign-service
+    container_name: campaign-service
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4002"
+      CAMPAIGN_SUPABASE_URL: ${CAMPAIGN_SUPABASE_URL:?Set CAMPAIGN_SUPABASE_URL}
+      CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY: ${CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY:?Set CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY}
+      CAMPAIGN_DATABASE_URL: ${CAMPAIGN_DATABASE_URL:?Set CAMPAIGN_DATABASE_URL}
+      CAMPAIGN_DB_SCHEMA: ${CAMPAIGN_DB_SCHEMA:-public}
+      MEMBER_SERVICE_URL: http://member-service:4003
+    ports:
+      - "4002:4002"
+    depends_on:
+      member-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://campaign-service:4002/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  notification-service:
+    build:
+      context: ./centralperk-backend/notification-service
+    container_name: notification-service
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4005"
+      NOTIFICATION_SUPABASE_URL: ${NOTIFICATION_SUPABASE_URL:?Set NOTIFICATION_SUPABASE_URL}
+      NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY: ${NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY:?Set NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY}
+      NOTIFICATION_DATABASE_URL: ${NOTIFICATION_DATABASE_URL:?Set NOTIFICATION_DATABASE_URL}
+      NOTIFICATION_DB_SCHEMA: ${NOTIFICATION_DB_SCHEMA:-public}
+    ports:
+      - "4005:4005"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://notification-service:4005/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  reward-service:
+    build:
+      context: ./centralperk-backend/reward-service
+    container_name: reward-service
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4006"
+      REWARD_SUPABASE_URL: ${REWARD_SUPABASE_URL:?Set REWARD_SUPABASE_URL}
+      REWARD_SUPABASE_SERVICE_ROLE_KEY: ${REWARD_SUPABASE_SERVICE_ROLE_KEY:?Set REWARD_SUPABASE_SERVICE_ROLE_KEY}
+      REWARD_DATABASE_URL: ${REWARD_DATABASE_URL:?Set REWARD_DATABASE_URL}
+      REWARD_DB_SCHEMA: ${REWARD_DB_SCHEMA:-public}
+      POINTS_SERVICE_URL: http://points-engine:4001
+    ports:
+      - "4006:4006"
+    depends_on:
+      points-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://reward-service:4006/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  points-engine:
+    build:
+      context: ./centralperk-backend/points-engine
+    container_name: points-engine
+    restart: unless-stopped
+    environment:
+      USE_SPLIT_SERVICE_DATABASES: "true"
+      PORT: "4001"
+      POINTS_SUPABASE_URL: ${POINTS_SUPABASE_URL:?Set POINTS_SUPABASE_URL}
+      POINTS_SUPABASE_SERVICE_ROLE_KEY: ${POINTS_SUPABASE_SERVICE_ROLE_KEY:?Set POINTS_SUPABASE_SERVICE_ROLE_KEY}
+      POINTS_DATABASE_URL: ${POINTS_DATABASE_URL:?Set POINTS_DATABASE_URL}
+      POINTS_DB_SCHEMA: ${POINTS_DB_SCHEMA:-public}
+      MEMBER_SERVICE_URL: http://member-service:4003
+      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+    ports:
+      - "4001:4001"
+    depends_on:
+      member-service:
+        condition: service_healthy
+      campaign-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://points-engine:4001/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build:
+      context: ./centralperk-backend/gateway
+    container_name: backend-api
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      GATEWAY_URL: http://gateway:4000
+      MEMBER_SERVICE_URL: http://member-service:4003
+      SEGMENT_SERVICE_URL: http://segment-service:4004
+      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+      NOTIFICATION_SERVICE_URL: http://notification-service:4005
+      REWARD_SERVICE_URL: http://reward-service:4006
+      POINTS_SERVICE_URL: http://points-engine:4001
+      ADMIN_ROLE: ${ADMIN_ROLE:-admin}
+    ports:
+      - "4000:4000"
+    depends_on:
+      member-service:
+        condition: service_healthy
+      segment-service:
+        condition: service_healthy
+      campaign-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+      reward-service:
+        condition: service_healthy
+      points-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   frontend:
     build:
       context: ./centralperk-frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SUPABASE_PROJECT_ID:-}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_ENABLE_DEMO_AUTH:-true}
+        NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH:-false}
+        NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES:-${USE_SPLIT_SERVICE_DATABASES:-true}}
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:4000}
+    container_name: frontend
+    restart: unless-stopped
     environment:
+      NODE_ENV: production
       PORT: "3000"
-      HOSTNAME: 0.0.0.0
+      HOSTNAME: "0.0.0.0"
       GATEWAY_URL: http://gateway:4000
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
-      NEXT_PUBLIC_GATEWAY_URL: http://localhost:4000
-      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "true"
-      NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: "false"
-      NEXT_PUBLIC_USE_REMOTE_LOYALTY_API: "true"
-      NEXT_PUBLIC_USE_LOCAL_LOYALTY_API: "false"
-      POINTS_SERVICE_TIMEOUT_MS: "5000"
+      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:4000}
+      MEMBER_SERVICE_URL: http://member-service:4003
+      SEGMENT_SERVICE_URL: http://segment-service:4004
+      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+      NOTIFICATION_SERVICE_URL: http://notification-service:4005
+      REWARD_SERVICE_URL: http://reward-service:4006
+      POINTS_SERVICE_URL: http://points-engine:4001
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SUPABASE_PROJECT_ID:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      NEXT_PUBLIC_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_ENABLE_DEMO_AUTH:-true}
+      NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH:-false}
+      NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES:-${USE_SPLIT_SERVICE_DATABASES:-true}}
     ports:
       - "3000:3000"
     depends_on:
       gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/admin/settings').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 8
-
-  gateway:
-    build:
-      context: ./centralperk-backend/gateway
-    environment:
-      PORT: "4000"
-      POINTS_ENGINE_URL: http://points-engine:4001
-      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
-      MEMBER_SERVICE_URL: http://member-service:4003
-      SEGMENT_SERVICE_URL: http://segment-service:4004
-      NOTIFICATION_SERVICE_URL: http://notification-service:4005
-      REWARD_SERVICE_URL: http://reward-service:4006
-      BACKEND_API_URL: http://frontend:3000/api
-      USE_LOCAL_LOYALTY_API: "false"
-      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
-      CAMPAIGN_WRITE_TOKEN: ${CAMPAIGN_WRITE_TOKEN:-}
-    ports:
-      - "4000:4000"
-    depends_on:
-      - member-service
-      - points-engine
-      - campaign-service
-      - segment-service
-      - notification-service
-      - reward-service
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  member-service:
-    build:
-      context: ./centralperk-backend/member-service
-    environment:
-      PORT: "4003"
-      USE_LOCAL_LOYALTY_API: "true"
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4003"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  points-engine:
-    build:
-      context: ./centralperk-backend/points-engine
-    environment:
-      PORT: "4001"
-      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
-      USE_LOCAL_LOYALTY_API: "false"
-      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4001"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  campaign-service:
-    build:
-      context: ./centralperk-backend/campaign-service
-    environment:
-      PORT: "4002"
-      USE_LOCAL_LOYALTY_API: "false"
-      NEXT_PUBLIC_ENABLE_DEMO_AUTH: "false"
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4002"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  segment-service:
-    build:
-      context: ./centralperk-backend/segment-service
-    environment:
-      PORT: "4004"
-      USE_LOCAL_LOYALTY_API: "true"
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-    expose:
-      - "4004"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4004/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  notification-service:
-    build:
-      context: ./centralperk-backend/notification-service
-    environment:
-      PORT: "4005"
-    expose:
-      - "4005"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4005/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  reward-service:
-    build:
-      context: ./centralperk-backend/reward-service
-    environment:
-      PORT: "4006"
-    expose:
-      - "4006"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4006/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      start_period: 20s
