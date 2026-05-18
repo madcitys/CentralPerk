@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { awardMemberPoints, redeemMemberPoints } from "../app/lib/loyalty-supabase";
-import { runWithIdempotency } from "./idempotency";
 import { HttpError } from "./http-error";
 import { createApiHandler, getIdempotencyKey } from "./route-utils";
 
@@ -63,21 +62,9 @@ export const awardPointsHandler = createApiHandler({
       throw new HttpError(400, "Idempotency-Key header is required for award calls.");
     }
 
-    const result = await runWithIdempotency({
-      route: "/api/points/award",
-      idempotencyKey,
-      payload: body,
-      execute: async () => ({
-        body: {
-          ok: true as const,
-          result: await awardMemberPoints(body),
-        },
-      }),
-    });
-
     return {
-      ...result.body,
-      replayed: result.replayed,
+      ok: true as const,
+      result: await awardMemberPoints({ ...body, idempotencyKey }),
     };
   },
 });
@@ -114,33 +101,23 @@ export const transactionCompletedHandler = createApiHandler({
     memberIdentifier: body.memberIdentifier,
     amountSpent: body.amountSpent,
   }),
-  handler: async ({ body }) => {
+  handler: async ({ req, body }) => {
+    const idempotencyKey = getIdempotencyKey(req) || undefined;
     // The transaction.completed consumer funnels purchase events into the same award contract
     // used by POST /api/points/award, with the event ID acting as the idempotency key.
-    const result = await runWithIdempotency({
-      route: "/api/events/transaction-completed",
-      idempotencyKey: body.eventId,
-      payload: body,
-      execute: async () => ({
-        body: {
-          ok: true as const,
-          result: await awardMemberPoints({
-            memberIdentifier: body.memberIdentifier,
-            fallbackEmail: body.fallbackEmail,
-            points: 0,
-            transactionType: "PURCHASE",
-            reason: body.reason || `Transaction completed (${body.eventId})`,
-            amountSpent: body.amountSpent,
-            productCode: body.productCode,
-            productCategory: body.productCategory,
-          }),
-        },
-      }),
-    });
-
     return {
-      ...result.body,
-      replayed: result.replayed,
+      ok: true as const,
+      result: await awardMemberPoints({
+        memberIdentifier: body.memberIdentifier,
+        fallbackEmail: body.fallbackEmail,
+        points: 0,
+        transactionType: "PURCHASE",
+        reason: body.reason || `Transaction completed (${body.eventId})`,
+        amountSpent: body.amountSpent,
+        productCode: body.productCode,
+        productCategory: body.productCategory,
+        idempotencyKey: idempotencyKey || body.eventId,
+      }),
     };
   },
 });

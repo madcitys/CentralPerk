@@ -2,12 +2,42 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { awardPoints, redeemPoints, runExpiry } from "./core/engine.js";
 import { supabaseRepo } from "./supabase-repo.js";
-import { checkIdempotency, storeIdempotency } from "./idempotency.js";
+import { IdempotencyConflictError, checkIdempotency, storeIdempotency } from "./idempotency.js";
 import { config } from "./config.js";
 import { supabase } from "./supabase-client.js";
 
 const fastify = Fastify({
   logger: true,
+});
+
+fastify.setErrorHandler((error, request, reply) => {
+  if (error instanceof z.ZodError) {
+    reply.code(400).send({
+      ok: false,
+      error: "validation_failed",
+      details: error.flatten(),
+    });
+    return;
+  }
+
+  if (error instanceof IdempotencyConflictError) {
+    reply.code(409).send({
+      ok: false,
+      error: "idempotency_conflict",
+      message: error.message,
+    });
+    return;
+  }
+
+  request.log.error(error);
+  const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number"
+    ? Number((error as { statusCode: number }).statusCode)
+    : 500;
+  reply.code(statusCode).send({
+    ok: false,
+    error: statusCode >= 500 ? "internal_error" : "request_error",
+    message: error instanceof Error ? error.message : "Unexpected server error.",
+  });
 });
 
 const awardSchema = z.object({

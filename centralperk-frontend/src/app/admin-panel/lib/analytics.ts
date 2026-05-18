@@ -373,7 +373,7 @@ function workbookRow(values: Array<string | number>) {
 
 export function buildAnalyticsWorkbook(dataset: AnalyticsDataset) {
   const rows: Array<Array<string | number>> = [
-    ["CentralPerk Analytics Report"],
+    ["GREENOVATE Analytics Report"],
     ["Tier Filter", dataset.tierFilter === "all" ? "All Tiers" : dataset.tierFilter],
     [],
     ["Summary"],

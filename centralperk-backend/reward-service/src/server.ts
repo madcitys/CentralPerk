@@ -541,7 +541,17 @@ export function createServer() {
       })
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      if (missingRelation(error)) {
+        return {
+          ok: true,
+          redemption: null,
+          points: pointsResult?.result ?? pointsResult,
+          warning: "reward_redemptions_table_missing",
+        };
+      }
+      throw error;
+    }
     return { ok: true, redemption: data, points: pointsResult?.result ?? pointsResult };
   });
 

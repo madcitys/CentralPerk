@@ -372,7 +372,7 @@ export const notificationTemplates: NotificationTemplate[] = [
     id: "birthday",
     name: "Birthday",
     trigger: "Birthday",
-    subject: "Happy birthday from CentralPerk",
+    subject: "Happy birthday from GREENOVATE",
     message: "Celebrate with a birthday surprise waiting in your account.",
   },
 ];
@@ -987,7 +987,7 @@ export function buildShareAssetDataUrl(input: {
   ranking?: number | null;
   privacy: SharePrivacySettings;
 }) {
-  const safeName = input.privacy.showName ? input.memberName : "CentralPerk Member";
+  const safeName = input.privacy.showName ? input.memberName : "GREENOVATE Member";
   const safeCode = input.privacy.showReferralCode ? input.referralCode : "Hidden";
   const ranking = Number.isFinite(input.ranking) ? Number(input.ranking) : null;
   const visualTier = String(input.tier || "Bronze").trim();

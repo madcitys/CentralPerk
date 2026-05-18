@@ -191,6 +191,67 @@ export async function redeemPointsViaApi(input: {
   };
 }
 
+export async function redeemRewardViaApi(input: {
+  memberIdentifier: string;
+  fallbackEmail?: string;
+  points: number;
+  reason: string;
+  rewardCatalogId: string | number;
+  promotionCampaignId?: string | null;
+}): Promise<{
+  ok: true;
+  result: {
+    newBalance: number;
+    newTier: string;
+    pointsDeducted: number;
+    duplicate?: boolean;
+    idempotencyKey?: string | null;
+  };
+  warning?: string | null;
+}> {
+  const idempotencyKey = createIdempotencyKey("reward-redeem");
+  const memberIdentifier = normalizeMemberIdentifier(input.memberIdentifier, input.fallbackEmail);
+  const response = await requestJson<{
+    ok?: true;
+    points?: {
+      newBalance?: number;
+      newTier?: string;
+      pointsDeducted?: number;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
+    };
+    result?: {
+      newBalance?: number;
+      newTier?: string;
+      pointsDeducted?: number;
+      duplicate?: boolean;
+      idempotencyKey?: string | null;
+    };
+    warning?: string | null;
+  }>("/api/rewards/redeem", {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      memberIdentifier,
+      idempotencyKey,
+    }),
+    idempotencyKey,
+  });
+
+  const result = response.points ?? response.result ?? {};
+  return {
+    ok: true as const,
+    result: {
+      newBalance: Number(result.newBalance ?? 0),
+      newTier: String(result.newTier ?? "Bronze"),
+      pointsDeducted: Number(result.pointsDeducted ?? input.points),
+      duplicate: Boolean(result.duplicate ?? false),
+      idempotencyKey: result.idempotencyKey ?? idempotencyKey,
+    },
+    warning: response.warning ?? null,
+  };
+}
+
 export async function loadPointsLedgerViaApi(limit = 1000) {
   const params = new URLSearchParams({ limit: String(limit) });
   return requestJson<{

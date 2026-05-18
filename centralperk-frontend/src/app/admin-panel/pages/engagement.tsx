@@ -262,6 +262,30 @@ export default function AdminEngagementPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const refreshCustomerEngagementSignals = async () => {
+      const [surveyRows, shareRows, feedbackRows, referralRows, challengeRows] = await Promise.all([
+        loadSurveyDefinitions().catch(() => null),
+        loadSocialShareEvents().catch(() => null),
+        loadFeedback().catch(() => null),
+        loadAllReferrals().catch(() => null),
+        loadChallengeDefinitions().catch(() => null),
+      ]);
+
+      if (surveyRows) setState((prev) => ({ ...prev, surveys: surveyRows.length > 0 ? surveyRows : prev.surveys }));
+      if (shareRows) setDbShareEvents(shareRows);
+      if (feedbackRows) setFeedbackItems(feedbackRows);
+      if (referralRows) setReferralItems(referralRows);
+      if (challengeRows && challengeRows.length > 0) setState((prev) => ({ ...prev, challenges: challengeRows }));
+    };
+
+    const interval = window.setInterval(() => {
+      refreshCustomerEngagementSignals().catch(() => undefined);
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
   const inactiveMembers = useMemo(
     () => buildInactiveMemberInsights(members, transactions, loginActivity),
     [loginActivity, members, transactions]

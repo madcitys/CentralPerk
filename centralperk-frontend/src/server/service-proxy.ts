@@ -23,7 +23,7 @@ export function gatewayBaseUrl() {
 
   if (!gatewayUrl) {
     throw new Error(
-      "Missing gateway configuration. Set GATEWAY_URL or NEXT_PUBLIC_GATEWAY_URL in LOYALTY_SYSTEM-main/CentralPerk/.env or .env.local."
+      "Missing gateway configuration. Set GATEWAY_URL or NEXT_PUBLIC_GATEWAY_URL in the project .env or .env.local."
     );
   }
 
@@ -34,7 +34,7 @@ export function serviceBaseUrl(envName: string, fallbackBaseUrl?: string) {
   const serviceUrl = readEnv(envName) || fallbackBaseUrl?.trim() || "";
 
   if (!serviceUrl) {
-    throw new Error(`Missing service configuration. Set ${envName} in LOYALTY_SYSTEM-main/CentralPerk/.env or .env.local.`);
+    throw new Error(`Missing service configuration. Set ${envName} in the project .env or .env.local.`);
   }
 
   return serviceUrl.replace(/\/+$/, "");

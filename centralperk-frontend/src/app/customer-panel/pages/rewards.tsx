@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   Store,
   Truck,
+  type LucideIcon,
 } from "lucide-react";
 import type { Reward, Transaction } from "../../types/loyalty";
 import type { RedemptionVoucher } from "../../types/voucher";
@@ -42,6 +43,7 @@ import {
   loadVouchersViaApi,
   recordPartnerTransactionViaApi,
   redeemPointsViaApi,
+  redeemRewardViaApi,
 } from "../../lib/api";
 import { normalizeRewardDisplayName, normalizeTransactionDescription } from "../../lib/reward-display";
 import { generateVoucherQrDataUrl } from "../../lib/voucher-qr";
@@ -77,13 +79,13 @@ type DeliveryPartner = "grab" | "foodpanda" | "lalamove" | "pickup";
 const REWARDS_PAGE_SIZE = 8;
 const HISTORY_PAGE_SIZE = 8;
 
-const rewardCategoryTabs: { value: RewardCategoryTab; label: string }[] = [
-  { value: "all", label: "All Rewards" },
-  { value: "flash", label: "Flash Sale" },
-  { value: "partner", label: "Partner" },
-  { value: "pharmacy", label: "Pharmacy" },
-  { value: "wellness", label: "Wellness" },
-  { value: "voucher", label: "Vouchers" },
+const rewardCategoryTabs: { value: RewardCategoryTab; label: string; icon: LucideIcon }[] = [
+  { value: "all", label: "All Rewards", icon: Grid3X3 },
+  { value: "flash", label: "Flash Sale", icon: TicketPercent },
+  { value: "partner", label: "Partner", icon: Store },
+  { value: "pharmacy", label: "Pharmacy", icon: PackageCheck },
+  { value: "wellness", label: "Wellness", icon: Gift },
+  { value: "voucher", label: "Vouchers", icon: ShoppingBag },
 ];
 
 const deliveryPartners: Array<{ value: DeliveryPartner; label: string; description: string }> = [
@@ -497,7 +499,7 @@ export default function Rewards() {
     setHistoryPage((current) => Math.min(current, historyPageCount));
   }, [historyPageCount]);
 
-  const featuredFlashRewards = flashSaleRewards.length > 0 ? flashSaleRewards.slice(0, 2) : filteredRewards.slice(0, 2);
+  const featuredFlashRewards = flashSaleRewards.slice(0, 2);
 
   const isFlashSaleSoldOut = (reward: Reward) =>
     Boolean(
@@ -562,15 +564,26 @@ export default function Rewards() {
     type: "redeemed" | "gifted" = "redeemed",
     reward?: Reward | null
   ) => {
-    const response = await redeemPointsViaApi({
-      memberIdentifier: user.memberId,
-      fallbackEmail: user.email,
-      points,
-      transactionType: type === "gifted" ? "GIFT" : "REDEEM",
-      reason: `${description}${category ? ` [${category}]` : ""}${type === "gifted" ? " (gifted)" : ""}`,
-      rewardCatalogId: reward?.rewardCatalogId,
-      promotionCampaignId: reward?.activeFlashSaleId || null,
-    });
+    const reason = `${description}${category ? ` [${category}]` : ""}${type === "gifted" ? " (gifted)" : ""}`;
+    const response =
+      type === "redeemed" && reward?.rewardCatalogId
+        ? await redeemRewardViaApi({
+            memberIdentifier: user.memberId,
+            fallbackEmail: user.email,
+            points,
+            reason,
+            rewardCatalogId: reward.rewardCatalogId,
+            promotionCampaignId: reward.activeFlashSaleId || null,
+          })
+        : await redeemPointsViaApi({
+            memberIdentifier: user.memberId,
+            fallbackEmail: user.email,
+            points,
+            transactionType: type === "gifted" ? "GIFT" : "REDEEM",
+            reason,
+            rewardCatalogId: reward?.rewardCatalogId,
+            promotionCampaignId: reward?.activeFlashSaleId || null,
+          });
 
     updateUserAfterSpend({
       description,
@@ -824,7 +837,7 @@ export default function Rewards() {
       <Card
         key={reward.id}
         className={cn(
-          "group flex h-full min-h-[398px] flex-col overflow-hidden rounded-[22px] border border-[#dfe7f0] bg-white shadow-[0_16px_34px_rgba(8,26,53,0.06)] transition hover:-translate-y-0.5 hover:border-[#c6d5e5] hover:shadow-[0_22px_44px_rgba(8,26,53,0.10)]",
+          "group flex h-full min-h-[334px] flex-col overflow-hidden rounded-[18px] border border-[#dfe7f0] bg-white shadow-[0_12px_26px_rgba(8,26,53,0.05)] transition hover:-translate-y-0.5 hover:border-[#c6d5e5] hover:shadow-[0_18px_36px_rgba(8,26,53,0.09)]",
           unavailable && "border-[#f3c2c2] bg-[#fff8f8]"
         )}
       >
@@ -832,7 +845,7 @@ export default function Rewards() {
           <ImageWithFallback
             src={reward.imageUrl || rewardImages[imageIndex % rewardImages.length]}
             alt={reward.name}
-            className="h-[170px] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+            className="h-[132px] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
           />
           <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-2">
             <Badge variant="outline" className="h-8 rounded-xl border-white/70 bg-white/95 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-[#0b706d] shadow-sm">
@@ -847,10 +860,10 @@ export default function Rewards() {
           {isReserved ? <Badge className="absolute right-3 top-3 h-8 rounded-xl bg-sky-600 px-3 text-[11px] text-white shadow-sm">Reserved</Badge> : null}
         </div>
 
-        <div className="flex flex-1 flex-col p-6">
-          <div className="min-h-[88px]">
-            <p className="line-clamp-2 text-lg font-black leading-6 text-[#10213a]">{reward.name}</p>
-            <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#657286]">{reward.description}</p>
+        <div className="flex flex-1 flex-col p-4">
+          <div className="min-h-[78px]">
+            <p className="line-clamp-2 text-[15px] font-black leading-5 text-[#10213a]">{reward.name}</p>
+            <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-[#657286]">{reward.description}</p>
           </div>
 
           {reward.activeFlashSaleId ? (
@@ -863,18 +876,18 @@ export default function Rewards() {
             </div>
           ) : null}
 
-          <div className="mt-auto border-t border-[#edf1f5] pt-5">
+          <div className="mt-auto border-t border-[#edf1f5] pt-4">
             <div className="flex items-end justify-between gap-3">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#0b706d]">Cost</p>
-              <p className="text-[27px] font-black leading-none text-[#0b8a80]">
+              <p className="text-[22px] font-black leading-none text-[#0b8a80]">
                 {reward.pointsCost.toLocaleString()}
                 <span className="ml-1 text-sm font-bold text-[#10213a]">pts</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
             <Button
-              className="h-10 rounded-xl border border-[#b9d5d4] bg-white px-5 text-sm font-black text-[#007f78] hover:bg-[#ecf8f6]"
+              className="h-10 rounded-xl bg-[#008c80] px-5 text-sm font-black text-white hover:bg-[#00736f]"
               disabled={saving || unavailable || !canAfford}
               onClick={() => handleRedeem(reward)}
             >
@@ -898,12 +911,12 @@ export default function Rewards() {
   return (
     <div className="min-h-screen bg-[#f5f7fa] text-[#10213a]">
       <header className="border-b border-[#e3e9f1] bg-white">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-6 px-8 py-6">
+        <div className="mx-auto flex max-w-[1360px] flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-6">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.28em] text-[#007f78]">Reward Studio</p>
             <h1 className="mt-2 text-[30px] font-black leading-tight tracking-tight text-[#10213a]">Rewards Catalog</h1>
+            <p className="mt-1 text-sm font-medium text-[#64748b]">Redeem pharmacy vouchers, wellness perks, and partner rewards.</p>
           </div>
-          <div className="flex items-center gap-6 rounded-[22px] border border-[#dfe7f0] bg-white px-6 py-4 text-[#10213a] shadow-[0_12px_30px_rgba(8,26,53,0.05)]">
+          <div className="flex flex-wrap items-center gap-4 rounded-[18px] border border-[#dfe7f0] bg-white px-4 py-3 text-[#10213a] shadow-[0_12px_30px_rgba(8,26,53,0.05)]">
             <div className="flex items-center gap-3">
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#008c80,#006d68)] text-white shadow-[0_12px_26px_rgba(0,140,128,0.25)]">
                 <Coins className="h-5 w-5" />
@@ -917,7 +930,7 @@ export default function Rewards() {
           <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => navigate("/customer/activity")}
+                onClick={() => setWorkspace("wallet")}
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#d9e3ee] bg-white px-4 text-sm font-black text-[#10213a] transition hover:bg-[#f8fafc]"
               >
                 <QrCode className="h-4 w-4" />
@@ -935,26 +948,30 @@ export default function Rewards() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1600px] px-8 pb-10">
-        <nav className="-mx-8 flex gap-4 overflow-x-auto border-b border-[#e7ebf0] bg-white px-8 py-6">
-          {rewardCategoryTabs.map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => {
-                setWorkspace("catalog");
-                setActiveTab(tab.value);
-              }}
-              className={cn(
-                "h-11 min-w-[132px] shrink-0 rounded-xl border px-6 text-sm font-black transition",
-                activeTab === tab.value
-                  ? "border-[#008c80] bg-[linear-gradient(135deg,#008c80,#00736f)] text-white shadow-[0_12px_28px_rgba(0,140,128,0.18)]"
-                  : "border-[#dde6ef] bg-white text-[#4a5a73] hover:border-[#cbd8e6] hover:bg-[#f8fafc]"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <main className="mx-auto max-w-[1360px] px-5 pb-10 lg:px-6">
+        <nav className="mt-4 flex gap-2 overflow-x-auto rounded-[18px] border border-[#dfe7f0] bg-white p-1 shadow-[0_10px_24px_rgba(8,26,53,0.04)]">
+          {rewardCategoryTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => {
+                  setWorkspace("catalog");
+                  setActiveTab(tab.value);
+                }}
+                className={cn(
+                  "inline-flex h-11 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-[14px] border px-5 text-sm font-black transition",
+                  activeTab === tab.value
+                    ? "border-[#008c80] bg-[linear-gradient(135deg,#008c80,#00736f)] text-white shadow-[0_12px_28px_rgba(0,140,128,0.18)]"
+                    : "border-[#dde6ef] bg-white text-[#4a5a73] hover:border-[#cbd8e6] hover:bg-[#f8fafc]"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
 
         <section className="pt-7">
@@ -976,7 +993,13 @@ export default function Rewards() {
             </button>
           </div>
           <div className="mt-4 grid gap-5 lg:grid-cols-2">
-            {featuredFlashRewards.map((reward, index) => {
+            {featuredFlashRewards.length === 0 ? (
+              <Card className="col-span-full rounded-[20px] border border-dashed border-[#d8e5f0] bg-white p-8 text-center shadow-[0_12px_26px_rgba(8,26,53,0.04)]">
+                <TicketPercent className="mx-auto h-10 w-10 text-[#ef4444]" />
+                <h3 className="mt-3 text-base font-black text-[#10213a]">No flash sales live right now.</h3>
+                <p className="mt-1 text-sm font-medium text-[#64748b]">Check back later for limited-time pharmacy rewards.</p>
+              </Card>
+            ) : featuredFlashRewards.map((reward, index) => {
               const soldOut = isFlashSaleSoldOut(reward);
               const expired = isFlashSaleExpired(reward);
               const claimed = reward.flashSaleClaimedCount ?? 0;
@@ -988,7 +1011,7 @@ export default function Rewards() {
                   type="button"
                   onClick={() => handleRedeem(reward)}
                   disabled={saving || soldOut || expired || user.points < reward.pointsCost}
-                  className="grid min-h-[128px] grid-cols-[72px_1fr_auto] items-center gap-5 rounded-[20px] border border-[#dfe7f0] bg-white px-6 py-5 text-left shadow-[0_14px_32px_rgba(8,26,53,0.06)] transition hover:-translate-y-0.5 hover:border-[#c9d6e5] hover:shadow-[0_18px_40px_rgba(8,26,53,0.10)] disabled:cursor-not-allowed disabled:opacity-70"
+                  className="grid min-h-[128px] gap-4 rounded-[20px] border border-[#dfe7f0] bg-white px-5 py-4 text-left shadow-[0_14px_32px_rgba(8,26,53,0.06)] transition hover:-translate-y-0.5 hover:border-[#c9d6e5] hover:shadow-[0_18px_40px_rgba(8,26,53,0.10)] disabled:cursor-not-allowed disabled:opacity-70 md:grid-cols-[72px_1fr_auto] md:items-center"
                 >
                   <span className="inline-flex h-16 w-16 items-center justify-center rounded-3xl bg-[#fff0f0] text-[#ef777d]">
                     <TicketPercent className="h-8 w-8" />
@@ -1034,7 +1057,7 @@ export default function Rewards() {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {pagedVisibleRewards.map((reward, index) => renderRewardCard(reward, index))}
             </div>
 

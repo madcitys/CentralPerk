@@ -86,7 +86,7 @@ export const partnerSettlementPdfHandler = createApiHandler({
     if (!settlement) throw new HttpError(404, "Settlement not found.");
 
     const pdf = buildSimplePdf([
-      "CentralPerk Partner Settlement",
+      "GREENOVATE Partner Settlement",
       `Settlement ID: ${settlement.id}`,
       `Partner: ${settlement.partnerName} (${settlement.partnerCode})`,
       `Created At: ${settlement.createdAt}`,

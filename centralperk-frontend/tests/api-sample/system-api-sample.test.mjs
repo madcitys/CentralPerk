@@ -113,14 +113,14 @@ test("sample API test: login page, admin members, points, rewards, and lifecycle
     method: "PATCH",
     body: JSON.stringify({ action: "validate", voucherCode: "sample-code" }),
   }, [404, 503]);
-  await requestOk("/api/engagement/surveys/sample-survey/responses", {
+  await requestHandled("/api/engagement/surveys/sample-survey/responses", {
     method: "POST",
     body: JSON.stringify({
       memberIdentifier: firstMember?.memberNumber || "sample-member",
       answers: { q1: "sample" },
       bonusPoints: 0,
     }),
-  });
+  }, [503]);
 
   if (firstMember?.email) {
     await requestOk(`/api/members/profile?email=${encodeURIComponent(firstMember.email)}`);

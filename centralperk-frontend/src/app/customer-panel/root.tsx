@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Award, Bell, Clock3, Gift, Home, LogOut, Menu, Sparkles, User, X } from "lucide-react";
+import { Activity, Award, Bell, Clock3, Gift, Home, Leaf, LogOut, Menu, Sparkles, User, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
 import type { MemberData } from "../types/loyalty";
 import { ThemeInitializer } from "../../components/theme-initializer";
@@ -222,11 +222,11 @@ export default function Root() {
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg", brandTealSolidClass)}>
-              <span className="text-sm font-bold text-white">Z</span>
+              <Leaf className="h-5 w-5 text-white" />
             </div>
             <div>
               <h1 className="font-bold text-gray-900">GREENOVATE</h1>
-              <p className="text-xs text-gray-500">{user.tier} Member</p>
+              <p className="text-xs text-gray-500">Pharmacy Rewards</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -263,11 +263,11 @@ export default function Root() {
           <div className="border-b border-white/10 px-5 py-7">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#049c9d] shadow-[0_14px_28px_rgba(0,0,0,0.22)]">
-                <span className="text-xl font-black text-white">Z</span>
+                <Leaf className="h-7 w-7 text-white" />
               </div>
               <div>
                 <h1 className="text-[21px] font-black leading-none tracking-tight text-white">GREENOVATE</h1>
-                <p className="mt-1.5 text-[12px] font-medium text-slate-300">Member Panel</p>
+                <p className="mt-1.5 text-[12px] font-medium tracking-[0.18em] text-slate-300">PHARMACY</p>
               </div>
             </div>
           </div>

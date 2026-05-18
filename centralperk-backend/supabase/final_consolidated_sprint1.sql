@@ -404,14 +404,14 @@ where not exists (
 
 insert into public.rewards_catalog (reward_id, name, description, points_cost, category, image_url, is_active, expiry_date)
 values
-  ('RW001', 'Free Regular Coffee', 'Any regular-sized hot or iced coffee', 120, 'beverage', 'https://images.unsplash.com/photo-1657048167114-0942f3a2dc93?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
+  ('RW001', 'Pharmacy Essentials Voucher', 'Discount voucher for eligible pharmacy essentials', 120, 'voucher', 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
   ('RW002', 'Free Pastry', 'Choose from croissant, muffin, or danish', 150, 'food', 'https://images.unsplash.com/photo-1751151856149-5ebf1d21586a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
   ('RW003', 'Free Large Specialty Drink', 'Any large-sized specialty beverage', 280, 'beverage', 'https://images.unsplash.com/photo-1680381724318-c8ac9fe3a484?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
-  ('RW004', 'Breakfast Combo', 'Coffee + breakfast sandwich or wrap', 350, 'food', 'https://images.unsplash.com/photo-1738682585466-c287db5404de?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
-  ('RW005', 'Coffee Beans 250g', 'Premium roasted coffee beans', 500, 'merchandise', 'https://images.unsplash.com/photo-1561766858-62033ae40ec3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
+  ('RW004', 'Wellness Kit Voucher', 'Voucher for selected wellness and personal-care items', 350, 'voucher', 'https://images.unsplash.com/photo-1603398938378-e54eab446dde?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
+  ('RW005', 'Health Supplies Bundle', 'Selected pharmacy health supplies bundle', 500, 'merchandise', 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
   ('RW006', 'ZUS Branded Tumbler', 'Reusable insulated tumbler - 16oz', 800, 'merchandise', 'https://images.unsplash.com/photo-1666447616947-cd26838cb88b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
   ('RW007', '$10 Gift Voucher', 'Redeemable for any purchase', 1000, 'voucher', 'https://images.unsplash.com/photo-1637910116483-7efcc9480847?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, null),
-  ('RW008', 'Monthly Coffee Pass', '30 days of free regular coffee', 2500, 'voucher', 'https://images.unsplash.com/photo-1683888046273-38c106471115?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, '2026-03-31T23:59:59Z')
+  ('RW008', 'Monthly Wellness Pass', '30 days of eligible pharmacy wellness perks', 2500, 'voucher', 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080', true, '2026-03-31T23:59:59Z')
 on conflict (reward_id) do update
 set
   name = excluded.name,
@@ -425,7 +425,7 @@ set
 insert into public.earn_tasks (task_code, title, description, points, icon_key, default_completed, is_active)
 values
   ('E001', 'Complete Your Profile', 'Add your birthday, phone number, and preferences', 100, 'user', true, true),
-  ('E002', 'Download Mobile App', 'Get the ZUS Coffee app on your phone', 50, 'smartphone', true, true),
+  ('E002', 'Download Mobile App', 'Get the GREENOVATE pharmacy rewards app on your phone', 50, 'smartphone', true, true),
   ('E003', 'Monthly Survey', 'Share your feedback about our service', 50, 'clipboard', false, true),
   ('E004', 'Refer a Friend', 'Both get 250 points when they make first purchase', 250, 'users', false, true),
   ('E005', 'Follow on Social Media', 'Follow us on Instagram and Facebook', 30, 'share-2', false, true),
@@ -1022,7 +1022,7 @@ begin
     select
       u.id,
       'email',
-      'Happy Birthday from Central Perk!',
+      'Happy Birthday from GREENOVATE!',
       format(
         'Hi %s! Happy birthday month. We credited %s bonus points and unlocked voucher %s (valid until %s).',
         coalesce(r.first_name, 'Member'),

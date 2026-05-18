@@ -1,6 +1,6 @@
 import { HttpError } from "./http-error";
 import { serviceBaseUrl } from "./service-proxy";
-import type { VoucherRecord } from "./local-store";
+import type { VoucherRecord } from "./voucher-types";
 
 function rewardServiceUrl(path: string) {
   return `${serviceBaseUrl("REWARD_SERVICE_URL", "http://127.0.0.1:4006")}${path}`;

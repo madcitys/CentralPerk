@@ -1144,7 +1144,7 @@ function workbookRow(values: Array<string | number>) {
 
 export function buildEngagementWorkbook(dataset: EngagementInsights) {
   const rows: Array<Array<string | number>> = [
-    ["CentralPerk Member Engagement Report"],
+    ["GREENOVATE Member Engagement Report"],
     [],
     ["Summary"],
     ["Average Score", dataset.overview.averageScore],

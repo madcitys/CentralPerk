@@ -291,7 +291,7 @@ export const DEFAULT_EARN_TASKS: EarnOpportunity[] = [
   {
     id: "E002",
     title: "Download Mobile App",
-    description: "Get the CentralPerk mobile app on your phone",
+    description: "Get the GREENOVATE pharmacy rewards app on your phone",
     points: 50,
     icon: "smartphone",
     active: true,

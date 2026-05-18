@@ -114,12 +114,23 @@ export function createServer() {
     routes: [
       "/points/*",
       "/campaigns/*",
+      "/engagement/*",
       "/members/*",
+      "/referrals/*",
+      "/feedback",
+      "/birthday-settings",
+      "/birthday-rewards/*",
+      "/badges/*",
+      "/tier-history",
+      "/reengagement-actions/*",
+      "/social-share-events/*",
       "/segments/*",
       "/notifications/*",
       "/notification-campaigns/*",
       "/notification-templates",
+      "/communications/*",
       "/rewards/*",
+      "/partners/*",
       "/reward-partners/*",
       "/vouchers/*",
       "/winback-campaigns",
@@ -146,8 +157,21 @@ export function createServer() {
 
   app.all("/campaigns", async (req, reply) => proxy(req, reply, config.campaignUrl));
   app.all("/campaigns/*", async (req, reply) => proxy(req, reply, config.campaignUrl));
+  app.all("/engagement", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/engagement/*", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/members", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/members/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/referrals", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/referrals/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/feedback", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/birthday-settings", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/birthday-rewards/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/badges/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/tier-history", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/reengagement-actions", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/reengagement-actions/*", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/social-share-events", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/social-share-events/*", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/segments", async (req, reply) => proxy(req, reply, config.segmentUrl));
   app.all("/segments/*", async (req, reply) => proxy(req, reply, config.segmentUrl));
   app.all("/notifications", async (req, reply) => proxy(req, reply, config.notificationUrl));
@@ -155,8 +179,10 @@ export function createServer() {
   app.all("/notification-campaigns", async (req, reply) => proxy(req, reply, config.notificationUrl));
   app.all("/notification-campaigns/*", async (req, reply) => proxy(req, reply, config.notificationUrl));
   app.all("/notification-templates", async (req, reply) => proxy(req, reply, config.notificationUrl));
+  app.all("/communications/*", async (req, reply) => proxy(req, reply, config.notificationUrl));
   app.all("/rewards", async (req, reply) => proxy(req, reply, config.rewardUrl));
   app.all("/rewards/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
+  app.all("/partners/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
   app.all("/reward-partners", async (req, reply) => proxy(req, reply, config.rewardUrl));
   app.all("/reward-partners/*", async (req, reply) => proxy(req, reply, config.rewardUrl));
   app.all("/vouchers", async (req, reply) => proxy(req, reply, config.rewardUrl));

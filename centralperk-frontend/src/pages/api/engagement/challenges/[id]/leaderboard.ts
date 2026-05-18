@@ -1,23 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-import { fetchChallengeLeaderboard } from "../../../../../server/engagement-data";
+import { proxyToGateway } from "../../../../../server/service-proxy";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ ok: false, error: { message: "Method not allowed." } });
-  }
-
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const challengeId = String(req.query.id || "").trim();
-  if (!challengeId) {
-    return res.status(400).json({ ok: false, error: { message: "Missing challenge id." } });
-  }
-
-  try {
-    const leaderboard = await fetchChallengeLeaderboard(challengeId);
-    return res.status(200).json({ ok: true, leaderboard });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load challenge leaderboard.";
-    return res.status(500).json({ ok: false, error: { message } });
-  }
+  return proxyToGateway(req, res, {
+    targetPath: `/engagement/challenges/${encodeURIComponent(challengeId)}/leaderboard`,
+    methods: ["GET"] as const,
+  });
 }

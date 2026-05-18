@@ -26,7 +26,7 @@ export function createServerSupabaseClient() {
 
   if (!supabaseUrl || !serverKey) {
     throw new Error(
-      "Missing server Supabase configuration. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in LOYALTY_SYSTEM-main/CentralPerk/.env or .env.local."
+      "Missing server Supabase configuration. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the project .env or .env.local."
     );
   }
 
@@ -36,7 +36,7 @@ export function createServerSupabaseClient() {
 export function createServerPublicSupabaseClient() {
   if (!supabaseUrl || !publicAnonKey) {
     throw new Error(
-      "Missing public Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY in LOYALTY_SYSTEM-main/CentralPerk/.env or .env.local."
+      "Missing public Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY in the project .env or .env.local."
     );
   }
 

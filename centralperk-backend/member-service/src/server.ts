@@ -117,6 +117,34 @@ const birthdayClaimSchema = z.object({
   badgeLabel: z.string().trim().max(120).nullable().optional(),
 });
 
+const surveyQuestionInputSchema = z.object({
+  id: z.string().trim().max(120).optional(),
+  prompt: z.string().trim().min(1).max(500),
+  type: z.enum(["multiple-choice", "rating", "free-text"]),
+  options: z.array(z.string().trim().min(1).max(160)).optional(),
+});
+
+const surveyInputSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(1000),
+  segment: z.string().trim().max(80).default("All Members"),
+  bonusPoints: z.number().int().min(0).max(1_000_000),
+  status: z.enum(["draft", "live", "closed"]).default("draft"),
+  questions: z.array(surveyQuestionInputSchema).default([]),
+});
+
+const surveyResponseSchema = z.object({
+  memberIdentifier: z.string().trim().min(1).max(120),
+  answers: z.record(z.string(), z.union([z.string(), z.number()])),
+  bonusPoints: z.number().int().min(0).max(1_000_000).optional(),
+});
+
+const engagementSettingsSchema = z.object({
+  showName: z.boolean().optional(),
+  showReferralCode: z.boolean().optional(),
+  publicProfile: z.boolean().optional(),
+});
+
 function tableMissing(error: unknown, table: string) {
   const message = String((error as { message?: unknown; details?: unknown; hint?: unknown })?.message ?? "").toLowerCase();
   return message.includes(table.toLowerCase()) && (message.includes("does not exist") || message.includes("schema cache"));
@@ -162,6 +190,12 @@ const defaultBirthdaySettings = {
   releaseTiming: "first_day_of_birthday_month",
   fulfillmentMode: "auto_credit",
   claimWindow: "birthday_month_only",
+};
+
+const defaultEngagementPrivacySettings = {
+  showName: true,
+  showReferralCode: true,
+  publicProfile: true,
 };
 
 async function maybeSingleMember(buildQuery: (columns: string) => any) {
@@ -259,6 +293,84 @@ function mapShareEvent(row: any, member?: any) {
     referralCode: String(row.referral_code ?? ""),
     conversions: Math.max(0, Number(row.conversion_count ?? 0)),
     createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+function normalizeSegment(value: string | null | undefined) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bronze") return "Bronze";
+  if (raw === "silver") return "Silver";
+  if (raw === "gold") return "Gold";
+  if (raw === "high value") return "High Value";
+  if (raw === "inactive 60+ days") return "Inactive 60+ Days";
+  return "All Members";
+}
+
+function normalizeChallengeType(value: string | null | undefined) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "points-earned") return "points-earned";
+  if (raw === "survey-completion") return "survey-completion";
+  return "purchase-count";
+}
+
+function challengeUnitLabel(type: string) {
+  if (type === "points-earned") return "points";
+  if (type === "survey-completion") return "surveys";
+  return "purchases";
+}
+
+function normalizeQuestionType(value: string | null | undefined) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "rating") return "rating";
+  if (raw === "free-text") return "free-text";
+  return "multiple-choice";
+}
+
+function questionTypeToColumn(value: string | null | undefined) {
+  const normalized = normalizeQuestionType(value);
+  return normalized === "multiple-choice" ? "multiple-choice" : normalized;
+}
+
+function formatMemberName(member?: any | null, fallbackMemberId?: number | string) {
+  const fullName = `${member?.first_name || ""} ${member?.last_name || ""}`.trim();
+  if (fullName) return fullName;
+  if (member?.member_number) return String(member.member_number);
+  const fallback = String(member?.member_id || fallbackMemberId || "").trim();
+  return fallback ? `Member ${fallback}` : "Member";
+}
+
+function normalizePrivacySettings(value: unknown) {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    showName: raw.showName === undefined ? defaultEngagementPrivacySettings.showName : Boolean(raw.showName),
+    showReferralCode:
+      raw.showReferralCode === undefined ? defaultEngagementPrivacySettings.showReferralCode : Boolean(raw.showReferralCode),
+    publicProfile:
+      raw.publicProfile === undefined ? defaultEngagementPrivacySettings.publicProfile : Boolean(raw.publicProfile),
+  };
+}
+
+function normalizeSurveyDefinition(survey: any, questions: any[] = [], responses: any[] = []) {
+  return {
+    id: String(survey.id),
+    title: String(survey.title || "Survey"),
+    description: String(survey.description || ""),
+    segment: normalizeSegment(survey.segment),
+    bonusPoints: Math.max(0, Number(survey.bonus_points ?? survey.bonusPoints ?? 0)),
+    status: survey.status === "live" || survey.status === "closed" ? survey.status : "draft",
+    createdAt: String(survey.created_at ?? survey.createdAt ?? new Date().toISOString()),
+    questions: questions.map((row) => ({
+      id: String(row.id),
+      prompt: String(row.prompt || ""),
+      type: normalizeQuestionType(row.question_type ?? row.type),
+      options: Array.isArray(row.options) ? row.options.map((item: unknown) => String(item)) : undefined,
+    })),
+    responses: responses.map((row) => ({
+      memberId: String(row.member_id ?? row.memberId ?? ""),
+      memberName: String(row.member_name ?? row.memberName ?? row.member_id ?? row.memberId ?? "Member"),
+      answers: row.answers || {},
+      submittedAt: String(row.submitted_at ?? row.submittedAt ?? new Date().toISOString()),
+    })),
   };
 }
 
@@ -1005,6 +1117,303 @@ export function createServer() {
         badgeCount,
       })),
     };
+  });
+
+  app.get("/engagement/challenges", async () => {
+    const { data, error } = await supabase
+      .from("challenges")
+      .select("id,challenge_code,challenge_name,challenge_type,description,target_value,reward_points,badge_name,target_segment,start_date,end_date,is_active")
+      .eq("is_active", true)
+      .order("start_date", { ascending: true });
+
+    if (error) {
+      if (tableMissing(error, "challenges")) return { ok: true, challenges: [] };
+      throw error;
+    }
+
+    return {
+      ok: true,
+      challenges: (data || []).map((row: any) => {
+        const type = normalizeChallengeType(row.challenge_type);
+        return {
+          id: String(row.id),
+          title: String(row.challenge_name || row.challenge_code || "Challenge"),
+          description: String(row.description || ""),
+          type,
+          targetValue: Math.max(0, Number(row.target_value || 0)),
+          unitLabel: challengeUnitLabel(type),
+          startAt: String(row.start_date || ""),
+          endAt: String(row.end_date || ""),
+          rewardPoints: Math.max(0, Number(row.reward_points || 0)),
+          rewardBadge: String(row.badge_name || "Challenge Winner"),
+          competitive: type === "purchase-count",
+          segment: normalizeSegment(row.target_segment),
+        };
+      }),
+    };
+  });
+
+  app.get("/engagement/challenges/:id/leaderboard", async (request) => {
+    const challengeId = String((request.params as any).id || "").trim();
+    if (!challengeId) return { ok: true, leaderboard: [] };
+
+    const { data, error } = await supabase
+      .from("challenge_leaderboard_view")
+      .select("challenge_id,member_id,member_name,member_number,tier,current_value,leaderboard_rank")
+      .eq("challenge_id", challengeId)
+      .order("leaderboard_rank", { ascending: true })
+      .limit(10);
+
+    if (error) {
+      if (tableMissing(error, "challenge_leaderboard_view")) return { ok: true, leaderboard: [] };
+      throw error;
+    }
+
+    return {
+      ok: true,
+      leaderboard: (data || []).map((row: any) => ({
+        memberId: String(row.member_id ?? row.member_number ?? ""),
+        memberName: String(row.member_name || row.member_number || "Member"),
+        tier: String(row.tier || "Bronze"),
+        value: Math.max(0, Number(row.current_value || 0)),
+      })),
+    };
+  });
+
+  app.get("/engagement/surveys", async () => {
+    const { data: surveyData, error: surveyError } = await supabase
+      .from("surveys")
+      .select("id,title,description,segment,bonus_points,status,created_at")
+      .order("created_at", { ascending: false });
+
+    if (surveyError) {
+      if (tableMissing(surveyError, "surveys")) return { ok: true, surveys: [] };
+      throw surveyError;
+    }
+
+    const surveys = surveyData || [];
+    if (surveys.length === 0) return { ok: true, surveys: [] };
+
+    const surveyIds = surveys.map((survey: any) => survey.id);
+    const [questionResult, responseResult] = await Promise.all([
+      supabase
+        .from("survey_questions")
+        .select("id,survey_id,prompt,question_type,options,display_order")
+        .in("survey_id", surveyIds)
+        .order("display_order", { ascending: true }),
+      supabase
+        .from("survey_responses")
+        .select("survey_id,member_id,submitted_at,answers")
+        .in("survey_id", surveyIds)
+        .order("submitted_at", { ascending: false }),
+    ]);
+
+    if (questionResult.error && !tableMissing(questionResult.error, "survey_questions")) throw questionResult.error;
+    if (responseResult.error && !tableMissing(responseResult.error, "survey_responses")) throw responseResult.error;
+
+    const responseRows = responseResult.error ? [] : responseResult.data || [];
+    const responseMemberIds = [...new Set(responseRows.map((row: any) => Number(row.member_id)).filter(Number.isFinite))];
+    const memberMap = new Map<string, any>();
+    if (responseMemberIds.length > 0) {
+      const memberRows = await supabase
+        .from("loyalty_members")
+        .select("id,member_id,member_number,first_name,last_name")
+        .in("id", responseMemberIds);
+      if (memberRows.error) throw memberRows.error;
+      for (const member of memberRows.data || []) memberMap.set(String((member as any).id), member);
+    }
+
+    const questionMap = new Map<string, any[]>();
+    for (const row of questionResult.error ? [] : questionResult.data || []) {
+      const list = questionMap.get(String((row as any).survey_id)) ?? [];
+      list.push(row);
+      questionMap.set(String((row as any).survey_id), list);
+    }
+
+    const responseMap = new Map<string, any[]>();
+    for (const row of responseRows) {
+      const list = responseMap.get(String((row as any).survey_id)) ?? [];
+      const member = memberMap.get(String((row as any).member_id));
+      list.push({
+        memberId: String(member?.member_id || row.member_id),
+        memberName: formatMemberName(member, row.member_id),
+        answers: row.answers || {},
+        submittedAt: String(row.submitted_at),
+      });
+      responseMap.set(String((row as any).survey_id), list);
+    }
+
+    return {
+      ok: true,
+      surveys: surveys.map((survey: any) =>
+        normalizeSurveyDefinition(survey, questionMap.get(String(survey.id)) ?? [], responseMap.get(String(survey.id)) ?? []),
+      ),
+    };
+  });
+
+  app.post("/engagement/surveys", async (request, reply) => {
+    const body = surveyInputSchema.parse(request.body || {});
+    const { data: survey, error: surveyError } = await supabase
+      .from("surveys")
+      .insert({
+        title: body.title.trim(),
+        description: body.description.trim(),
+        segment: normalizeSegment(body.segment),
+        bonus_points: Math.max(0, Number(body.bonusPoints || 0)),
+        status: body.status,
+      })
+      .select("id,title,description,segment,bonus_points,status,created_at")
+      .single();
+
+    if (surveyError) {
+      if (tableMissing(surveyError, "surveys")) {
+        reply.code(503).send({ ok: false, error: "surveys_table_missing" });
+        return;
+      }
+      throw surveyError;
+    }
+
+    const questionPayload = body.questions.map((question, index) => ({
+      survey_id: survey.id,
+      prompt: question.prompt.trim(),
+      question_type: questionTypeToColumn(question.type),
+      options: question.options ?? null,
+      display_order: index + 1,
+    }));
+
+    if (questionPayload.length === 0) return { ok: true, survey: normalizeSurveyDefinition(survey, []) };
+
+    const { data: questions, error: questionError } = await supabase
+      .from("survey_questions")
+      .insert(questionPayload)
+      .select("id,survey_id,prompt,question_type,options,display_order")
+      .order("display_order", { ascending: true });
+
+    if (questionError) {
+      if (tableMissing(questionError, "survey_questions")) {
+        reply.code(503).send({ ok: false, error: "survey_questions_table_missing" });
+        return;
+      }
+      throw questionError;
+    }
+
+    return { ok: true, survey: normalizeSurveyDefinition(survey, questions || []) };
+  });
+
+  app.post("/engagement/surveys/:id/responses", async (request, reply) => {
+    const surveyId = String((request.params as any).id || "").trim();
+    const body = surveyResponseSchema.parse(request.body || {});
+    const member = await findMember(body.memberIdentifier);
+    const memberDbId = (member as any)?.id ?? (member as any)?.member_id ?? body.memberIdentifier;
+    const memberName = formatMemberName(member, body.memberIdentifier);
+    const submittedAt = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("survey_responses")
+      .upsert({
+        survey_id: surveyId,
+        member_id: memberDbId,
+        answers: body.answers,
+      }, { onConflict: "survey_id,member_id" })
+      .select("survey_id,member_id,submitted_at,answers")
+      .single();
+
+    if (error) {
+      if (tableMissing(error, "survey_responses")) {
+        reply.code(503).send({ ok: false, error: "survey_responses_table_missing" });
+        return;
+      }
+      throw error;
+    }
+
+    return {
+      ok: true,
+      response: {
+        memberId: String((member as any)?.member_id ?? data.member_id ?? body.memberIdentifier),
+        memberName,
+        answers: data.answers || body.answers,
+        submittedAt: String(data.submitted_at ?? submittedAt),
+      },
+    };
+  });
+
+  app.delete("/engagement/surveys/:id/responses", async (request, reply) => {
+    const surveyId = String((request.params as any).id || "").trim();
+    const query = request.query as Record<string, any>;
+    const body = request.body && typeof request.body === "object" ? (request.body as Record<string, any>) : {};
+    const memberIdentifier = String(query.memberIdentifier || body.memberIdentifier || "").trim();
+    if (!surveyId || !memberIdentifier) {
+      reply.code(400).send({ ok: false, error: "survey_id_and_member_required" });
+      return;
+    }
+
+    const member = await findMember(memberIdentifier);
+    const memberDbId = (member as any)?.id ?? (member as any)?.member_id ?? memberIdentifier;
+    const { error } = await supabase
+      .from("survey_responses")
+      .delete()
+      .eq("survey_id", surveyId)
+      .eq("member_id", memberDbId);
+
+    if (error) {
+      if (tableMissing(error, "survey_responses")) {
+        reply.code(503).send({ ok: false, error: "survey_responses_table_missing" });
+        return;
+      }
+      throw error;
+    }
+
+    return { ok: true };
+  });
+
+  app.get("/engagement/settings/:memberId", async (request) => {
+    const memberId = String((request.params as any).memberId || "").trim();
+    const member = await findMember(memberId);
+    const memberDbId = (member as any)?.id ?? (member as any)?.member_id;
+    if (!memberDbId) return { ok: true, settings: defaultEngagementPrivacySettings };
+
+    const { data, error } = await supabase
+      .from("member_engagement_settings")
+      .select("privacy_settings")
+      .eq("member_id", memberDbId)
+      .maybeSingle();
+
+    if (error) {
+      if (tableMissing(error, "member_engagement_settings")) return { ok: true, settings: defaultEngagementPrivacySettings };
+      throw error;
+    }
+
+    return { ok: true, settings: normalizePrivacySettings(data?.privacy_settings) };
+  });
+
+  app.patch("/engagement/settings/:memberId", async (request, reply) => {
+    const memberId = String((request.params as any).memberId || "").trim();
+    const body = engagementSettingsSchema.parse(request.body || {});
+    const settings = normalizePrivacySettings(body);
+    const member = await findMember(memberId);
+    const memberDbId = (member as any)?.id ?? (member as any)?.member_id;
+    if (!memberDbId) return { ok: true, settings };
+
+    const { error } = await supabase
+      .from("member_engagement_settings")
+      .upsert(
+        {
+          member_id: memberDbId,
+          privacy_settings: settings,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "member_id" },
+      );
+
+    if (error) {
+      if (tableMissing(error, "member_engagement_settings")) {
+        reply.code(503).send({ ok: false, error: "member_engagement_settings_table_missing" });
+        return;
+      }
+      throw error;
+    }
+
+    return { ok: true, settings };
   });
 
   app.patch("/members/:id/points-balance", async (request, reply) => {

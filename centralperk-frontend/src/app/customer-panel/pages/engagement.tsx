@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import QRCode from "qrcode";
 import {
@@ -268,11 +268,10 @@ export default function CustomerEngagementPage() {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${current.hash}`);
   }, [activeTab]);
 
-  useEffect(() => {
-    let alive = true;
-    setLoadingError(false);
+  const loadEngagementData = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoadingError(false);
 
-    Promise.all([
+    const [challengeRows, surveyRows, shares, referralRows, code, settings, status, privacy] = await Promise.all([
       loadChallengeDefinitions(),
       loadSurveyDefinitions(),
       loadSocialShareEvents({ memberIdentifier: user.memberId }),
@@ -281,18 +280,22 @@ export default function CustomerEngagementPage() {
       loadBirthdayRewardSettingsFromApi(),
       loadBirthdayRewardStatus(user.memberId, user.email),
       loadMemberPrivacySettings(user.memberId),
-    ])
-      .then(([challengeRows, surveyRows, shares, referralRows, code, settings, status, privacy]) => {
-        if (!alive) return;
-        setChallenges(challengeRows);
-        setSurveys(surveyRows);
-        setShareEvents(shares);
-        setReferrals(referralRows);
-        setReferralCode(code);
-        setBirthdaySettings(settings);
-        setBirthdayStatus(status);
-        setPrivacySettings(privacy);
-      })
+    ]);
+
+    setChallenges(challengeRows);
+    setSurveys(surveyRows);
+    setShareEvents(shares);
+    setReferrals(referralRows);
+    setReferralCode(code);
+    setBirthdaySettings(settings);
+    setBirthdayStatus(status);
+    setPrivacySettings(privacy);
+  }, [user.email, user.memberId]);
+
+  useEffect(() => {
+    let alive = true;
+
+    loadEngagementData()
       .catch((error) => {
         console.error("Customer engagement data failed to load", error);
         if (alive) setLoadingError(true);
@@ -301,7 +304,14 @@ export default function CustomerEngagementPage() {
     return () => {
       alive = false;
     };
-  }, [user.email, user.memberId]);
+  }, [loadEngagementData]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      loadEngagementData({ silent: true }).catch(() => undefined);
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [loadEngagementData]);
 
   const referralLink = useMemo(() => {
     if (!referralCode || typeof window === "undefined") return "";
@@ -409,6 +419,21 @@ export default function CustomerEngagementPage() {
     toast.success(success);
   };
 
+  const copyShareCardText = async () => {
+    const lines = [
+      "PharmaRewards Pharmacy Rewards",
+      privacySettings.showName ? `Member: ${user.fullName}` : "Member: Rewards member",
+      showTier ? `Tier: ${user.tier}` : "",
+      `Achievement: ${selectedAchievement}`,
+      `Points: ${numberFormat(user.points)}`,
+      privacySettings.showReferralCode ? `Referral code: ${referralCode || "Pending"}` : "",
+      shareMessage,
+      referralLink,
+    ].filter(Boolean);
+
+    await copyText(lines.join("\n"), "Share card text copied.");
+  };
+
   const updatePrivacy = async (patch: Partial<SharePrivacySettings>) => {
     const next = { ...privacySettings, ...patch };
     setPrivacySettings(next);
@@ -434,6 +459,7 @@ export default function CustomerEngagementPage() {
     try {
       await createReferral({ referrerMemberId: user.memberId, refereeEmail: email });
       await refreshReferralRows();
+      await loadEngagementData({ silent: true }).catch(() => undefined);
       setReferralEmail("");
       toast.success("Referral created.");
     } catch (error) {
@@ -525,6 +551,7 @@ export default function CustomerEngagementPage() {
         destinationUrl: referralLink,
       });
       if (savedEvent) setShareEvents((prev) => [savedEvent, ...prev.filter((event) => event.id !== savedEvent.id)]);
+      await loadEngagementData({ silent: true }).catch(() => undefined);
       toast.success("Share tracked.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Share could not be completed.");
@@ -588,6 +615,7 @@ export default function CustomerEngagementPage() {
       });
       setUser((prev) => ({ ...prev, surveysCompleted: prev.surveysCompleted + 1 }));
       await refreshUser();
+      await loadEngagementData({ silent: true }).catch(() => undefined);
       setSelectedSurveyId(null);
       toast.success(`Survey submitted. +${selectedSurvey.bonusPoints} points added.`);
     } catch (error) {
@@ -1055,8 +1083,8 @@ export default function CustomerEngagementPage() {
                     <Share2 className="mr-2 h-4 w-4" />
                     Open Share Sheet
                   </Button>
-                  <Button variant="outline" className="border-[#bfd3ea]" disabled title="Coming soon">
-                    PNG Coming Soon
+                  <Button variant="outline" className="border-[#bfd3ea]" onClick={copyShareCardText}>
+                    Copy Card Text
                   </Button>
                   <Button variant="outline" className="border-[#bfd3ea]" onClick={() => copyText(referralLink, "Referral link copied.")}>
                     Copy Link

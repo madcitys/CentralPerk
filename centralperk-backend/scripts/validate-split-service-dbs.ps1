@@ -132,6 +132,12 @@ if (Test-Path -LiteralPath $frontendRoot) {
     '\.from\("reward_partners"\)',
     '\.from\("reward_redemptions"\)',
     '\.from\("reward_vouchers"\)',
+    '\.from\("challenges"\)',
+    '\.from\("challenge_leaderboard_view"\)',
+    '\.from\("surveys"\)',
+    '\.from\("survey_questions"\)',
+    '\.from\("survey_responses"\)',
+    '\.from\("member_engagement_settings"\)',
     '\.rpc\("loyalty_[^"]+"\)'
   )
 
@@ -160,6 +166,10 @@ if (Test-Path -LiteralPath $frontendRoot) {
 
         if ($relative -match "centralperk-frontend\\src\\server\\voucher-service\.ts$" -and $text -match "readApiState|updateApiState") {
           Add-Failure "Voucher service still uses local runtime storage instead of Reward Service: $relative"
+        }
+
+        if ($relative -match "centralperk-frontend\\src\\server\\idempotency\.ts$" -and $text -match "readApiState|updateApiState|\.runtime|api-store\.json") {
+          Add-Failure "Idempotency still uses local runtime storage instead of Points Service DB-backed idempotency: $relative"
         }
       }
   }

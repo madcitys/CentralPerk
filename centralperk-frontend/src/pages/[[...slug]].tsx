@@ -6,7 +6,7 @@ function LoadingShell() {
   return (
     <main className="min-h-screen bg-white text-[#1A2B47] flex items-center justify-center p-6">
       <div className="text-center">
-        <p className="text-lg font-semibold">Loading CentralPerk...</p>
+        <p className="text-lg font-semibold">Loading GREENOVATE...</p>
         <p className="mt-2 text-sm text-slate-500">Initializing the app shell.</p>
       </div>
     </main>

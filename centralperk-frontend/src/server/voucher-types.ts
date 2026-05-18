@@ -1,0 +1,22 @@
+export type VoucherRecord = {
+  id: string;
+  memberId: string;
+  memberEmail: string | null;
+  rewardId: string;
+  rewardCatalogId: string | null;
+  rewardName: string;
+  pointsCost: number;
+  method: "in-store" | "online";
+  voucherCode: string;
+  orderId: string;
+  qrValue: string;
+  qrTargetUrl: string;
+  createdAt: string;
+  partnerLabel: string | null;
+  deliveryPartner: string | null;
+  deliveryAddress: string | null;
+  deliveryNotes: string | null;
+  contactNumber: string | null;
+  status: "ready" | "processing" | "validated";
+  validatedAt: string | null;
+};

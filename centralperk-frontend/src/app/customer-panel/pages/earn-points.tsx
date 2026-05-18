@@ -23,6 +23,7 @@ import { Progress } from "../../../components/ui/progress";
 import type { AppOutletContext } from "../../types/app-context";
 import type { EarnOpportunity } from "../../types/loyalty";
 import { requestJson } from "../../lib/api";
+import { fetchTierRulesViaService } from "../../lib/points-service-client";
 import { loadSurveyDefinitions } from "../../lib/member-engagement";
 import { getMemberReferralCode, loadReferrals } from "../../lib/member-lifecycle";
 
@@ -53,6 +54,17 @@ type EarnTaskView = {
   action: () => void;
   disabled?: boolean;
 };
+
+type TierRuleRow = {
+  tier_label: string;
+  min_points: number;
+};
+
+const defaultTierRules = [
+  { name: "Bronze", min: 0 },
+  { name: "Silver", min: 250 },
+  { name: "Gold", min: 750 },
+];
 
 const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "action" | "disabled"> & { aliases: string[] }> = [
   {
@@ -176,6 +188,7 @@ export default function EarnPoints() {
   const [referralCode, setReferralCode] = useState("");
   const [referralCount, setReferralCount] = useState(0);
   const [loadError, setLoadError] = useState(false);
+  const [tierRules, setTierRules] = useState(defaultTierRules);
 
   useEffect(() => {
     let alive = true;
@@ -209,6 +222,21 @@ export default function EarnPoints() {
     };
   }, [user.email, user.memberId]);
 
+  useEffect(() => {
+    void fetchTierRulesViaService()
+      .then((response) => {
+        const nextRules = new Map(defaultTierRules.map((tier) => [tier.name, tier.min]));
+        for (const rule of response?.tiers ?? ([] as TierRuleRow[])) {
+          const label = String(rule.tier_label || "").trim();
+          const normalizedLabel = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+          if (!["Bronze", "Silver", "Gold"].includes(normalizedLabel)) continue;
+          nextRules.set(normalizedLabel, Math.max(0, Number(rule.min_points) || 0));
+        }
+        setTierRules(Array.from(nextRules.entries()).map(([name, min]) => ({ name, min })).sort((a, b) => a.min - b.min));
+      })
+      .catch(() => undefined);
+  }, []);
+
   const monthlyEarned = useMemo(() => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const earnedFromHistory = recentEarned
@@ -222,6 +250,37 @@ export default function EarnPoints() {
     return Math.min(100, Math.round((fields.length / 5) * 100));
   }, [user.address, user.birthdate, user.email, user.fullName, user.phone]);
 
+  const tierProgress = useMemo(() => {
+    const currentTierIndex = tierRules.findIndex((tier) => tier.name.toLowerCase() === String(user.tier || "").toLowerCase());
+    const resolvedCurrent =
+      currentTierIndex >= 0
+        ? tierRules[currentTierIndex]
+        : [...tierRules].reverse().find((tier) => user.points >= tier.min) ?? tierRules[0];
+    const resolvedIndex = tierRules.findIndex((tier) => tier.name === resolvedCurrent.name);
+    const nextTier = tierRules[resolvedIndex + 1] ?? null;
+
+    if (!nextTier) {
+      const momentumGoal = Math.max(1000, Math.ceil(Math.max(user.earnedThisMonth, 0) / 1000) * 1000 + 1000);
+      return {
+        label: `${resolvedCurrent.name} tier unlocked`,
+        currentLabel: `${numberFormat(user.earnedThisMonth)} pts this month`,
+        goalLabel: `${numberFormat(momentumGoal)} pts monthly streak goal`,
+        remainingLabel: `${numberFormat(Math.max(0, momentumGoal - user.earnedThisMonth))} pts to next streak reward`,
+        percent: Math.min(100, Math.max(0, (user.earnedThisMonth / momentumGoal) * 100)),
+      };
+    }
+
+    const base = resolvedCurrent.min;
+    const span = Math.max(1, nextTier.min - base);
+    return {
+      label: `${resolvedCurrent.name} tier progress`,
+      currentLabel: `${numberFormat(user.points)} pts current`,
+      goalLabel: `${numberFormat(nextTier.min)} pts ${nextTier.name}`,
+      remainingLabel: `${numberFormat(Math.max(0, nextTier.min - user.points))} pts to ${nextTier.name}`,
+      percent: Math.min(100, Math.max(0, ((user.points - base) / span) * 100)),
+    };
+  }, [tierRules, user.earnedThisMonth, user.points, user.tier]);
+
   const tasks = useMemo<EarnTaskView[]>(() => {
     return earnActionCatalog.map((config) => {
       const points = taskPointsFromApi(apiTasks, config);
@@ -234,8 +293,8 @@ export default function EarnPoints() {
           statusLabel: completed ? "Completed" : "Available",
           helperText: completed ? "Profile details are complete" : `${profileProgress}% profile complete`,
           action: () => navigate("/customer/profile"),
-          disabled: completed,
-          actionLabel: completed ? "Completed" : "Finish Profile",
+          disabled: false,
+          actionLabel: completed ? "View Profile" : "Finish Profile",
         };
       }
 
@@ -336,6 +395,18 @@ export default function EarnPoints() {
             <div className="rounded-2xl border border-[#dce7f3] bg-[#f8fcff] p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#64748b]">Monthly Earned</p>
               <p className="mt-2 text-2xl font-bold text-[#008d97]">{numberFormat(monthlyEarned)}</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#dce7f3] bg-[#fbfdff] p-4">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-bold text-[#10213a]">{tierProgress.label}</p>
+              <p className="text-sm font-bold text-[#008d97]">{tierProgress.remainingLabel}</p>
+            </div>
+            <Progress value={tierProgress.percent} className="h-2.5 bg-[#e8edf3] [&>div]:bg-[#d9a719]" />
+            <div className="mt-3 flex flex-wrap justify-between gap-3 text-xs font-semibold text-[#64748b]">
+              <span>{tierProgress.currentLabel}</span>
+              <span>{tierProgress.goalLabel}</span>
             </div>
           </div>
         </div>
