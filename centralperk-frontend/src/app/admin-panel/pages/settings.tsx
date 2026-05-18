@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   DEFAULT_BIRTHDAY_REWARD_SETTINGS,
   loadBirthdayRewardSettings,
+  loadBirthdayRewardSettingsFromApi,
   saveBirthdayRewardSettings,
   type BirthdayRewardSettings,
 } from "../../lib/member-lifecycle";
@@ -52,7 +53,9 @@ export default function AdminSettingsPage() {
       .then((data) => setEarningRules(data))
       .catch(() => setEarningRules(FALLBACK_EARNING_RULES));
 
-    setBirthdaySettings(loadBirthdayRewardSettings());
+    loadBirthdayRewardSettingsFromApi()
+      .then((settings) => setBirthdaySettings(settings))
+      .catch(() => setBirthdaySettings(loadBirthdayRewardSettings()));
   }, []);
 
   const updateRule = (tierLabel: string, nextValue: number) => {
@@ -98,8 +101,7 @@ export default function AdminSettingsPage() {
 
     try {
       setSaving(true);
-      await Promise.all([saveTierRules(rules), saveEarningRules(earningRules)]);
-      saveBirthdayRewardSettings(birthdaySettings);
+      await Promise.all([saveTierRules(rules), saveEarningRules(earningRules), saveBirthdayRewardSettings(birthdaySettings)]);
       toast.success("Tier and earning rules saved.");
       setPendingOtp(null);
       setOtpInput("");

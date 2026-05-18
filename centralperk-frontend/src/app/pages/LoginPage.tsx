@@ -12,6 +12,7 @@ import {
   mapAuthErrorToMessage,
   requestCustomerAccessRepair,
 } from '../auth/customer-auth';
+import { findMemberProfileByEmail } from '../lib/member-service-api';
 
 export function LoginPage() {
   const demoAuthEnabled = isCustomerDemoAuthEnabled();
@@ -24,17 +25,12 @@ export function LoginPage() {
   const normalizeEmail = (rawEmail: string) => rawEmail.trim().toLowerCase();
 
   const profileExistsForEmail = async (normalizedEmail: string) => {
-    const { data, error: profileLookupError } = await supabase
-      .from('loyalty_members')
-      .select('id')
-      .ilike('email', normalizedEmail)
-      .limit(1);
-
-    if (profileLookupError) {
+    try {
+      const profile = await findMemberProfileByEmail(normalizedEmail);
+      return Boolean(profile);
+    } catch {
       return false;
     }
-
-    return Boolean(data?.length);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

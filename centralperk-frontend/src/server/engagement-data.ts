@@ -3,6 +3,34 @@ import { serviceBaseUrl } from "./service-proxy";
 
 type AnyRecord = Record<string, any>;
 
+type SurveyQuestionInput = {
+  id?: string;
+  prompt: string;
+  type: "multiple-choice" | "rating" | "free-text";
+  options?: string[];
+};
+
+type SurveyInput = {
+  title: string;
+  description: string;
+  segment: string;
+  bonusPoints: number;
+  status: "draft" | "live" | "closed";
+  questions: SurveyQuestionInput[];
+};
+
+type PrivacySettings = {
+  showName: boolean;
+  showReferralCode: boolean;
+  publicProfile: boolean;
+};
+
+const defaultPrivacySettings: PrivacySettings = {
+  showName: true,
+  showReferralCode: true,
+  publicProfile: true,
+};
+
 function isMissingRelationError(error: unknown, table: string) {
   const message = String(
     (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
@@ -52,6 +80,12 @@ function normalizeQuestionType(value: string | null | undefined) {
   return "multiple-choice";
 }
 
+function questionTypeToColumn(value: string | null | undefined) {
+  const normalized = normalizeQuestionType(value);
+  if (normalized === "multiple-choice") return "multiple-choice";
+  return normalized;
+}
+
 function formatMemberName(member?: AnyRecord | null, fallbackMemberId?: number | string) {
   const fullName = `${member?.first_name || ""} ${member?.last_name || ""}`.trim();
   if (fullName) return fullName;
@@ -69,6 +103,53 @@ async function fetchMembersByIds(memberIds: string[]) {
   if (!response.ok) throw new Error(`Member service failed (${response.status}).`);
   const idSet = new Set(memberIds);
   return ((payload.members || []) as AnyRecord[]).filter((row) => idSet.has(String(row.id ?? row.memberId ?? row.member_id)));
+}
+
+async function resolveMemberByIdentifier(memberIdentifier: string) {
+  const identifier = String(memberIdentifier || "").trim();
+  if (!identifier) return null;
+  const params = new URLSearchParams({ identifier });
+  const response = await fetch(
+    `${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members/resolve?${params.toString()}`,
+    { headers: { accept: "application/json" } },
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) return null;
+  return (payload.member || null) as AnyRecord | null;
+}
+
+function normalizeSurveyDefinition(survey: AnyRecord, questions: AnyRecord[] = [], responses: AnyRecord[] = []) {
+  return {
+    id: String(survey.id),
+    title: String(survey.title || "Survey"),
+    description: String(survey.description || ""),
+    segment: normalizeSegment(survey.segment),
+    bonusPoints: Math.max(0, Number(survey.bonus_points ?? survey.bonusPoints ?? 0)),
+    status: survey.status === "live" || survey.status === "closed" ? survey.status : "draft",
+    createdAt: String(survey.created_at ?? survey.createdAt ?? new Date().toISOString()),
+    questions: questions.map((row) => ({
+      id: String(row.id),
+      prompt: String(row.prompt || ""),
+      type: normalizeQuestionType(row.question_type ?? row.type),
+      options: Array.isArray(row.options) ? row.options.map((item: unknown) => String(item)) : undefined,
+    })),
+    responses: responses.map((row) => ({
+      memberId: String(row.member_id ?? row.memberId ?? ""),
+      memberName: String(row.member_name ?? row.memberName ?? row.member_id ?? row.memberId ?? "Member"),
+      answers: row.answers || {},
+      submittedAt: String(row.submitted_at ?? row.submittedAt ?? new Date().toISOString()),
+    })),
+  };
+}
+
+function normalizePrivacySettings(value: unknown): PrivacySettings {
+  const raw = value && typeof value === "object" ? (value as Partial<PrivacySettings>) : {};
+  return {
+    showName: raw.showName === undefined ? defaultPrivacySettings.showName : Boolean(raw.showName),
+    showReferralCode:
+      raw.showReferralCode === undefined ? defaultPrivacySettings.showReferralCode : Boolean(raw.showReferralCode),
+    publicProfile: raw.publicProfile === undefined ? defaultPrivacySettings.publicProfile : Boolean(raw.publicProfile),
+  };
 }
 
 export async function fetchChallengeDefinitions() {
@@ -204,4 +285,165 @@ export async function fetchSurveyDefinitions() {
     questions: questionMap.get(String(survey.id)) ?? [],
     responses: responseMap.get(String(survey.id)) ?? [],
   }));
+}
+
+export async function createSurveyDefinition(input: SurveyInput) {
+  const surveyId = `survey-${Date.now()}`;
+  const fallback = normalizeSurveyDefinition(
+    {
+      id: surveyId,
+      title: input.title,
+      description: input.description,
+      segment: input.segment,
+      bonus_points: input.bonusPoints,
+      status: input.status,
+      created_at: new Date().toISOString(),
+    },
+    input.questions.map((question, index) => ({
+      id: question.id || `q-${Date.now()}-${index}`,
+      prompt: question.prompt,
+      question_type: question.type,
+      options: question.options,
+    })),
+  );
+
+  const supabase = createMemberServerSupabaseClient();
+  const { data: survey, error: surveyError } = await supabase
+    .from("surveys")
+    .insert({
+      title: input.title.trim(),
+      description: input.description.trim(),
+      segment: normalizeSegment(input.segment),
+      bonus_points: Math.max(0, Number(input.bonusPoints || 0)),
+      status: input.status,
+    })
+    .select("id,title,description,segment,bonus_points,status,created_at")
+    .single();
+
+  if (surveyError) {
+    if (isMissingRelationError(surveyError, "surveys")) return fallback;
+    throw surveyError;
+  }
+
+  const questionPayload = input.questions.map((question, index) => ({
+    survey_id: survey.id,
+    prompt: question.prompt.trim(),
+    question_type: questionTypeToColumn(question.type),
+    options: question.options ?? null,
+    display_order: index + 1,
+  }));
+
+  if (questionPayload.length === 0) return normalizeSurveyDefinition(survey, []);
+
+  const { data: questions, error: questionError } = await supabase
+    .from("survey_questions")
+    .insert(questionPayload)
+    .select("id,survey_id,prompt,question_type,options,display_order")
+    .order("display_order", { ascending: true });
+
+  if (questionError) {
+    if (isMissingRelationError(questionError, "survey_questions")) return normalizeSurveyDefinition(survey, []);
+    throw questionError;
+  }
+
+  return normalizeSurveyDefinition(survey, questions || []);
+}
+
+export async function submitSurveyResponse(input: {
+  surveyId: string;
+  memberIdentifier: string;
+  answers: Record<string, string | number>;
+}) {
+  const member = await resolveMemberByIdentifier(input.memberIdentifier);
+  const memberDbId = member?.id ?? member?.memberId ?? member?.member_id ?? input.memberIdentifier;
+  const memberName = formatMemberName(member, input.memberIdentifier);
+  const submittedAt = new Date().toISOString();
+  const fallback = {
+    memberId: String(member?.member_id ?? input.memberIdentifier),
+    memberName,
+    answers: input.answers,
+    submittedAt,
+  };
+
+  const supabase = createMemberServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("survey_responses")
+    .insert({
+      survey_id: input.surveyId,
+      member_id: memberDbId,
+      answers: input.answers,
+    })
+    .select("survey_id,member_id,submitted_at,answers")
+    .single();
+
+  if (error) {
+    if (isMissingRelationError(error, "survey_responses")) return fallback;
+    throw error;
+  }
+
+  return {
+    memberId: String(member?.member_id ?? data.member_id ?? input.memberIdentifier),
+    memberName,
+    answers: data.answers || input.answers,
+    submittedAt: String(data.submitted_at ?? submittedAt),
+  };
+}
+
+export async function deleteSurveyResponse(input: { surveyId: string; memberIdentifier: string }) {
+  const member = await resolveMemberByIdentifier(input.memberIdentifier);
+  const memberDbId = member?.id ?? member?.memberId ?? member?.member_id ?? input.memberIdentifier;
+  const supabase = createMemberServerSupabaseClient();
+  const { error } = await supabase
+    .from("survey_responses")
+    .delete()
+    .eq("survey_id", input.surveyId)
+    .eq("member_id", memberDbId);
+
+  if (error && !isMissingRelationError(error, "survey_responses")) throw error;
+}
+
+export async function fetchMemberEngagementSettings(memberIdentifier: string) {
+  const member = await resolveMemberByIdentifier(memberIdentifier);
+  const memberDbId = member?.id ?? member?.memberId ?? member?.member_id;
+  if (!memberDbId) return defaultPrivacySettings;
+
+  const supabase = createMemberServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("member_engagement_settings")
+    .select("privacy_settings")
+    .eq("member_id", memberDbId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRelationError(error, "member_engagement_settings")) return defaultPrivacySettings;
+    throw error;
+  }
+
+  return normalizePrivacySettings(data?.privacy_settings);
+}
+
+export async function saveMemberEngagementSettings(memberIdentifier: string, settings: PrivacySettings) {
+  const normalized = normalizePrivacySettings(settings);
+  const member = await resolveMemberByIdentifier(memberIdentifier);
+  const memberDbId = member?.id ?? member?.memberId ?? member?.member_id;
+  if (!memberDbId) return normalized;
+
+  const supabase = createMemberServerSupabaseClient();
+  const { error } = await supabase
+    .from("member_engagement_settings")
+    .upsert(
+      {
+        member_id: memberDbId,
+        privacy_settings: normalized,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "member_id" },
+    );
+
+  if (error) {
+    if (isMissingRelationError(error, "member_engagement_settings")) return normalized;
+    throw error;
+  }
+
+  return normalized;
 }

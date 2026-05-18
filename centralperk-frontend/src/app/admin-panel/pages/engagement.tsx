@@ -412,14 +412,10 @@ export default function AdminEngagementPage() {
         }
         toast.success("Push campaign scheduled and communications queued.");
       } else {
-        toast.success("Push campaign saved, but communications queueing is unavailable right now.");
+        toast.warning("Push campaign saved, but communications queueing is unavailable right now.");
       }
-    } catch {
-      setState((prev) => ({
-        ...prev,
-        notificationCampaigns: [nextCampaign, ...prev.notificationCampaigns],
-      }));
-      toast.success("Push campaign saved locally for sprint demo.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save push campaign.");
     }
   };
 
@@ -499,11 +495,9 @@ export default function AdminEngagementPage() {
         ...prev,
         surveys: [savedSurvey ?? nextSurvey, ...prev.surveys],
       }));
-    } catch {
-      setState((prev) => ({
-        ...prev,
-        surveys: [nextSurvey, ...prev.surveys],
-      }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to publish survey.");
+      return;
     }
 
     toast.success("Survey published.");
@@ -568,11 +562,9 @@ export default function AdminEngagementPage() {
         toast.warning(`Win-back automation launched, but ${failedAutomationCount} member sends could not be queued.`);
         return;
       }
-    } catch {
-      setState((prev) => ({
-        ...prev,
-        winBackCampaigns: [nextCampaign, ...prev.winBackCampaigns],
-      }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to launch win-back automation.");
+      return;
     }
     toast.success("Win-back automation launched.");
   };

@@ -13,6 +13,7 @@
     "build:backend": "npm --prefix ./centralperk-backend run build",
     "build:services": "npm run build:backend",
     "validate:split-dbs": "npm --prefix ./centralperk-backend run validate:split-dbs",
+    "test:api-sample": "npm --prefix ./centralperk-frontend run test:api-sample",
     "start:frontend": "npm --prefix ./centralperk-frontend run start",
     "start:backend": "npm --prefix ./centralperk-backend run start:help",
     "start:local": "powershell -ExecutionPolicy Bypass -File ./scripts/start-local.ps1",

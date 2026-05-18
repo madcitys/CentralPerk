@@ -1,9 +1,6 @@
-import { supabase } from "../../utils/supabase/client";
 import type { MemberData } from "../types/loyalty";
 import type { LoyaltyTransaction, Member, MemberLoginActivity } from "../admin-panel/types";
 import { requestJson } from "./api";
-
-const STORAGE_KEY = "centralperk-member-engagement-v1";
 
 export type EngagementSegment =
   | "All Members"
@@ -384,15 +381,6 @@ function formatInputDate(value: Date) {
   return `${value.getFullYear()}-${`${value.getMonth() + 1}`.padStart(2, "0")}-${`${value.getDate()}`.padStart(2, "0")}`;
 }
 
-function startOfWeek(date: Date) {
-  const next = new Date(date);
-  const day = next.getDay();
-  const diff = (day + 6) % 7;
-  next.setDate(next.getDate() - diff);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
 function safeWindow() {
   return typeof window === "undefined" ? null : window;
 }
@@ -509,174 +497,23 @@ function formatShareEventMemberName(member?: ShareEventMemberRow | null, fallbac
 }
 
 function buildDefaultState(): EngagementState {
-  const now = new Date();
-  const weekStart = startOfWeek(now);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
   return {
-    notificationCampaigns: [
-      {
-        id: "notif-1",
-        name: "Weekend Double Points",
-        trigger: "Flash Sale",
-        segment: "Gold",
-        scheduledFor: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-        status: "scheduled",
-        audienceSize: 128,
-        sentCount: 0,
-        deliveredCount: 0,
-        openedCount: 0,
-        variantA: "Double points starts at 6 PM. Swipe in early.",
-        variantB: "Gold members get first access to double points tonight.",
-        winner: "Pending",
-      },
-      {
-        id: "notif-2",
-        name: "Reward Ready Reminder",
-        trigger: "Reward Available",
-        segment: "High Value",
-        scheduledFor: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-        status: "completed",
-        audienceSize: 84,
-        sentCount: 84,
-        deliveredCount: 80,
-        openedCount: 41,
-        variantA: "A featured reward is ready in your account.",
-        variantB: "You have enough points for this week’s featured reward.",
-        winner: "B",
-      },
-    ],
-    challenges: [
-      {
-        id: "challenge-1",
-        title: "Make 3 purchases this week",
-        description: "Complete three purchases before the week ends to unlock a bonus.",
-        type: "purchase-count",
-        targetValue: 3,
-        unitLabel: "purchases",
-        startAt: weekStart.toISOString(),
-        endAt: new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-        rewardPoints: 150,
-        rewardBadge: "Weekly Streak",
-        competitive: true,
-        segment: "All Members",
-      },
-      {
-        id: "challenge-2",
-        title: "Earn 1000 points this month",
-        description: "Stay active and reach one thousand earned points before month-end.",
-        type: "points-earned",
-        targetValue: 1000,
-        unitLabel: "points",
-        startAt: monthStart.toISOString(),
-        endAt: monthEnd.toISOString(),
-        rewardPoints: 250,
-        rewardBadge: "Momentum Builder",
-        competitive: false,
-        segment: "All Members",
-      },
-      {
-        id: "challenge-3",
-        title: "Complete 2 surveys this month",
-        description: "Share feedback twice this month to earn extra loyalty points.",
-        type: "survey-completion",
-        targetValue: 2,
-        unitLabel: "surveys",
-        startAt: monthStart.toISOString(),
-        endAt: monthEnd.toISOString(),
-        rewardPoints: 100,
-        rewardBadge: "Voice of the Member",
-        competitive: false,
-        segment: "Silver",
-      },
-    ],
-    surveys: [
-      {
-        id: "survey-1",
-        title: "March Experience Pulse",
-        description: "Help us improve rewards, notifications, and member-exclusive offers.",
-        segment: "All Members",
-        bonusPoints: 50,
-        status: "live",
-        createdAt: now.toISOString(),
-        questions: [
-          {
-            id: "q1",
-            prompt: "How satisfied are you with your rewards experience this month?",
-            type: "rating",
-          },
-          {
-            id: "q2",
-            prompt: "Which perk motivates you most right now?",
-            type: "multiple-choice",
-            options: ["Bonus points", "Tier upgrades", "Flash sales", "Member challenges"],
-          },
-          {
-            id: "q3",
-            prompt: "What should we improve next?",
-            type: "free-text",
-          },
-        ],
-        responses: [],
-      },
-    ],
+    notificationCampaigns: [],
+    challenges: [],
+    surveys: [],
     shareEvents: [],
-    winBackCampaigns: [
-      {
-        id: "winback-1",
-        name: "Inactive Gold Rescue",
-        segment: "Inactive 60+ Days",
-        offerType: "2x Points",
-        offerValue: "2x points on the next purchase",
-        status: "running",
-        targetedMembers: 42,
-        responses: 14,
-        reengagedMembers: 8,
-        estimatedRevenue: 18600,
-        offerCost: 4300,
-        launchDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-    ],
+    winBackCampaigns: [],
     claimedChallengeRewardsByMember: {},
     privacySettingsByMember: {},
   };
 }
 
 export function loadEngagementState(): EngagementState {
-  const browser = safeWindow();
-  if (!browser) return buildDefaultState();
-
-  try {
-    const raw = browser.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return buildDefaultState();
-
-    const parsed = JSON.parse(raw) as Partial<EngagementState>;
-    const defaults = buildDefaultState();
-    const preferNonEmptyArray = <T,>(candidate: T[] | undefined, fallback: T[]) =>
-      candidate && candidate.length > 0 ? candidate : fallback;
-    return {
-      ...defaults,
-      ...parsed,
-      notificationCampaigns: preferNonEmptyArray(parsed.notificationCampaigns, defaults.notificationCampaigns),
-      // Always rebuild challenges from current defaults/DB to avoid stale ended dates
-      // lingering in localStorage across months.
-      challenges: defaults.challenges,
-      surveys: preferNonEmptyArray(parsed.surveys, defaults.surveys),
-      shareEvents: defaults.shareEvents,
-      winBackCampaigns: preferNonEmptyArray(parsed.winBackCampaigns, defaults.winBackCampaigns),
-      claimedChallengeRewardsByMember: parsed.claimedChallengeRewardsByMember ?? {},
-      privacySettingsByMember: parsed.privacySettingsByMember ?? {},
-    };
-  } catch {
-    return buildDefaultState();
-  }
+  return buildDefaultState();
 }
 
 export function saveEngagementState(state: EngagementState) {
-  const browser = safeWindow();
-  if (!browser) return;
-  browser.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  void state;
 }
 
 export async function loadChallengeDefinitions() {
@@ -685,30 +522,7 @@ export async function loadChallengeDefinitions() {
 }
 
 export async function loadChallengeProgressByMember(memberIdentifier: string) {
-  const memberId = await resolveMemberDatabaseId(memberIdentifier);
-  if (!memberId) return new Map<string, ChallengeProgressSnapshot>();
-
-  const { data, error } = await supabase
-    .from("member_challenge_progress")
-    .select("challenge_id,current_value,target_value,progress_percent,is_completed")
-    .eq("member_id", memberId);
-
-  if (error) {
-    if (isMissingRelationError(error, "member_challenge_progress")) return new Map<string, ChallengeProgressSnapshot>();
-    throw error;
-  }
-
-  return new Map(
-    ((data || []) as ChallengeProgressRow[]).map((row) => [
-      String(row.challenge_id),
-      {
-        current: Math.max(0, Number(row.current_value || 0)),
-        target: Math.max(0, Number(row.target_value || 0)),
-        percent: Math.max(0, Math.min(100, Number(row.progress_percent || 0))),
-        completed: Boolean(row.is_completed),
-      } satisfies ChallengeProgressSnapshot,
-    ])
-  );
+  return new Map<string, ChallengeProgressSnapshot>();
 }
 
 export async function loadChallengeLeaderboard(challengeId: string) {
@@ -874,51 +688,13 @@ export async function createSurveyDefinitionRecord(input: {
   status: "draft" | "live" | "closed";
   questions: SurveyQuestion[];
 }) {
-  const surveyCode = `SV-${Date.now()}`;
-  const { data: surveyData, error: surveyError } = await supabase
-    .from("surveys")
-    .insert({
-      survey_code: surveyCode,
-      title: input.title,
-      description: input.description,
-      segment: input.segment,
-      bonus_points: input.bonusPoints,
-      status: input.status,
-    })
-    .select("id,title,description,segment,bonus_points,status,created_at")
-    .single();
-
-  if (surveyError) {
-    if (isMissingRelationError(surveyError, "surveys")) return null;
-    throw surveyError;
-  }
-
-  const survey = surveyData as SurveyRow;
-  if (input.questions.length > 0) {
-    const { error: questionInsertError } = await supabase.from("survey_questions").insert(
-      input.questions.map((question, index) => ({
-        survey_id: survey.id,
-        question_code: `Q-${index + 1}`,
-        prompt: question.prompt,
-        question_type: question.type,
-        options: question.options ?? [],
-        display_order: index + 1,
-      }))
-    );
-
-    if (questionInsertError) throw questionInsertError;
-  }
-
+  const response = await requestJson<{ ok: true; survey: SurveyDefinition }>("/api/engagement/surveys", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
   return {
-    id: survey.id,
-    title: String(survey.title || input.title),
-    description: String(survey.description || input.description),
-    segment: normalizeEngagementSegment(survey.segment),
-    bonusPoints: Math.max(0, Number(survey.bonus_points || input.bonusPoints)),
-    status: survey.status === "live" || survey.status === "closed" ? survey.status : "draft",
-    createdAt: String(survey.created_at),
-    questions: input.questions,
-    responses: [],
+    ...response.survey,
+    segment: normalizeEngagementSegment(response.survey.segment),
   } satisfies SurveyDefinition;
 }
 
@@ -928,61 +704,39 @@ export async function submitSurveyResponseRecord(input: {
   answers: Record<string, string | number>;
   bonusPoints: number;
 }) {
-  if (!isUuidLike(input.surveyId)) return null;
-
-  const memberId = await resolveMemberDatabaseId(input.memberIdentifier);
-  if (!memberId) throw new Error("Unable to resolve the survey member.");
-
-  const { data, error } = await supabase
-    .from("survey_responses")
-    .insert({
-      survey_id: input.surveyId,
-      member_id: memberId,
-      answers: input.answers,
-      bonus_points_awarded: input.bonusPoints,
-    })
-    .select("survey_id,member_id,submitted_at,answers")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "survey_responses")) return null;
-    throw error;
-  }
-
-  const { data: memberData, error: memberError } = await supabase
-    .from("loyalty_members")
-    .select("id,member_id,member_number,first_name,last_name")
-    .eq("id", memberId)
-    .maybeSingle();
-
-  if (memberError) throw memberError;
-
-  const row = data as SurveyResponseRow;
-  const member = (memberData || null) as ShareEventMemberRow | null;
-  return {
-    memberId: String(member?.member_id || row.member_id),
-    memberName: formatShareEventMemberName(member, row.member_id),
-    answers: row.answers || {},
-    submittedAt: String(row.submitted_at),
-  } satisfies SurveyResponseRecord;
+  const response = await requestJson<{ ok: true; response: SurveyResponseRecord }>(
+    `/api/engagement/surveys/${encodeURIComponent(input.surveyId)}/responses`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return response.response;
 }
 
 export async function deleteSurveyResponseRecord(surveyId: string, memberIdentifier: string) {
-  if (!isUuidLike(surveyId)) return;
+  await requestJson<{ ok: true }>(`/api/engagement/surveys/${encodeURIComponent(surveyId)}/responses`, {
+    method: "DELETE",
+    body: JSON.stringify({ memberIdentifier }),
+  });
+}
 
-  const memberId = await resolveMemberDatabaseId(memberIdentifier);
-  if (!memberId) return;
+export async function loadMemberPrivacySettings(memberIdentifier: string) {
+  const response = await requestJson<{ ok: true; settings: SharePrivacySettings }>(
+    `/api/engagement/settings/${encodeURIComponent(memberIdentifier)}`,
+  );
+  return response.settings;
+}
 
-  const { error } = await supabase
-    .from("survey_responses")
-    .delete()
-    .eq("survey_id", surveyId)
-    .eq("member_id", memberId);
-
-  if (error) {
-    if (isMissingRelationError(error, "survey_responses")) return;
-    throw error;
-  }
+export async function saveMemberPrivacySettings(memberIdentifier: string, settings: SharePrivacySettings) {
+  const response = await requestJson<{ ok: true; settings: SharePrivacySettings }>(
+    `/api/engagement/settings/${encodeURIComponent(memberIdentifier)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    },
+  );
+  return response.settings;
 }
 
 export async function loadWinBackCampaigns() {

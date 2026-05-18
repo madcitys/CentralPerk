@@ -1,5 +1,5 @@
-import { supabase } from "../../utils/supabase/client";
 import { requestJson } from "./api";
+import { loadBadgeLeaderboardViaApi, loadBadgeProgressViaApi } from "./member-service-api";
 
 type AnyRecord = Record<string, any>;
 
@@ -181,34 +181,6 @@ function normalizePartner(row: AnyRecord): RewardPartner {
   };
 }
 
-async function lookupMemberId(memberIdentifier?: string, fallbackEmail?: string) {
-  if (memberIdentifier) {
-    const byNumber = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .eq("member_number", memberIdentifier)
-      .limit(1)
-      .maybeSingle();
-
-    if (byNumber.error) throw byNumber.error;
-    if (byNumber.data?.id !== undefined) return Number(byNumber.data.id);
-  }
-
-  if (fallbackEmail) {
-    const byEmail = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .ilike("email", fallbackEmail)
-      .limit(1)
-      .maybeSingle();
-
-    if (byEmail.error) throw byEmail.error;
-    if (byEmail.data?.id !== undefined) return Number(byEmail.data.id);
-  }
-
-  return null;
-}
-
 export async function resolvePromotionCampaignId(reference: string) {
   const trimmedReference = reference.trim();
   if (!trimmedReference) return null;
@@ -341,37 +313,26 @@ export async function loadPartnerPerformance(): Promise<RewardPartnerPerformance
 }
 
 export async function loadMemberBadgeProgress(memberIdentifier?: string, fallbackEmail?: string) {
-  const memberId = await lookupMemberId(memberIdentifier, fallbackEmail);
-  if (!memberId) return [] as MemberBadgeProgress[];
-
-  const { data, error } = await supabase.rpc("loyalty_member_badge_progress", {
-    p_member_id: memberId,
-  });
-
-  if (error) throw error;
-
-  return ((data || []) as AnyRecord[]).map((row) => ({
-    badgeId: String(row.badge_id ?? ""),
-    badgeCode: String(row.badge_code ?? ""),
-    badgeName: String(row.badge_name ?? ""),
+  if (!memberIdentifier && !fallbackEmail) return [] as MemberBadgeProgress[];
+  return (await loadBadgeProgressViaApi(memberIdentifier, fallbackEmail)).map((row) => ({
+    badgeId: String(row.badgeId ?? row.badge_id ?? ""),
+    badgeCode: String(row.badgeCode ?? row.badge_code ?? ""),
+    badgeName: String(row.badgeName ?? row.badge_name ?? ""),
     description: String(row.description ?? ""),
-    iconName: String(row.icon_name ?? "Award"),
-    milestoneType: String(row.milestone_type ?? ""),
-    milestoneTarget: Number(row.milestone_target ?? 0),
-    progressValue: Number(row.progress_value ?? 0),
-    isEarned: Boolean(row.is_earned ?? false),
-    earnedAt: row.earned_at ? String(row.earned_at) : null,
-  }));
+    iconName: String(row.iconName ?? row.icon_name ?? "Award"),
+    milestoneType: String(row.milestoneType ?? row.milestone_type ?? ""),
+    milestoneTarget: Number(row.milestoneTarget ?? row.milestone_target ?? 0),
+    progressValue: Number(row.progressValue ?? row.progress_value ?? 0),
+    isEarned: Boolean(row.isEarned ?? row.is_earned ?? false),
+    earnedAt: row.earnedAt ?? row.earned_at ?? null,
+  })) as MemberBadgeProgress[];
 }
 
 export async function loadBadgeLeaderboard(limit = 10) {
-  const { data, error } = await supabase.rpc("loyalty_badge_leaderboard", { p_limit: limit });
-  if (error) throw error;
-
-  return ((data || []) as AnyRecord[]).map((row) => ({
-    memberId: String(row.member_id ?? ""),
-    memberNumber: String(row.member_number ?? ""),
-    memberName: String(row.member_name ?? ""),
-    badgeCount: Number(row.badge_count ?? 0),
+  return (await loadBadgeLeaderboardViaApi(limit)).map((row) => ({
+    memberId: String(row.memberId ?? row.member_id ?? ""),
+    memberNumber: String(row.memberNumber ?? row.member_number ?? ""),
+    memberName: String(row.memberName ?? row.member_name ?? ""),
+    badgeCount: Number(row.badgeCount ?? row.badge_count ?? 0),
   })) as BadgeLeaderboardEntry[];
 }

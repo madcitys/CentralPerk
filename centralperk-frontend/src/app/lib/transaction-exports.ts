@@ -2,6 +2,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../../utils/supabase/client';
 import { getRoleFromSession } from '../auth/auth';
+import { loadPointsLedgerViaApi } from './api';
+import { findMemberProfileByEmail } from './member-service-api';
 
 export type ExportTransactionRow = {
   transaction_date: string;
@@ -29,55 +31,38 @@ async function getCustomerMemberId() {
     throw new Error('No logged-in user email found for customer export.');
   }
 
-  const { data: member, error: memberError } = await supabase
-    .from('loyalty_members')
-    .select('id, member_id')
-    .eq('email', userEmail)
-    .maybeSingle();
-
-  if (memberError) throw memberError;
+  const member = await findMemberProfileByEmail(userEmail);
   if (!member) {
     throw new Error('No loyalty member profile found for this customer account.');
   }
 
   return {
-    id: member.id as number | null,
-    externalMemberId: (member.member_id as number | null) ?? null,
+    id: Number(member.id ?? member.memberId ?? member.member_id) || null,
+    externalMemberId: Number(member.member_id ?? member.memberId ?? member.id) || null,
   };
 }
 
 export async function fetchTransactionsForExport(): Promise<ExportTransactionRow[]> {
   const role = await getRoleFromSession();
-
-  let query = supabase
-    .from('loyalty_transactions')
-    .select('*')
-    .order('transaction_date', { ascending: false });
+  const ledger = await loadPointsLedgerViaApi(5000);
+  let rows = ledger.transactions || [];
 
   if (role === 'customer') {
     const member = await getCustomerMemberId();
-
-    if (member.id !== null && member.externalMemberId !== null) {
-      query = query.or(`member_id.eq.${member.id},member_id.eq.${member.externalMemberId}`);
-    } else if (member.id !== null) {
-      query = query.eq('member_id', member.id);
-    } else if (member.externalMemberId !== null) {
-      query = query.eq('member_id', member.externalMemberId);
-    } else {
+    const ids = new Set([member.id, member.externalMemberId].filter((value) => value !== null).map(String));
+    if (ids.size === 0) {
       throw new Error('Unable to resolve member ID for customer export.');
     }
+    rows = rows.filter((row) => ids.has(String(row.member_id)));
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-
-  return ((data ?? []) as Array<ExportTransactionRow & { description?: string | null }>).map((row) => ({
-    transaction_date: row.transaction_date,
-    transaction_type: row.transaction_type,
-    points: row.points,
-    amount_spent: row.amount_spent ?? null,
+  return rows.map((row) => ({
+    transaction_date: String(row.transaction_date),
+    transaction_type: String(row.transaction_type),
+    points: Number(row.points || 0),
+    amount_spent: Number((row as any).amount_spent ?? 0) || null,
     reason: transactionNote(row),
-    member_id: row.member_id ?? null,
+    member_id: Number(row.member_id) || null,
   }));
 }
 

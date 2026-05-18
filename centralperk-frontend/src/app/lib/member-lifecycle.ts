@@ -1,12 +1,20 @@
-import { supabase } from "../../utils/supabase/client";
 import type { MemberData } from "../types/loyalty";
 import { requestJson } from "./api";
-
-const STORAGE_KEYS = {
-  referrals: "centralperk-referrals-v1",
-  birthdayClaims: "centralperk-birthday-claims-v1",
-  birthdaySettings: "centralperk-birthday-settings-v1",
-} as const;
+import {
+  applyReferralCodeViaApi,
+  claimBirthdayRewardViaApi,
+  createReferralViaApi,
+  loadBirthdayRewardStatusViaApi,
+  loadBirthdaySettingsViaApi,
+  loadCommunicationPreferenceViaApi,
+  loadFeedbackViaApi,
+  loadReferralsViaApi,
+  resolveMemberViaMemberApi,
+  saveBirthdaySettingsViaApi,
+  saveCommunicationPreferenceViaApi,
+  submitFeedbackViaApi,
+  validateReferralCodeViaApi,
+} from "./member-service-api";
 
 export type MemberSegment = "High Value" | "Active" | "At Risk" | "Inactive";
 export const SYSTEM_MEMBER_SEGMENTS: MemberSegment[] = ["High Value", "Active", "At Risk", "Inactive"];
@@ -76,45 +84,36 @@ export const DEFAULT_BIRTHDAY_REWARD_SETTINGS: BirthdayRewardSettings = {
   claimWindow: "birthday_month_only",
 };
 
+function normalizeBirthdaySettings(value: unknown): BirthdayRewardSettings {
+  const raw = value && typeof value === "object" ? (value as Partial<BirthdayRewardSettings>) : {};
+  return {
+    amounts: {
+      Bronze: Math.max(0, Number(raw.amounts?.Bronze ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Bronze) || 0),
+      Silver: Math.max(0, Number(raw.amounts?.Silver ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Silver) || 0),
+      Gold: Math.max(0, Number(raw.amounts?.Gold ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Gold) || 0),
+    },
+    releaseTiming:
+      raw.releaseTiming === "birthday_date" ? "birthday_date" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.releaseTiming,
+    fulfillmentMode:
+      raw.fulfillmentMode === "manual_claim" ? "manual_claim" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.fulfillmentMode,
+    claimWindow: raw.claimWindow === "birthday_week" ? "birthday_week" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.claimWindow,
+  };
+}
+
 function safeWindow() {
   return typeof window === "undefined" ? null : window;
 }
 
 export function loadBirthdayRewardSettings(): BirthdayRewardSettings {
-  const win = safeWindow();
-  if (!win) return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
-
-  try {
-    const raw = win.localStorage.getItem(STORAGE_KEYS.birthdaySettings);
-    if (!raw) return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<BirthdayRewardSettings>;
-
-    const releaseTiming =
-      parsed.releaseTiming === "birthday_date" ? "birthday_date" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.releaseTiming;
-    const fulfillmentMode =
-      parsed.fulfillmentMode === "auto_credit" ? "auto_credit" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.fulfillmentMode;
-    const claimWindow =
-      parsed.claimWindow === "birthday_week" ? "birthday_week" : DEFAULT_BIRTHDAY_REWARD_SETTINGS.claimWindow;
-
-    return {
-      amounts: {
-        Bronze: Math.max(0, Number(parsed.amounts?.Bronze ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Bronze) || 0),
-        Silver: Math.max(0, Number(parsed.amounts?.Silver ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Silver) || 0),
-        Gold: Math.max(0, Number(parsed.amounts?.Gold ?? DEFAULT_BIRTHDAY_REWARD_SETTINGS.amounts.Gold) || 0),
-      },
-      releaseTiming,
-      fulfillmentMode,
-      claimWindow,
-    };
-  } catch {
-    return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
-  }
+  return DEFAULT_BIRTHDAY_REWARD_SETTINGS;
 }
 
-export function saveBirthdayRewardSettings(settings: BirthdayRewardSettings) {
-  const win = safeWindow();
-  if (!win) return;
-  win.localStorage.setItem(STORAGE_KEYS.birthdaySettings, JSON.stringify(settings));
+export async function loadBirthdayRewardSettingsFromApi(): Promise<BirthdayRewardSettings> {
+  return normalizeBirthdaySettings(await loadBirthdaySettingsViaApi().catch(() => DEFAULT_BIRTHDAY_REWARD_SETTINGS));
+}
+
+export async function saveBirthdayRewardSettings(settings: BirthdayRewardSettings) {
+  return normalizeBirthdaySettings(await saveBirthdaySettingsViaApi(settings));
 }
 
 function normalizeManualSegment(value: string): MemberSegment | null {
@@ -197,31 +196,14 @@ export async function saveManualSegment(memberNumber: string, segmentName: strin
   const normalized = normalizeManualSegment(segmentName);
   if (!normalized) throw new Error("Manual segment must be one of: High Value, Active, At Risk, Inactive.");
 
-  const memberLookup = await supabase
-    .from("loyalty_members")
-    .select("id,member_number")
-    .eq("member_number", memberNumber)
-    .limit(1)
-    .maybeSingle();
-  if (memberLookup.error) throw memberLookup.error;
-  if (!memberLookup.data) throw new Error("Member not found for manual segment update.");
+  const member = await resolveMemberViaMemberApi({ identifier: memberNumber });
+  if (!member) throw new Error("Member not found for manual segment update.");
 
-  const segmentLookup = await supabase
-    .from("member_segments")
-    .select("id,name")
-    .eq("name", normalized)
-    .eq("is_system", true)
-    .limit(1)
-    .maybeSingle();
-  if (segmentLookup.error) throw segmentLookup.error;
-  if (!segmentLookup.data) throw new Error("System segment not found.");
+  const segments = await fetchAllSegments();
+  const segment = segments.find((row) => row.name === normalized && row.is_system);
+  if (!segment) throw new Error("System segment not found.");
 
-  await assignMembersToSegment([memberLookup.data.id], segmentLookup.data.id);
-  const update = await supabase
-    .from("loyalty_members")
-    .update({ manual_segment: normalized })
-    .eq("id", memberLookup.data.id);
-  if (update.error) throw update.error;
+  await assignMembersToSegment([member.id ?? member.memberId ?? member.member_id], segment.id);
 
   return normalized;
 }
@@ -302,56 +284,18 @@ function toCommunicationPreference(row?: Record<string, unknown> | null): Commun
 }
 
 export async function loadCommunicationPreference(memberId: string, fallbackEmail?: string): Promise<CommunicationPreference> {
-  let lookup = await supabase
-    .from("loyalty_members")
-    .select("sms_enabled,email_enabled,push_enabled,promotional_opt_in,communication_frequency")
-    .eq("member_number", memberId)
-    .limit(1)
-    .maybeSingle();
-
-  if (lookup.error) throw lookup.error;
-
-  if (!lookup.data && fallbackEmail) {
-    lookup = await supabase
-      .from("loyalty_members")
-      .select("sms_enabled,email_enabled,push_enabled,promotional_opt_in,communication_frequency")
-      .ilike("email", fallbackEmail)
-      .limit(1)
-      .maybeSingle();
-    if (lookup.error) throw lookup.error;
-  }
-
-  return toCommunicationPreference(lookup.data as Record<string, unknown> | null);
+  const response = await loadCommunicationPreferenceViaApi(memberId, fallbackEmail);
+  return toCommunicationPreference({
+    sms_enabled: response.preference.sms,
+    email_enabled: response.preference.email,
+    push_enabled: response.preference.push,
+    promotional_opt_in: response.preference.promotionalOptIn,
+    communication_frequency: response.preference.frequency,
+  });
 }
 
 export async function saveCommunicationPreference(memberId: string, preference: CommunicationPreference, fallbackEmail?: string) {
-  const payload = {
-    sms_enabled: Boolean(preference.sms),
-    email_enabled: Boolean(preference.email),
-    push_enabled: Boolean(preference.push),
-    promotional_opt_in: Boolean(preference.promotionalOptIn),
-    communication_frequency: preference.frequency,
-  };
-
-  let update = await supabase
-    .from("loyalty_members")
-    .update(payload)
-    .eq("member_number", memberId)
-    .select("member_number")
-    .limit(1)
-    .maybeSingle();
-  if (update.error) throw update.error;
-
-  if (!update.data && fallbackEmail) {
-    update = await supabase
-      .from("loyalty_members")
-      .update(payload)
-      .ilike("email", fallbackEmail)
-      .select("member_number")
-      .limit(1)
-      .maybeSingle();
-    if (update.error) throw update.error;
-  }
+  await saveCommunicationPreferenceViaApi(memberId, preference, fallbackEmail);
 }
 
 export function canSendNotificationByPreference(
@@ -387,112 +331,25 @@ function normalizeReferralRow(row: Record<string, unknown>): ReferralRecord {
 }
 
 export async function loadReferrals(memberNumber: string): Promise<ReferralRecord[]> {
-  const { data, error } = await supabase
-    .from("member_referrals")
-    .select("id,referrer_code,referee_email,status,created_at,converted_at,bonus_awarded,referrer_member_id,referee_member_id,referrer:referrer_member_id(member_number),referee:referee_member_id(member_number)")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-
-  return (data || [])
-    .map((row) => {
-      const record = row as Record<string, unknown>;
-      const referrer = (record.referrer as Record<string, unknown> | null) ?? null;
-      const referee = (record.referee as Record<string, unknown> | null) ?? null;
-      return normalizeReferralRow({
-        ...record,
-        referrer_member_number: referrer?.member_number,
-        referee_member_number: referee?.member_number,
-      });
-    })
-    .filter((row) => row.referrerMemberId === memberNumber);
+  return (await loadReferralsViaApi(memberNumber)).map(normalizeReferralRow);
 }
 
 export async function loadAllReferrals(): Promise<ReferralRecord[]> {
-  const { data, error } = await supabase
-    .from("member_referrals")
-    .select("id,referrer_code,referee_email,status,created_at,converted_at,bonus_awarded,referrer_member_id,referee_member_id,referrer:referrer_member_id(member_number),referee:referee_member_id(member_number)")
-    .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) throw error;
-  return (data || []).map((row) => {
-    const record = row as Record<string, unknown>;
-    const referrer = (record.referrer as Record<string, unknown> | null) ?? null;
-    const referee = (record.referee as Record<string, unknown> | null) ?? null;
-    return normalizeReferralRow({
-      ...record,
-      referrer_member_number: referrer?.member_number,
-      referee_member_number: referee?.member_number,
-    });
-  });
+  return (await loadReferralsViaApi()).map(normalizeReferralRow);
 }
 
 export async function createReferral(input: { referrerMemberId: string; refereeEmail: string }) {
-  const { data, error } = await supabase.rpc("loyalty_create_referral_invite", {
-    p_referrer_member_number: input.referrerMemberId,
-    p_referee_email: input.refereeEmail.trim().toLowerCase(),
-  });
-  if (error) throw error;
-  return normalizeReferralRow((data ?? {}) as Record<string, unknown>);
+  return normalizeReferralRow(await createReferralViaApi(input));
 }
 
 export async function getMemberReferralCode(memberId: string, fallbackEmail?: string): Promise<string> {
-  let lookup = await supabase
-    .from("loyalty_members")
-    .select("member_number,referral_code")
-    .eq("member_number", memberId)
-    .limit(1)
-    .maybeSingle();
-  if (lookup.error) throw lookup.error;
-
-  if (!lookup.data && fallbackEmail) {
-    lookup = await supabase
-      .from("loyalty_members")
-      .select("member_number,referral_code")
-      .ilike("email", fallbackEmail)
-      .limit(1)
-      .maybeSingle();
-    if (lookup.error) throw lookup.error;
-  }
-
-  const memberNumber = String(lookup.data?.member_number ?? memberId);
-  const existing = String(lookup.data?.referral_code ?? "").trim();
-  return existing || buildReferralCode({ memberId: memberNumber, fullName: "" } as Pick<MemberData, "memberId" | "fullName">);
+  const member = await resolveMemberViaMemberApi({ identifier: memberId, fallbackEmail }).catch(() => null);
+  const memberNumber = String(member?.member_number ?? member?.memberNumber ?? memberId);
+  return buildReferralCode({ memberId: memberNumber, fullName: "" } as Pick<MemberData, "memberId" | "fullName">);
 }
 
 export async function validateReferralCode(referralCode: string) {
-  const normalized = referralCode.trim().toUpperCase();
-  if (!normalized) {
-    return {
-      isValid: false,
-      reason: "empty" as const,
-      referrerMemberId: null,
-      referrerName: null,
-    };
-  }
-
-  const { data, error } = await supabase
-    .from("loyalty_members")
-    .select("member_number,first_name,last_name,referral_code")
-    .eq("referral_code", normalized)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) {
-    return {
-      isValid: false,
-      reason: "invalid" as const,
-      referrerMemberId: null,
-      referrerName: null,
-    };
-  }
-
-  return {
-    isValid: true,
-    reason: "valid" as const,
-    referrerMemberId: String(data.member_number ?? ""),
-    referrerName: `${String(data.first_name ?? "")} ${String(data.last_name ?? "")}`.trim() || null,
-  };
+  return validateReferralCodeViaApi(referralCode.trim().toUpperCase());
 }
 
 export async function applyReferralCodeForSignup(input: {
@@ -500,19 +357,12 @@ export async function applyReferralCodeForSignup(input: {
   refereeMemberId: string;
   refereeEmail: string;
 }) {
-  const { data, error } = await supabase.rpc("loyalty_apply_referral", {
-    p_referral_code: input.referralCode.trim(),
-    p_referee_member_number: input.refereeMemberId,
-    p_referee_email: input.refereeEmail.trim().toLowerCase(),
-  });
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  const applied = Boolean((row as Record<string, unknown> | undefined)?.applied);
+  const response = await applyReferralCodeViaApi(input);
   return {
-    applied,
-    referrerPoints: Number((row as Record<string, unknown> | undefined)?.referrer_points ?? 0),
-    refereePoints: Number((row as Record<string, unknown> | undefined)?.referee_points ?? 0),
-    referrerMemberId: String((row as Record<string, unknown> | undefined)?.referrer_member_number ?? ""),
+    applied: Boolean(response.applied),
+    referrerPoints: Math.max(0, Number(response.referrerPoints || 0)),
+    refereePoints: Math.max(0, Number(response.refereePoints || 0)),
+    referrerMemberId: String(response.referral?.referrerMemberId || ""),
   };
 }
 
@@ -546,91 +396,35 @@ export function shouldAutoCreditBirthdayReward(
 }
 
 export async function hasBirthdayClaimedThisYear(memberId: string, fallbackEmail?: string) {
-  const currentYear = new Date().getFullYear();
-  let memberLookup = await supabase
-    .from("loyalty_members")
-    .select("id")
-    .eq("member_number", memberId)
-    .limit(1)
-    .maybeSingle();
-  if (memberLookup.error) throw memberLookup.error;
-  if (!memberLookup.data && fallbackEmail) {
-    memberLookup = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .ilike("email", fallbackEmail)
-      .limit(1)
-      .maybeSingle();
-    if (memberLookup.error) throw memberLookup.error;
-  }
-  if (!memberLookup.data?.id) return false;
-
-  const lookup = await supabase
-    .from("member_birthday_rewards")
-    .select("id")
-    .eq("member_id", memberLookup.data.id)
-    .eq("reward_year", currentYear)
-    .limit(1)
-    .maybeSingle();
-  if (lookup.error) throw lookup.error;
-  return Boolean(lookup.data?.id);
+  const status = await loadBirthdayRewardStatus(memberId, fallbackEmail);
+  return status.hasReward;
 }
 
 export async function claimBirthdayReward(memberId: string, fallbackEmail?: string) {
-  const { data, error } = await supabase.rpc("loyalty_claim_birthday_reward", {
-    p_member_number: memberId,
-    p_fallback_email: fallbackEmail ?? null,
-  });
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  const granted = Boolean((row as Record<string, unknown> | undefined)?.granted);
-  const pointsAwarded = Number((row as Record<string, unknown> | undefined)?.points_awarded ?? 0);
-  const voucherCode = (row as Record<string, unknown> | undefined)?.voucher_code
-    ? String((row as Record<string, unknown>)?.voucher_code)
-    : null;
-
-  return {
-    granted,
+  const settings = await loadBirthdayRewardSettingsFromApi();
+  const member = await resolveMemberViaMemberApi({ identifier: memberId, fallbackEmail }).catch(() => null);
+  const tier = String(member?.tier || "Bronze") as MemberData["tier"];
+  const pointsAwarded = settings.amounts[tier] ?? settings.amounts.Bronze;
+  const result = await claimBirthdayRewardViaApi({
+    memberId,
+    fallbackEmail,
     pointsAwarded,
-    voucherCode,
+    badgeLabel: "Birthday Reward",
+  });
+  return {
+    granted: true,
+    pointsAwarded: Math.max(0, Number(result.reward?.points_awarded ?? pointsAwarded)),
+    voucherCode: result.reward?.voucher_code ? String(result.reward.voucher_code) : null,
   };
 }
 
 export async function loadBirthdayRewardStatus(memberId: string, fallbackEmail?: string) {
-  const currentYear = new Date().getFullYear();
-  let memberLookup = await supabase
-    .from("loyalty_members")
-    .select("id")
-    .eq("member_number", memberId)
-    .limit(1)
-    .maybeSingle();
-  if (memberLookup.error) throw memberLookup.error;
-  if (!memberLookup.data && fallbackEmail) {
-    memberLookup = await supabase
-      .from("loyalty_members")
-      .select("id")
-      .ilike("email", fallbackEmail)
-      .limit(1)
-      .maybeSingle();
-    if (memberLookup.error) throw memberLookup.error;
-  }
-  if (!memberLookup.data?.id) return { hasReward: false, voucherCode: null as string | null, pointsAwarded: 0, badgeLabel: null as string | null };
-
-  const { data, error } = await supabase
-    .from("member_birthday_rewards")
-    .select("points_awarded,voucher_code,voucher_expires_at")
-    .eq("member_id", memberLookup.data.id)
-    .eq("reward_year", currentYear)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return { hasReward: false, voucherCode: null as string | null, pointsAwarded: 0, badgeLabel: null as string | null };
+  const status = await loadBirthdayRewardStatusViaApi(memberId, fallbackEmail);
   return {
-    hasReward: true,
-    voucherCode: String(data.voucher_code ?? ""),
-    pointsAwarded: Number(data.points_awarded ?? 0),
-    voucherExpiresAt: String(data.voucher_expires_at ?? ""),
-    badgeLabel: "Birthday Celebrant",
+    hasReward: Boolean(status.hasReward),
+    voucherCode: status.voucherCode ? String(status.voucherCode) : null,
+    pointsAwarded: Math.max(0, Number(status.pointsAwarded || 0)),
+    badgeLabel: status.badgeLabel ? String(status.badgeLabel) : null,
   };
 }
 
@@ -667,51 +461,30 @@ export async function submitFeedback(entry: Omit<FeedbackRecord, "id" | "created
     throw new Error("Feedback comment must be 500 characters or less.");
   }
 
-  const { data, error } = await supabase
-    .from("member_feedback")
-    .insert({
-      member_number: entry.memberId,
-      member_name: entry.memberName.trim(),
-      category: entry.category,
-      rating: entry.rating,
-      comment,
-      contact_opt_in: Boolean(entry.contactOptIn),
-      contact_info: entry.contactInfo?.trim() ? entry.contactInfo.trim() : null,
-    })
-    .select("id,member_number,member_name,category,rating,comment,contact_opt_in,contact_info,created_at")
-    .single();
-  if (error) throw error;
-  return normalizeFeedbackRow((data ?? {}) as Record<string, unknown>);
+  return normalizeFeedbackRow(await submitFeedbackViaApi({
+    memberId: entry.memberId,
+    memberName: entry.memberName.trim(),
+    category: entry.category,
+    rating: entry.rating,
+    comment,
+    contactOptIn: Boolean(entry.contactOptIn),
+    contactInfo: entry.contactInfo?.trim() ? entry.contactInfo.trim() : null,
+  }));
 }
 
 export async function loadFeedback(): Promise<FeedbackRecord[]> {
-  const { data, error } = await supabase
-    .from("member_feedback")
-    .select("id,member_number,member_name,category,rating,comment,contact_opt_in,contact_info,created_at")
-    .order("created_at", { ascending: false })
-    .limit(300);
-  if (error) throw error;
-  return (data || []).map((row) => normalizeFeedbackRow(row as Record<string, unknown>));
+  return (await loadFeedbackViaApi()).map(normalizeFeedbackRow);
 }
 
 export async function queueManagerFeedbackNotification(record: FeedbackRecord) {
-  const admins = await supabase
-    .from("app_user_roles")
-    .select("user_id")
-    .eq("role", "admin");
-  if (admins.error) throw admins.error;
-  const rows = (admins.data || [])
-    .map((item) => String(item.user_id || "").trim())
-    .filter(Boolean)
-    .map((userId) => ({
-      user_id: userId,
-      channel: "email" as const,
-      subject: `New feedback: ${record.category}`,
-      message: `${record.memberName} rated ${record.rating}/5. ${record.comment.slice(0, 180)}`,
-      is_promotional: false,
-    }));
-  if (rows.length === 0) return;
-
-  const res = await supabase.from("notification_outbox").insert(rows);
-  if (res.error) throw res.error;
+  await requestJson("/api/notifications", {
+    method: "POST",
+    body: JSON.stringify({
+      memberId: record.memberId,
+      channel: "email",
+      subject: `New ${record.category} feedback`,
+      body: `${record.memberName} rated ${record.rating}/5: ${record.comment}`,
+      status: "queued",
+    }),
+  }).catch(() => undefined);
 }

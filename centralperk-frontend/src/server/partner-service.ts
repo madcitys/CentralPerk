@@ -1,11 +1,70 @@
-import { loadRewardPartners } from "../app/lib/promotions";
-import {
-  type PartnerSettlementRecord,
-  type PartnerTransactionRecord,
-  readApiState,
-  updateApiState,
-} from "./local-store";
 import { HttpError } from "./http-error";
+import { serviceBaseUrl } from "./service-proxy";
+
+export type PartnerTransactionRecord = {
+  id: string;
+  partnerId: string;
+  partnerCode: string;
+  partnerName: string;
+  memberId: string;
+  memberEmail: string | null;
+  orderId: string;
+  points: number;
+  grossAmount: number;
+  note: string;
+  fulfillmentMethod: "in-store" | "online";
+  deliveryPartner: string | null;
+  deliveryAddress: string | null;
+  deliveryNotes: string | null;
+  contactNumber: string | null;
+  occurredAt: string;
+  settlementId: string | null;
+  settledAt: string | null;
+};
+
+export type PartnerSettlementRecord = {
+  id: string;
+  partnerId: string;
+  partnerCode: string;
+  partnerName: string;
+  totalTransactions: number;
+  totalPoints: number;
+  totalGrossAmount: number;
+  commissionRate: number;
+  commissionAmount: number;
+  createdAt: string;
+  transactionIds: string[];
+};
+
+function messageFromPayload(payload: unknown, fallback: string) {
+  if (payload && typeof payload === "object") {
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") {
+      return String((error as { message: unknown }).message);
+    }
+    if (typeof (payload as { message?: unknown }).message === "string") {
+      return String((payload as { message: unknown }).message);
+    }
+  }
+  return fallback;
+}
+
+async function rewardServiceJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${serviceBaseUrl("REWARD_SERVICE_URL", "http://127.0.0.1:4006")}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(init?.headers || {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new HttpError(response.status, messageFromPayload(payload, `Reward Service failed (${response.status}).`));
+  }
+  return payload as T;
+}
 
 export async function recordPartnerTransaction(input: {
   partnerId: string;
@@ -23,114 +82,50 @@ export async function recordPartnerTransaction(input: {
   deliveryNotes?: string | null;
   contactNumber?: string | null;
 }) {
-  return updateApiState((state) => {
-    const duplicate = state.partnerTransactions.find(
-      (item) =>
-        item.partnerId === input.partnerId &&
-        item.orderId.trim().toLowerCase() === input.orderId.trim().toLowerCase(),
-    );
-
-    if (duplicate) {
-      throw new HttpError(409, "A partner transaction with this order ID already exists.");
-    }
-
-    const record: PartnerTransactionRecord = {
-      id: crypto.randomUUID(),
-      partnerId: input.partnerId,
-      partnerCode: input.partnerCode.trim().toUpperCase(),
-      partnerName: input.partnerName.trim(),
-      memberId: input.memberId.trim(),
-      memberEmail: input.memberEmail?.trim() || null,
-      orderId: input.orderId.trim(),
-      points: Math.max(0, Math.floor(input.points)),
-      grossAmount: Math.max(0, Number(input.grossAmount || 0)),
-      note: input.note?.trim() || "",
-      fulfillmentMethod: input.fulfillmentMethod ?? "in-store",
-      deliveryPartner: input.deliveryPartner?.trim() || null,
-      deliveryAddress: input.deliveryAddress?.trim() || null,
-      deliveryNotes: input.deliveryNotes?.trim() || null,
-      contactNumber: input.contactNumber?.trim() || null,
-      occurredAt: new Date().toISOString(),
-      settlementId: null,
-      settledAt: null,
-    };
-
-    state.partnerTransactions.unshift(record);
-    return record;
+  const response = await rewardServiceJson<{ ok: true; transaction: PartnerTransactionRecord }>("/partners/transactions", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
+  return response.transaction;
 }
 
 export async function buildPartnerDashboard() {
-  const [partners, apiState] = await Promise.all([loadRewardPartners().catch(() => []), readApiState()]);
-
-  return partners.map((partner) => {
-    const transactions = apiState.partnerTransactions.filter((item) => item.partnerId === partner.id);
-    const pendingTransactions = transactions.filter((item) => !item.settlementId);
-    const settlements = apiState.partnerSettlements.filter((item) => item.partnerId === partner.id);
-    const totalPoints = transactions.reduce((sum, item) => sum + item.points, 0);
-    const totalGrossAmount = transactions.reduce((sum, item) => sum + item.grossAmount, 0);
-    const totalCommission = settlements.reduce((sum, item) => sum + item.commissionAmount, 0);
-
-    return {
-      partner,
+  const response = await rewardServiceJson<{
+    ok: true;
+    partners: Array<{
+      partner: Record<string, unknown>;
       totals: {
-        transactions: transactions.length,
-        pendingTransactions: pendingTransactions.length,
-        settledTransactions: transactions.length - pendingTransactions.length,
-        points: totalPoints,
-        grossAmount: totalGrossAmount,
-        totalCommission,
-      },
-    };
-  });
+        transactions: number;
+        pendingTransactions: number;
+        settledTransactions: number;
+        points: number;
+        grossAmount: number;
+        totalCommission: number;
+      };
+    }>;
+  }>("/partners/dashboard");
+  return response.partners || [];
 }
 
 export async function createPartnerSettlement(input: {
   partnerId?: string;
   commissionRate?: number;
 }) {
-  const commissionRate = Math.max(0, Number(input.commissionRate ?? 0.12));
-
-  return updateApiState((state) => {
-    const pendingTransactions = state.partnerTransactions.filter(
-      (item) => !item.settlementId && (!input.partnerId || item.partnerId === input.partnerId),
-    );
-
-    if (pendingTransactions.length === 0) {
-      throw new HttpError(404, "No pending partner transactions were found for settlement.");
-    }
-
-    const first = pendingTransactions[0];
-    const totalGrossAmount = pendingTransactions.reduce((sum, item) => sum + item.grossAmount, 0);
-    const totalPoints = pendingTransactions.reduce((sum, item) => sum + item.points, 0);
-    const settlementId = crypto.randomUUID();
-    const settlement: PartnerSettlementRecord = {
-      id: settlementId,
-      partnerId: first.partnerId,
-      partnerCode: first.partnerCode,
-      partnerName: first.partnerName,
-      totalTransactions: pendingTransactions.length,
-      totalPoints,
-      totalGrossAmount,
-      commissionRate,
-      commissionAmount: Number((totalGrossAmount * commissionRate).toFixed(2)),
-      createdAt: new Date().toISOString(),
-      transactionIds: pendingTransactions.map((item) => item.id),
-    };
-
-    for (const transaction of state.partnerTransactions) {
-      if (settlement.transactionIds.includes(transaction.id)) {
-        transaction.settlementId = settlementId;
-        transaction.settledAt = settlement.createdAt;
-      }
-    }
-
-    state.partnerSettlements.unshift(settlement);
-    return settlement;
+  const response = await rewardServiceJson<{ ok: true; settlement: PartnerSettlementRecord }>("/partners/settlements", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
+  return response.settlement;
 }
 
 export async function loadPartnerSettlement(settlementId: string) {
-  const state = await readApiState();
-  return state.partnerSettlements.find((item) => item.id === settlementId) ?? null;
+  try {
+    const response = await rewardServiceJson<{ ok: true; settlement: PartnerSettlementRecord }>(
+      `/partners/settlements/${encodeURIComponent(settlementId)}`,
+    );
+    return response.settlement ?? null;
+  } catch (error) {
+    if (error instanceof HttpError && error.statusCode === 404) return null;
+    throw error;
+  }
 }

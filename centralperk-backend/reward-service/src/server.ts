@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { config } from "./config.js";
@@ -48,6 +49,28 @@ const voucherSchema = z.object({
 const voucherValidationSchema = z.object({
   action: z.literal("validate"),
   voucherCode: z.string().trim().min(1).max(80),
+});
+
+const partnerTransactionSchema = z.object({
+  partnerId: z.string().trim().min(1).max(80),
+  partnerCode: z.string().trim().min(1).max(40),
+  partnerName: z.string().trim().min(1).max(160),
+  memberId: z.string().trim().min(1).max(80),
+  memberEmail: z.string().trim().email().max(254).nullable().optional(),
+  orderId: z.string().trim().min(1).max(120),
+  points: z.number().int().min(0).max(1_000_000),
+  grossAmount: z.number().min(0).max(10_000_000),
+  note: z.string().trim().max(500).optional(),
+  fulfillmentMethod: z.enum(["in-store", "online"]).default("in-store"),
+  deliveryPartner: z.string().trim().max(80).nullable().optional(),
+  deliveryAddress: z.string().trim().max(500).nullable().optional(),
+  deliveryNotes: z.string().trim().max(500).nullable().optional(),
+  contactNumber: z.string().trim().max(40).nullable().optional(),
+});
+
+const partnerSettlementSchema = z.object({
+  partnerId: z.string().trim().max(80).optional(),
+  commissionRate: z.number().min(0).max(1).default(0.12),
 });
 
 function tableMissing(error: unknown, table: string) {
@@ -109,6 +132,57 @@ function mapVoucher(row: Record<string, any>) {
   };
 }
 
+function mapPartner(row: Record<string, any>) {
+  return {
+    id: String(row.id ?? ""),
+    partnerCode: String(row.partner_code ?? ""),
+    partnerName: String(row.partner_name ?? "Partner"),
+    description: row.description ? String(row.description) : null,
+    logoUrl: row.logo_url ? String(row.logo_url) : null,
+    conversionRate: Number(row.conversion_rate ?? 1),
+    isActive: Boolean(row.is_active ?? true),
+  };
+}
+
+function mapPartnerTransaction(row: Record<string, any>) {
+  return {
+    id: String(row.id ?? ""),
+    partnerId: String(row.partner_id ?? ""),
+    partnerCode: String(row.partner_code ?? ""),
+    partnerName: String(row.partner_name ?? ""),
+    memberId: String(row.member_id ?? ""),
+    memberEmail: row.member_email ? String(row.member_email) : null,
+    orderId: String(row.order_id ?? ""),
+    points: Math.max(0, Math.floor(Number(row.points ?? 0))),
+    grossAmount: Math.max(0, Number(row.gross_amount ?? 0)),
+    note: String(row.note ?? ""),
+    fulfillmentMethod: String(row.fulfillment_method ?? "in-store") === "online" ? "online" : "in-store",
+    deliveryPartner: row.delivery_partner ? String(row.delivery_partner) : null,
+    deliveryAddress: row.delivery_address ? String(row.delivery_address) : null,
+    deliveryNotes: row.delivery_notes ? String(row.delivery_notes) : null,
+    contactNumber: row.contact_number ? String(row.contact_number) : null,
+    occurredAt: String(row.occurred_at ?? new Date().toISOString()),
+    settlementId: row.settlement_id ? String(row.settlement_id) : null,
+    settledAt: row.settled_at ? String(row.settled_at) : null,
+  };
+}
+
+function mapPartnerSettlement(row: Record<string, any>) {
+  return {
+    id: String(row.id ?? ""),
+    partnerId: String(row.partner_id ?? ""),
+    partnerCode: String(row.partner_code ?? ""),
+    partnerName: String(row.partner_name ?? ""),
+    totalTransactions: Math.max(0, Math.floor(Number(row.total_transactions ?? 0))),
+    totalPoints: Math.max(0, Math.floor(Number(row.total_points ?? 0))),
+    totalGrossAmount: Math.max(0, Number(row.total_gross_amount ?? 0)),
+    commissionRate: Math.max(0, Number(row.commission_rate ?? 0)),
+    commissionAmount: Math.max(0, Number(row.commission_amount ?? 0)),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    transactionIds: Array.isArray(row.transaction_ids) ? row.transaction_ids.map(String) : [],
+  };
+}
+
 function voucherTableUnavailable(reply: any, error: unknown) {
   if (!tableMissing(error, "reward_vouchers")) return false;
   reply.code(503).send({
@@ -120,8 +194,41 @@ function voucherTableUnavailable(reply: any, error: unknown) {
   return true;
 }
 
+function partnerTablesUnavailable(reply: any, error: unknown) {
+  if (!tableMissing(error, "reward_partner_transactions") && !tableMissing(error, "reward_partner_settlements")) {
+    return false;
+  }
+  reply.code(503).send({
+    ok: false,
+    error: {
+      message:
+        "Reward Service partner transaction tables are missing. Run the reward partner persistence migration before using partner settlement APIs.",
+    },
+  });
+  return true;
+}
+
 export function createServer() {
   const app = Fastify({ logger: true });
+
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof z.ZodError) {
+      reply.code(400).send({
+        ok: false,
+        error: "validation_failed",
+        details: error.flatten(),
+      });
+      return;
+    }
+
+    request.log.error(error);
+    const statusCode = typeof error.statusCode === "number" ? error.statusCode : 500;
+    reply.code(statusCode).send({
+      ok: false,
+      error: statusCode >= 500 ? "internal_error" : "request_error",
+      message: error.message,
+    });
+  });
 
   app.get("/health", async () => ({
     status: "ok",
@@ -203,6 +310,190 @@ export function createServer() {
     const { data, error } = await query;
     if (error) throw error;
     return { ok: true, partner: data };
+  });
+
+  app.get("/partners/dashboard", async () => {
+    const partnersResult = await supabase.from("reward_partners").select("*").order("partner_name", { ascending: true });
+    if (partnersResult.error) {
+      if (tableMissing(partnersResult.error, "reward_partners")) return { ok: true, partners: [] };
+      throw partnersResult.error;
+    }
+
+    const transactionsResult = await supabase
+      .from("reward_partner_transactions")
+      .select("*")
+      .order("occurred_at", { ascending: false })
+      .limit(5000);
+
+    if (transactionsResult.error) {
+      if (tableMissing(transactionsResult.error, "reward_partner_transactions")) {
+        return {
+          ok: true,
+          partners: (partnersResult.data || []).map((partner: any) => ({
+            partner: mapPartner(partner),
+            totals: {
+              transactions: 0,
+              pendingTransactions: 0,
+              settledTransactions: 0,
+              points: 0,
+              grossAmount: 0,
+              totalCommission: 0,
+            },
+          })),
+          warning: "reward_partner_transactions_table_missing",
+        };
+      }
+      throw transactionsResult.error;
+    }
+
+    const settlementsResult = await supabase
+      .from("reward_partner_settlements")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+
+    if (settlementsResult.error) {
+      if (!tableMissing(settlementsResult.error, "reward_partner_settlements")) throw settlementsResult.error;
+    }
+
+    const transactions = (transactionsResult.data || []).map((row: any) => mapPartnerTransaction(row));
+    const settlements = ((settlementsResult.data || []) as any[]).map((row) => mapPartnerSettlement(row));
+
+    return {
+      ok: true,
+      partners: (partnersResult.data || []).map((row: any) => {
+        const partner = mapPartner(row);
+        const partnerTransactions = transactions.filter((item) => item.partnerId === partner.id);
+        const pendingTransactions = partnerTransactions.filter((item) => !item.settlementId);
+        const partnerSettlements = settlements.filter((item) => item.partnerId === partner.id);
+        return {
+          partner,
+          totals: {
+            transactions: partnerTransactions.length,
+            pendingTransactions: pendingTransactions.length,
+            settledTransactions: partnerTransactions.length - pendingTransactions.length,
+            points: partnerTransactions.reduce((sum, item) => sum + item.points, 0),
+            grossAmount: partnerTransactions.reduce((sum, item) => sum + item.grossAmount, 0),
+            totalCommission: partnerSettlements.reduce((sum, item) => sum + item.commissionAmount, 0),
+          },
+        };
+      }),
+    };
+  });
+
+  app.post("/partners/transactions", async (request, reply) => {
+    const body = partnerTransactionSchema.parse(request.body || {});
+    const payload = {
+      id: randomUUID(),
+      partner_id: body.partnerId,
+      partner_code: body.partnerCode.trim().toUpperCase(),
+      partner_name: body.partnerName.trim(),
+      member_id: body.memberId.trim(),
+      member_email: body.memberEmail?.trim() || null,
+      order_id: body.orderId.trim(),
+      points: Math.max(0, Math.floor(body.points)),
+      gross_amount: Math.max(0, Number(body.grossAmount || 0)),
+      note: body.note?.trim() || "",
+      fulfillment_method: body.fulfillmentMethod,
+      delivery_partner: body.deliveryPartner?.trim() || null,
+      delivery_address: body.deliveryAddress?.trim() || null,
+      delivery_notes: body.deliveryNotes?.trim() || null,
+      contact_number: body.contactNumber?.trim() || null,
+      occurred_at: new Date().toISOString(),
+      settlement_id: null,
+      settled_at: null,
+    };
+
+    const { data, error } = await supabase.from("reward_partner_transactions").insert(payload).select("*").single();
+    if (error) {
+      if (partnerTablesUnavailable(reply, error)) return;
+      if (duplicateRecord(error)) {
+        reply.code(409).send({ ok: false, error: { message: "A partner transaction with this order ID already exists." } });
+        return;
+      }
+      throw error;
+    }
+    return { ok: true, transaction: mapPartnerTransaction(data as Record<string, any>) };
+  });
+
+  app.post("/partners/settlements", async (request, reply) => {
+    const body = partnerSettlementSchema.parse(request.body || {});
+    let pendingQuery = supabase
+      .from("reward_partner_transactions")
+      .select("*")
+      .is("settlement_id", null)
+      .order("occurred_at", { ascending: true })
+      .limit(5000);
+    if (body.partnerId) pendingQuery = pendingQuery.eq("partner_id", body.partnerId);
+
+    const pendingResult = await pendingQuery;
+    if (pendingResult.error) {
+      if (partnerTablesUnavailable(reply, pendingResult.error)) return;
+      throw pendingResult.error;
+    }
+
+    const pending = (pendingResult.data || []).map((row: any) => mapPartnerTransaction(row));
+    if (pending.length === 0) {
+      reply.code(404).send({ ok: false, error: { message: "No pending partner transactions were found for settlement." } });
+      return;
+    }
+
+    const first = pending[0];
+    const settlementId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const transactionIds = pending.map((item) => item.id);
+    const totalGrossAmount = pending.reduce((sum, item) => sum + item.grossAmount, 0);
+    const settlementPayload = {
+      id: settlementId,
+      partner_id: first.partnerId,
+      partner_code: first.partnerCode,
+      partner_name: first.partnerName,
+      total_transactions: pending.length,
+      total_points: pending.reduce((sum, item) => sum + item.points, 0),
+      total_gross_amount: totalGrossAmount,
+      commission_rate: Math.max(0, Number(body.commissionRate ?? 0.12)),
+      commission_amount: Number((totalGrossAmount * Math.max(0, Number(body.commissionRate ?? 0.12))).toFixed(2)),
+      created_at: createdAt,
+      transaction_ids: transactionIds,
+    };
+
+    const settlementResult = await supabase
+      .from("reward_partner_settlements")
+      .insert(settlementPayload)
+      .select("*")
+      .single();
+    if (settlementResult.error) {
+      if (partnerTablesUnavailable(reply, settlementResult.error)) return;
+      throw settlementResult.error;
+    }
+
+    const updateResult = await supabase
+      .from("reward_partner_transactions")
+      .update({ settlement_id: settlementId, settled_at: createdAt })
+      .in("id", transactionIds);
+    if (updateResult.error) throw updateResult.error;
+
+    return { ok: true, settlement: mapPartnerSettlement(settlementResult.data as Record<string, any>) };
+  });
+
+  app.get("/partners/settlements/:id", async (request, reply) => {
+    const id = String((request.params as any).id || "").trim();
+    if (!id) {
+      reply.code(400).send({ ok: false, error: { message: "Settlement ID is required." } });
+      return;
+    }
+
+    const { data, error } = await supabase.from("reward_partner_settlements").select("*").eq("id", id).limit(1).maybeSingle();
+    if (error) {
+      if (partnerTablesUnavailable(reply, error)) return;
+      throw error;
+    }
+    if (!data) {
+      reply.code(404).send({ ok: false, error: { message: "Settlement not found." } });
+      return;
+    }
+
+    return { ok: true, settlement: mapPartnerSettlement(data as Record<string, any>) };
   });
 
   app.patch("/reward-partners/:id", async (request, reply) => {

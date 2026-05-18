@@ -15,6 +15,7 @@
         "test:provider:points": "node tests/provider/verify-points-provider.mjs",
         "test:provider:campaigns": "node tests/provider/verify-campaigns-provider.mjs",
         "test:integration": "node --test tests/integration/*.test.mjs",
+        "test:api-sample": "node --test tests/api-sample/*.test.mjs",
         "test:load:k6": "k6 run tests/load/k6/points-and-campaigns.js",
         "test:load:k6:triage": "node tests/load/k6/triage-breaches.mjs tests/load/results/summary.json tests/load/results/triage.md"
     },

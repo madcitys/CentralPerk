@@ -1,10 +1,15 @@
 import { supabase } from "../../utils/supabase/client";
 import { setStoredCustomerSession } from "./auth";
+import {
+  createOrRepairMemberProfileViaApi,
+  findDuplicateMembers,
+  findMemberProfileByEmail as findMemberProfileByEmailViaApi,
+} from "../lib/member-service-api";
 
 const DEMO_ACCOUNTS_KEY = "loyaltyhub-demo-accounts-v1";
-const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true" || process.env.NODE_ENV !== "production";
+const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true";
 const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH === "true";
-const DEMO_PROFILE_BOOTSTRAP_ENABLED = process.env.NODE_ENV !== "production";
+const DEMO_PROFILE_BOOTSTRAP_ENABLED = DEMO_AUTH_ENABLED && process.env.NEXT_PUBLIC_ENABLE_DEMO_PROFILE_BOOTSTRAP === "true";
 const MIN_PASSWORD_LENGTH = 8;
 const DEMO_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_EMAIL_ALIASES_KEY = "centralperk-pending-email-aliases-v1";
@@ -380,84 +385,23 @@ async function createOrRepairMemberProfile(input: {
   phone: string;
   birthdate: string;
 }): Promise<{ memberRecord: Record<string, any>; recoveredFromExistingAuthSignup: boolean }> {
-  const { data: insertedMember, error: insertError } = await supabase
-    .from("loyalty_members")
-    .insert([
-      {
-        first_name: input.firstName,
-        last_name: input.lastName,
-        email: input.email,
-        phone: input.phone,
-        birthdate: input.birthdate,
-        points_balance: 0,
-        tier: "Bronze",
-      },
-    ])
-    .select(MEMBER_SELECT_COLUMNS)
-    .single();
-
-  if (!insertError && insertedMember) {
-    return { memberRecord: insertedMember, recoveredFromExistingAuthSignup: false };
+  try {
+    const result = await createOrRepairMemberProfileViaApi(input);
+    return {
+      memberRecord: result.member,
+      recoveredFromExistingAuthSignup: Boolean(result.recoveredFromExistingAuthSignup),
+    };
+  } catch (error) {
+    throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", error);
   }
-
-  const insertErrorText = extractErrorText(insertError).toLowerCase();
-  if (!hasAnyHint(insertErrorText, PROFILE_CONSTRAINT_HINTS)) {
-    throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", insertError);
-  }
-
-  const { data: existingMember, error: existingMemberError } = await supabase
-    .from("loyalty_members")
-    .select(MEMBER_SELECT_COLUMNS)
-    .or(`email.ilike.${input.email},phone.eq.${input.phone}`)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingMemberError || !existingMember) {
-    throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", existingMemberError);
-  }
-
-  const needsRepair =
-    !existingMember.first_name ||
-    !existingMember.last_name ||
-    !existingMember.phone ||
-    !existingMember.birthdate;
-
-  if (!needsRepair) {
-    return { memberRecord: existingMember, recoveredFromExistingAuthSignup: false };
-  }
-
-  const { data: repairedMember, error: repairError } = await supabase
-    .from("loyalty_members")
-    .update({
-      first_name: existingMember.first_name || input.firstName,
-      last_name: existingMember.last_name || input.lastName,
-      phone: existingMember.phone || input.phone,
-      birthdate: existingMember.birthdate || input.birthdate,
-    })
-    .eq("id", existingMember.id)
-    .select(MEMBER_SELECT_COLUMNS)
-    .single();
-
-  if (repairError || !repairedMember) {
-    throw new AuthFlowError("PROFILE_CREATION_FAILED", "Unable to create customer profile.", repairError);
-  }
-
-  return { memberRecord: repairedMember, recoveredFromExistingAuthSignup: true };
 }
 
 async function findMemberProfileByEmail(normalizedEmail: string): Promise<Record<string, any> | null> {
-  const { data, error } = await supabase
-    .from("loyalty_members")
-    .select(MEMBER_SELECT_COLUMNS)
-    .ilike("email", normalizedEmail)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
+  try {
+    return await findMemberProfileByEmailViaApi(normalizedEmail);
+  } catch (error) {
     throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to load customer profile.", error);
   }
-
-  return data as Record<string, any> | null;
 }
 
 async function bootstrapDemoAccountFromMemberProfile(input: {
@@ -521,17 +465,15 @@ export async function registerCustomer(input: RegisterCustomerInput): Promise<Re
     throw new AuthFlowError("INVALID_PASSWORD", "Password must be at least 8 characters long.");
   }
 
-  const { data: existingMembers, error: existingMembersError } = await supabase
-    .from("loyalty_members")
-    .select("email, phone")
-    .or(`email.ilike.${normalizedEmail},phone.eq.${normalizedPhone}`);
-
-  if (existingMembersError) {
-    throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to validate existing customer records.", existingMembersError);
+  let existingMembers: Record<string, any>[] = [];
+  try {
+    existingMembers = await findDuplicateMembers({ email: normalizedEmail, phone: normalizedPhone });
+  } catch (error) {
+    throw new AuthFlowError("AUTH_PROVIDER_ERROR", "Unable to validate existing customer records.", error);
   }
 
-  const emailExists = (existingMembers ?? []).some((member) => String(member.email || "").trim().toLowerCase() === normalizedEmail);
-  const phoneExistsOnDifferentEmail = (existingMembers ?? []).some((member) => {
+  const emailExists = existingMembers.some((member) => String(member.email || "").trim().toLowerCase() === normalizedEmail);
+  const phoneExistsOnDifferentEmail = existingMembers.some((member) => {
     const matchesPhone = normalizePhoneNumber(String(member.phone || "")) === normalizedPhone;
     const memberEmail = String(member.email || "").trim().toLowerCase();
     return matchesPhone && memberEmail !== normalizedEmail;

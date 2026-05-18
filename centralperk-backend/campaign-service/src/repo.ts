@@ -86,6 +86,33 @@ function isMissingRpcError(error: unknown, functionName: string) {
   );
 }
 
+function isMissingRelationError(error: unknown, tableName: string) {
+  const message = String(
+    (error as { message?: unknown; details?: unknown; hint?: unknown })?.message ??
+      (error as { details?: unknown })?.details ??
+      (error as { hint?: unknown })?.hint ??
+      ""
+  ).toLowerCase();
+  const table = tableName.toLowerCase();
+  return (
+    message.includes(`relation "${table}" does not exist`) ||
+    message.includes(`relation "public.${table}" does not exist`) ||
+    message.includes(`could not find the table 'public.${table}' in the schema cache`) ||
+    message.includes(`could not find the table "${table}" in the schema cache`) ||
+    (message.includes(table) && message.includes("schema cache")) ||
+    (message.includes(table) && message.includes("does not exist"))
+  );
+}
+
+function isOldSharedAnalyticsError(error: unknown) {
+  return (
+    isMissingRelationError(error, "loyalty_members") ||
+    isMissingRelationError(error, "loyalty_transactions") ||
+    isMissingRelationError(error, "notification_outbox") ||
+    isMissingRelationError(error, "reward_redemptions")
+  );
+}
+
 function isCampaignCurrentlyActive(campaign: Campaign) {
   const now = Date.now();
   const startsAt = new Date(campaign.startsAt).getTime();
@@ -192,7 +219,7 @@ export async function getActiveCampaigns(): Promise<Campaign[]> {
   }
   const { data, error } = await supabase.rpc("campaign_active_list");
   if (error) {
-    if (isMissingRpcError(error, "campaign_active_list")) {
+    if (isMissingRpcError(error, "campaign_active_list") || isOldSharedAnalyticsError(error)) {
       return (await listCampaigns()).filter(isCampaignCurrentlyActive);
     }
     throw error;
@@ -243,7 +270,7 @@ export async function lookupMultiplier(input: MultiplierLookupInput): Promise<Mu
     p_tier: input.tier ?? null,
   });
   if (error) {
-    if (isMissingRpcError(error, "campaign_active_multiplier")) {
+    if (isMissingRpcError(error, "campaign_active_multiplier") || isOldSharedAnalyticsError(error)) {
       const active = (await getActiveCampaigns()).find((campaign) => {
         const tierAllowed =
           !input.tier ||
@@ -331,7 +358,7 @@ export async function loadCampaignPerformance() {
   if (useMemory) return [];
   const { data, error } = await supabase.rpc("loyalty_campaign_performance");
   if (error) {
-    if (isMissingRpcError(error, "loyalty_campaign_performance")) return [];
+    if (isMissingRpcError(error, "loyalty_campaign_performance") || isOldSharedAnalyticsError(error)) return [];
     throw error;
   }
   return data;

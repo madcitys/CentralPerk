@@ -1,4 +1,5 @@
 import { supabase } from "../../utils/supabase/client";
+import { findMemberProfileByEmail } from "../lib/member-service-api";
 
 export type Role = "customer" | "admin";
 
@@ -187,14 +188,12 @@ export async function getSession() {
 
 async function getRoleFromDb(email?: string | null): Promise<Role | null> {
   if (!email) return null;
-  const { data, error } = await supabase
-    .from("loyalty_members")
-    .select("id")
-    .ilike("email", email.trim())
-    .limit(1)
-    .maybeSingle();
-  if (error) return null;
-  return data ? "customer" : null;
+  try {
+    const member = await findMemberProfileByEmail(email.trim());
+    return member ? "customer" : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getRoleFromSession(): Promise<Role | null> {

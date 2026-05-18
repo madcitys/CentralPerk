@@ -131,10 +131,11 @@ if (Test-Path -LiteralPath $frontendRoot) {
     '\.from\("rewards_catalog"\)',
     '\.from\("reward_partners"\)',
     '\.from\("reward_redemptions"\)',
-    '\.from\("reward_vouchers"\)'
+    '\.from\("reward_vouchers"\)',
+    '\.rpc\("loyalty_[^"]+"\)'
   )
 
-  foreach ($scanDir in @("src\pages\api", "src\server")) {
+  foreach ($scanDir in @("src\pages\api", "src\server", "src\app\lib", "src\app\auth")) {
     $fullScanDir = Join-Path $frontendRoot $scanDir
     if (-not (Test-Path -LiteralPath $fullScanDir -PathType Container)) {
       Add-Failure "Missing frontend split-db scan directory: centralperk-frontend\$scanDir"
@@ -152,7 +153,7 @@ if (Test-Path -LiteralPath $frontendRoot) {
         $text = Get-Content -LiteralPath $_.FullName -Raw
         foreach ($pattern in $splitOwnedTablePatterns) {
           if ($text -match $pattern) {
-            Add-Failure "Next API/server module queries split-owned table directly: $relative"
+            Add-Failure "Frontend module queries split-owned data source directly: $relative"
             break
           }
         }

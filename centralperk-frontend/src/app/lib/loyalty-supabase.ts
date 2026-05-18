@@ -27,6 +27,11 @@ import {
 } from "./points-service-client";
 import { claimBirthdayReward, loadBirthdayRewardSettings, shouldAutoCreditBirthdayReward } from "./member-lifecycle";
 import { loadMemberBadgeProgress } from "./promotions";
+import {
+  loadTierHistoryViaApi,
+  recordMemberLoginActivityViaApi,
+  updateMemberProfileViaApi,
+} from "./member-service-api";
 
 type AnyRecord = Record<string, any>;
 let loyaltyTransactionIdCounter = 0;
@@ -268,46 +273,7 @@ function isMissingRelationError(error: unknown, table: string): boolean {
 }
 
 async function insertLoyaltyTransaction(payload: AnyRecord): Promise<void> {
-  const payloadWithTransactionId = withTransactionId(payload);
-  const attempts: AnyRecord[] = [];
-  const seen = new Set<string>();
-
-  const queueAttempt = (value: AnyRecord) => {
-    const key = JSON.stringify(Object.keys(value).sort().map((item) => [item, value[item]]));
-    if (seen.has(key)) return;
-    seen.add(key);
-    attempts.push(value);
-  };
-
-  queueAttempt({ ...payloadWithTransactionId });
-
-  if ("reason" in payloadWithTransactionId) {
-    const { reason, ...rest } = payloadWithTransactionId;
-    queueAttempt({ ...rest, description: reason });
-    queueAttempt(rest);
-  } else if ("description" in payloadWithTransactionId) {
-    const { description, ...rest } = payloadWithTransactionId;
-    queueAttempt({ ...rest, reason: description });
-    queueAttempt(rest);
-  }
-
-  let lastError: unknown = null;
-
-  for (const attempt of attempts) {
-    const result = await supabase.from("loyalty_transactions").insert(attempt);
-    if (!result.error) return;
-
-    const reasonMissing = isMissingColumnError(result.error, "loyalty_transactions", "reason");
-    const descriptionMissing = isMissingColumnError(result.error, "loyalty_transactions", "description");
-    if (!reasonMissing && !descriptionMissing) {
-      throw result.error;
-    }
-
-    lastError = result.error;
-  }
-
-  if (lastError) throw lastError;
-  throw new Error("Unable to insert loyalty transaction.");
+  throw new Error("Direct loyalty transaction writes are disabled. Use the Points Service API instead.");
 }
 
 const WELCOME_PACKAGE_REASON = "Welcome Package Bonus";
@@ -365,25 +331,13 @@ export const DEFAULT_EARN_TASKS: EarnOpportunity[] = [
 ];
 
 async function ensureWelcomePackageNotification(member: AnyRecord, memberPk: { key: string; value: any }) {
-  const existingNotification = await supabase
-    .from("notification_outbox")
-    .select("id")
-    .eq("member_id", Number(memberPk.value))
-    .eq("channel", "email")
-    .eq("subject", "Welcome to GREENOVATE Rewards")
-    .limit(1)
-    .maybeSingle();
-  if (existingNotification.error) throw existingNotification.error;
-
-  if (!existingNotification.data?.id) {
-    await queueMemberNotification({
-      memberId: String(member.member_number || memberPk.value),
-      channel: "email",
-      subject: "Welcome to GREENOVATE Rewards",
-      message: `Hi ${String(member.first_name || "Member")}, welcome to GREENOVATE Rewards! Your Member ID is ${String(member.member_number || "Pending ID")}. Program basics: earn points on purchases, redeem rewards in-app, and monitor expiry alerts in your dashboard.`,
-      isTransactional: true,
-    });
-  }
+  await queueMemberNotification({
+    memberId: String(member.member_number || memberPk.value),
+    channel: "email",
+    subject: "Welcome to GREENOVATE Rewards",
+    message: `Hi ${String(member.first_name || "Member")}, welcome to GREENOVATE Rewards! Your Member ID is ${String(member.member_number || "Pending ID")}. Program basics: earn points on purchases, redeem rewards in-app, and monitor expiry alerts in your dashboard.`,
+    isTransactional: true,
+  });
 }
 
 async function ensureMemberTransactionNotification(input: {
@@ -392,26 +346,13 @@ async function ensureMemberTransactionNotification(input: {
   subject: string;
   message: string;
 }) {
-  const existingNotification = await supabase
-    .from("notification_outbox")
-    .select("id")
-    .eq("member_id", Number(input.memberPk.value))
-    .eq("channel", "push")
-    .eq("subject", input.subject)
-    .eq("message", input.message)
-    .limit(1)
-    .maybeSingle();
-  if (existingNotification.error) throw existingNotification.error;
-
-  if (!existingNotification.data?.id) {
-    await queueMemberNotification({
-      memberId: String(input.member.member_number || input.memberPk.value),
-      channel: "push",
-      subject: input.subject,
-      message: input.message,
-      isTransactional: true,
-    });
-  }
+  await queueMemberNotification({
+    memberId: String(input.member.member_number || input.memberPk.value),
+    channel: "push",
+    subject: input.subject,
+    message: input.message,
+    isTransactional: true,
+  });
 }
 
 async function queueCampaignBonusNotification(input: {
@@ -452,85 +393,44 @@ type PurchaseCampaignBonus = {
 };
 
 async function grantWelcomePackageForMember(member: AnyRecord, memberPk: { key: string; value: any }) {
-  if (usesStrictMicroservices()) {
-    const memberIdentifier = String(member.member_number || member.member_id || memberPk.value);
-    const fallbackEmail = member.email ? String(member.email) : undefined;
-    const activity = await loadPointsActivityFromService(memberIdentifier, fallbackEmail);
-    const existingWelcome = (activity?.history || []).some((row: AnyRecord) => getTransactionNote(row) === WELCOME_PACKAGE_REASON);
-    if (existingWelcome) {
-      await ensureWelcomePackageNotification(member, memberPk).catch((error) => {
-        console.warn("Welcome package notification could not be queued:", error);
-      });
-      return {
-        granted: false,
-        pointsAdded: 0,
-        newBalance: sanitizePointsBalance(activity?.balance?.points_balance ?? member.points_balance ?? 0),
-        newTier: normalizeTierLabel(String(activity?.balance?.tier ?? member.tier ?? "Bronze")) as SupportedTier,
-      };
-    }
-
-    const serviceResponse = await awardPointsViaService(
-      {
-        memberIdentifier,
-        fallbackEmail,
-        points: WELCOME_PACKAGE_POINTS,
-        transactionType: "MANUAL_AWARD",
-        reason: WELCOME_PACKAGE_REASON,
-      },
-      `welcome-package-${memberIdentifier}`
-    );
-
-    const result = serviceResponse?.result ?? {};
+  const memberIdentifier = String(member.member_number || member.member_id || memberPk.value);
+  const fallbackEmail = member.email ? String(member.email) : undefined;
+  const activity = await loadPointsActivityFromService(memberIdentifier, fallbackEmail);
+  const existingWelcome = (activity?.history || []).some((row: AnyRecord) => getTransactionNote(row) === WELCOME_PACKAGE_REASON);
+  if (existingWelcome) {
     await ensureWelcomePackageNotification(member, memberPk).catch((error) => {
       console.warn("Welcome package notification could not be queued:", error);
     });
-
     return {
-      granted: true,
-      pointsAdded: Number(result.pointsAdded ?? WELCOME_PACKAGE_POINTS),
-      newBalance: sanitizePointsBalance(result.newBalance ?? member.points_balance ?? 0),
-      newTier: normalizeTierLabel(String(result.newTier ?? member.tier ?? "Bronze")) as SupportedTier,
+      granted: false,
+      pointsAdded: 0,
+      newBalance: sanitizePointsBalance(activity?.balance?.points_balance ?? member.points_balance ?? 0),
+      newTier: normalizeTierLabel(String(activity?.balance?.tier ?? member.tier ?? "Bronze")) as SupportedTier,
     };
   }
 
-  const existingWelcomeRes = await supabase
-    .from("loyalty_transactions")
-    .select("*")
-    .eq("member_id", memberPk.value)
-    .limit(200);
-  if (existingWelcomeRes.error) throw existingWelcomeRes.error;
-  const existingWelcome = ((existingWelcomeRes.data || []) as AnyRecord[]).find(
-    (row) => getTransactionNote(row) === WELCOME_PACKAGE_REASON
+  const serviceResponse = await awardPointsViaService(
+    {
+      memberIdentifier,
+      fallbackEmail,
+      points: WELCOME_PACKAGE_POINTS,
+      transactionType: "MANUAL_AWARD",
+      reason: WELCOME_PACKAGE_REASON,
+    },
+    `welcome-package-${memberIdentifier}`
   );
-  if (existingWelcome) {
-    await ensureWelcomePackageNotification(member, memberPk);
-    return { granted: false, pointsAdded: 0 };
-  }
 
-  const rules = await fetchTierRules();
-
-  await insertLoyaltyTransaction({
-    member_id: memberPk.value,
-    transaction_type: "EARN",
-    points: WELCOME_PACKAGE_POINTS,
-    reason: WELCOME_PACKAGE_REASON,
+  const result = serviceResponse?.result ?? {};
+  await ensureWelcomePackageNotification(member, memberPk).catch((error) => {
+    console.warn("Welcome package notification could not be queued:", error);
   });
 
-  const refreshedMemberRes = await supabase
-    .from("loyalty_members")
-    .select("points_balance,tier")
-    .eq(memberPk.key, memberPk.value)
-    .limit(1)
-    .maybeSingle();
-  if (refreshedMemberRes.error) throw refreshedMemberRes.error;
-  const newBalance = sanitizePointsBalance(refreshedMemberRes.data?.points_balance ?? member.points_balance ?? 0);
-  const newTier = normalizeTierLabel(
-    String(refreshedMemberRes.data?.tier ?? resolveTier(newBalance, rules))
-  ) as SupportedTier;
-
-  await ensureWelcomePackageNotification(member, memberPk);
-
-  return { granted: true, pointsAdded: WELCOME_PACKAGE_POINTS, newBalance, newTier };
+  return {
+    granted: true,
+    pointsAdded: Number(result.pointsAdded ?? WELCOME_PACKAGE_POINTS),
+    newBalance: sanitizePointsBalance(result.newBalance ?? member.points_balance ?? 0),
+    newTier: normalizeTierLabel(String(result.newTier ?? member.tier ?? "Bronze")) as SupportedTier,
+  };
 }
 
 async function readMemberBalanceSnapshot(
@@ -538,79 +438,23 @@ async function readMemberBalanceSnapshot(
   fallbackBalance = 0
 ): Promise<{ newBalance: number; newTier: SupportedTier }> {
   const rules = await fetchTierRules();
-  const refreshedMemberRes = await supabase
-    .from("loyalty_members")
-    .select("points_balance,tier")
-    .eq(memberPk.key, memberPk.value)
-    .limit(1)
-    .maybeSingle();
-  if (refreshedMemberRes.error) throw refreshedMemberRes.error;
+  const refreshedMember = await resolveMemberViaApi(String(memberPk.value)).catch(() => null);
 
-  const newBalance = sanitizePointsBalance(refreshedMemberRes.data?.points_balance ?? fallbackBalance);
+  const newBalance = sanitizePointsBalance(refreshedMember?.points_balance ?? fallbackBalance);
   const newTier = normalizeTierLabel(
-    String(refreshedMemberRes.data?.tier ?? resolveTier(newBalance, rules))
+    String(refreshedMember?.tier ?? resolveTier(newBalance, rules))
   ) as SupportedTier;
 
   return { newBalance, newTier };
 }
 
 async function processMemberExpiredPoints(memberPk: { key: string; value: any }) {
-  if (usesStrictMicroservices()) return;
-
-  const txQuery = await supabase
-    .from("loyalty_transactions")
-    .select("points,transaction_type,expiry_date")
-    .eq("member_id", memberPk.value)
-    .limit(500);
-
-  if (txQuery.error) throw txQuery.error;
-  const rows = (txQuery.data || []) as AnyRecord[];
-  if (rows.length === 0) return;
-
-  const now = Date.now();
-  const expiredEarned = rows
-    .filter((row) => Number(row.points || 0) > 0 && row.expiry_date && new Date(row.expiry_date).getTime() < now)
-    .reduce((sum, row) => sum + Math.abs(Number(row.points || 0)), 0);
-  const alreadyDeducted = rows
-    .filter((row) => String(row.transaction_type || "").toUpperCase() === "EXPIRY_DEDUCTION")
-    .reduce((sum, row) => sum + Math.abs(Number(row.points || 0)), 0);
-  const totalExpired = Math.max(0, expiredEarned - alreadyDeducted);
-  if (totalExpired === 0) return;
-
-  const { data: memberNow, error: memberErr } = await supabase
-    .from("loyalty_members")
-    .select("points_balance")
-    .eq(memberPk.key, memberPk.value)
-    .limit(1)
-    .maybeSingle();
-  if (memberErr) throw memberErr;
-
-  await insertLoyaltyTransaction({
-    member_id: memberPk.value,
-    transaction_type: "EXPIRY_DEDUCTION",
-    points: -Math.abs(totalExpired),
-    reason: "Points Expired",
-  });
-  await readMemberBalanceSnapshot(memberPk, memberNow?.points_balance ?? 0);
+  return;
 }
 
 export async function processAllMemberExpiredPoints() {
-  try {
-    const serviceResponse = await runExpiryViaService();
-    if (serviceResponse?.ok) return serviceResponse.result;
-  } catch (error) {
-    if (usesStrictMicroservices()) throw error;
-  }
-  /* fallback to legacy flow */
-  const { data, error } = await supabase.from("loyalty_members").select("id,member_id");
-  if (error) throw error;
-  const members = (data || []) as AnyRecord[];
-
-  for (const member of members) {
-    const pk = getMemberPk(member);
-    if (!pk) continue;
-    await processMemberExpiredPoints(pk);
-  }
+  const serviceResponse = await runExpiryViaService();
+  return serviceResponse?.result;
 }
 
 export async function fetchTierRules(): Promise<TierRule[]> {
@@ -740,37 +584,11 @@ async function loadPurchaseCampaignBonuses(input: {
   memberTier: SupportedTier;
   productScope?: string;
 }): Promise<PurchaseCampaignBonus[]> {
-  const { data, error } = await supabase.rpc("loyalty_resolve_purchase_campaigns", {
-    p_member_id: input.memberId,
-    p_purchase_amount: input.purchaseAmount,
-    p_base_points: input.basePoints,
-    p_member_tier: input.memberTier,
-    p_product_scope: input.productScope?.trim() || null,
-  });
-
-  if (error) {
-    if (isMissingRelationError(error, "promotion_campaigns")) return [];
-    throw error;
-  }
-
-  return ((data || []) as AnyRecord[]).map((row) => ({
-    campaign_id: String(row.campaign_id ?? ""),
-    campaign_name: String(row.campaign_name ?? ""),
-    campaign_type: String(row.campaign_type ?? "bonus_points") as PurchaseCampaignBonus["campaign_type"],
-    awarded_points: Number(row.awarded_points ?? 0),
-    applied_multiplier: Number(row.applied_multiplier ?? 1),
-    minimum_purchase_amount: Number(row.minimum_purchase_amount ?? 0),
-  }));
+  return [];
 }
 
 async function refreshMemberBadges(memberId: number) {
-  const { error } = await supabase.rpc("loyalty_refresh_member_badges", {
-    p_member_id: memberId,
-  });
-
-  if (error && !isMissingRelationError(error, "badge_definitions")) {
-    throw error;
-  }
+  return;
 }
 
 async function queueNewBadgeNotifications(input: {
@@ -798,26 +616,17 @@ async function queueNewBadgeNotifications(input: {
 }
 
 async function loadActiveFlashSaleCampaignForReward(rewardCatalogId: string | number) {
-  const { data, error } = await supabase
-    .from("promotion_campaigns")
-    .select("id,campaign_name,flash_sale_quantity_limit,flash_sale_claimed_count,starts_at,ends_at,countdown_label,banner_title,banner_message")
-    .eq("campaign_type", "flash_sale")
-    .eq("reward_id", Number(rewardCatalogId))
-    .in("status", ["scheduled", "active"])
-    .order("starts_at", { ascending: true })
-    .limit(5);
-
-  if (error) {
-    if (isMissingRelationError(error, "promotion_campaigns")) return null;
-    throw error;
-  }
-
+  const response = await requestJson<{ ok: true; campaigns: AnyRecord[] }>("/api/campaigns/active").catch(() => ({
+    ok: true as const,
+    campaigns: [] as AnyRecord[],
+  }));
   const now = Date.now();
-  const rows = (data || []) as AnyRecord[];
-  const active = rows.find((row) => {
-    const startsAt = new Date(String(row.starts_at ?? "")).getTime();
-    const endsAt = new Date(String(row.ends_at ?? "")).getTime();
-    return startsAt <= now && endsAt >= now;
+  const active = (response.campaigns || []).find((row) => {
+    const campaignType = String(row.campaignType ?? row.campaign_type ?? "");
+    const rewardId = row.rewardId ?? row.reward_id;
+    const startsAt = new Date(String(row.startsAt ?? row.starts_at ?? "")).getTime();
+    const endsAt = new Date(String(row.endsAt ?? row.ends_at ?? "")).getTime();
+    return campaignType === "flash_sale" && String(rewardId) === String(rewardCatalogId) && startsAt <= now && endsAt >= now;
   });
 
   return active || null;
@@ -1033,18 +842,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
   if (useServiceActivity) {
     rawTx = (serviceActivity?.history || []) as AnyRecord[];
   } else {
-    try {
-      const txRes = await supabase
-        .from("loyalty_transactions")
-        .select("*")
-        .eq("member_id", pk.value)
-        .order("transaction_date", { ascending: false })
-        .limit(200);
-      if (txRes.error) throw txRes.error;
-      rawTx = (txRes.data || []) as AnyRecord[];
-    } catch {
-      rawTx = currentUserTransactionsToRaw(currentUser);
-    }
+    rawTx = currentUserTransactionsToRaw(currentUser);
   }
   const completedTaskIds = new Set(
     rawTx
@@ -1205,40 +1003,13 @@ export async function loadMemberActivity(memberIdentifier: string, fallbackEmail
     };
   }
 
-  await processMemberExpiredPoints(pk);
-
-  const memberRes = await supabase
-    .from("loyalty_members")
-    .select("*")
-    .eq(pk.key, pk.value)
-    .limit(1)
-    .maybeSingle();
-  if (memberRes.error) throw memberRes.error;
-  const refreshed = (memberRes.data || member) as AnyRecord;
-
-  const txRes = await supabase
-    .from("loyalty_transactions")
-    .select("*")
-    .eq("member_id", pk.value)
-    .order("transaction_date", { ascending: false })
-    .limit(500);
-  if (txRes.error) throw txRes.error;
-  const rawTx = (txRes.data || []) as AnyRecord[];
-
   return {
     balance: {
-      member_id: String(refreshed.member_number || memberIdentifier),
-      points_balance: Number(refreshed.points_balance || 0),
-      tier: resolveTier(Number(refreshed.points_balance || 0), rules),
+      member_id: String(member.member_number || memberIdentifier),
+      points_balance: Number(member.points_balance || 0),
+      tier: resolveTier(Number(member.points_balance || 0), rules),
     },
-    history: rawTx.map((tx) => ({
-      type: getTxTypeValue(tx),
-      points: getTxSignedPoints(tx),
-      balance: getTxBalanceValue(tx),
-      date: getTxDateValue(tx),
-      expiry_date: tx.expiry_date ? String(tx.expiry_date) : null,
-      reason: getTransactionNote(tx),
-    })),
+    history: [],
   };
 }
 
@@ -1261,107 +1032,9 @@ export async function awardMemberPoints(input: {
     if (serviceResponse?.ok) return serviceResponse.result;
     throw new Error("Points service award failed.");
   } catch (error) {
-    if (!shouldFallbackFromServiceError(error)) throw error;
+    throw error;
   }
-  /* legacy in-monolith logic retained for reference only */
-  const member = await findMember(input.memberIdentifier, input.fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-  const pk = getMemberPk(member);
-  if (!pk) throw new Error("Member primary key is missing.");
-  const previousBadgeProgress = await loadMemberBadgeProgress(
-    String(member.member_number || input.memberIdentifier),
-    String(member.email || input.fallbackEmail || "")
-  ).catch(() => []);
-  const previousEarnedBadgeIds = new Set(
-    previousBadgeProgress.filter((badge) => badge.isEarned).map((badge) => String(badge.badgeId))
-  );
-
-  let pointsToAdd = Math.max(0, Math.floor(input.points));
-  let bonusPointsAdded = 0;
-  let appliedCampaigns: PurchaseCampaignBonus[] = [];
-  const memberTier = normalizeTierLabel(String(member.tier || "Bronze")) as SupportedTier;
-  if (input.transactionType === "PURCHASE") {
-    const purchaseAmount = Number(input.amountSpent || 0);
-    pointsToAdd = await calculateDynamicPurchasePoints({ amountSpent: purchaseAmount, tier: memberTier });
-    appliedCampaigns = await loadPurchaseCampaignBonuses({
-      memberId: Number(pk.value),
-      purchaseAmount,
-      basePoints: pointsToAdd,
-      memberTier,
-      productScope: input.productCategory || input.productCode,
-    });
-  }
-
-  const txPayload: AnyRecord = {
-    member_id: pk.value,
-    transaction_type: input.transactionType,
-    points: pointsToAdd,
-    reason: input.reason,
-  };
-  if (input.idempotencyKey) txPayload.receipt_id = input.idempotencyKey;
-  if (input.amountSpent !== undefined) txPayload.amount_spent = input.amountSpent;
-  if (input.productCode) txPayload.product_code = input.productCode.trim();
-  if (input.productCategory) txPayload.product_category = input.productCategory.trim();
-  if (input.transactionType === "PURCHASE") {
-    txPayload.expiry_date = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-  }
-
-  await insertLoyaltyTransaction(txPayload);
-  if (input.transactionType === "PURCHASE") {
-    for (const campaign of appliedCampaigns.filter((row) => row.awarded_points > 0)) {
-      bonusPointsAdded += campaign.awarded_points;
-      await insertLoyaltyTransaction({
-        member_id: pk.value,
-        transaction_type: "MANUAL_AWARD",
-        points: campaign.awarded_points,
-        amount_spent: input.amountSpent ?? 0,
-        reason: `${campaign.campaign_name} bonus`,
-        promotion_campaign_id: campaign.campaign_id,
-        product_code: input.productCode?.trim() || null,
-        product_category: input.productCategory?.trim() || null,
-        receipt_id: input.idempotencyKey ? `${input.idempotencyKey}:bonus:${campaign.campaign_id}` : null,
-        expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-    }
-  }
-
-  await refreshMemberBadges(Number(pk.value));
-  await queueNewBadgeNotifications({ member, memberPk: pk, previousEarnedBadgeIds });
-  const { newBalance, newTier } = await readMemberBalanceSnapshot(pk, member.points_balance ?? 0);
-
-  const displayName = String(member.first_name || "Member");
-  if (input.transactionType === "PURCHASE") {
-    const totalAwarded = pointsToAdd + bonusPointsAdded;
-    const purchaseLabel = input.amountSpent !== undefined ? ` from your purchase of PHP ${Number(input.amountSpent).toFixed(2)}` : "";
-    const bonusLabel = bonusPointsAdded > 0 ? ` including ${bonusPointsAdded} campaign bonus points` : "";
-    await ensureMemberTransactionNotification({
-      member,
-      memberPk: pk,
-      subject: "Points Earned",
-      message: `Hi ${displayName}, you earned ${totalAwarded} points${purchaseLabel}${bonusLabel}.`,
-    });
-    await queueCampaignBonusNotification({
-      member,
-      memberPk: pk,
-      bonusPointsAdded,
-      appliedCampaigns,
-    });
-  } else {
-    await ensureMemberTransactionNotification({
-      member,
-      memberPk: pk,
-      subject: "Points Update",
-      message: `Hi ${displayName}, ${pointsToAdd > 0 ? `you earned ${pointsToAdd}` : `your balance changed by ${pointsToAdd}`} points. Reason: ${input.reason}.`,
-    });
-  }
-
-  return {
-    newBalance,
-    newTier,
-    pointsAdded: pointsToAdd + bonusPointsAdded,
-    bonusPointsAdded,
-    appliedCampaigns,
-  };
+  throw new Error("Points Service award endpoint did not return a usable result.");
 }
 
 export async function redeemMemberPoints(input: {
@@ -1382,78 +1055,9 @@ export async function redeemMemberPoints(input: {
     if (serviceResponse?.ok) return serviceResponse.result;
     throw new Error("Points service redeem failed.");
   } catch (error) {
-    if (!shouldFallbackFromServiceError(error)) throw error;
+    throw error;
   }
-  /* legacy logic retained below */
-  const member = await findMember(input.memberIdentifier, input.fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-  const pk = getMemberPk(member);
-  if (!pk) throw new Error("Member primary key is missing.");
-  const previousBadgeProgress = await loadMemberBadgeProgress(
-    String(member.member_number || input.memberIdentifier),
-    String(member.email || input.fallbackEmail || "")
-  ).catch(() => []);
-  const previousEarnedBadgeIds = new Set(
-    previousBadgeProgress.filter((badge) => badge.isEarned).map((badge) => String(badge.badgeId))
-  );
-
-  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
-  const pointsToDeduct = Math.max(0, Math.floor(input.points));
-  if (pointsToDeduct > currentBalance) throw new Error("Not enough points.");
-
-  let flashSaleCampaignId = input.promotionCampaignId || null;
-  if (!flashSaleCampaignId && input.rewardCatalogId !== undefined) {
-    const activeFlashSale = await loadActiveFlashSaleCampaignForReward(input.rewardCatalogId);
-    flashSaleCampaignId = activeFlashSale?.id ? String(activeFlashSale.id) : null;
-  }
-
-  if (flashSaleCampaignId) {
-    const flashSaleClaim = await supabase.rpc("loyalty_claim_flash_sale_campaign", {
-      p_campaign_id: flashSaleCampaignId,
-    });
-    if (flashSaleClaim.error) throw flashSaleClaim.error;
-  }
-
-  await insertLoyaltyTransaction({
-    member_id: pk.value,
-    transaction_type: input.transactionType ?? "REDEEM",
-    points: -Math.abs(pointsToDeduct),
-    reason: input.reason,
-    receipt_id: input.idempotencyKey ?? null,
-    reward_catalog_id:
-      input.rewardCatalogId === undefined || input.rewardCatalogId === null ? null : Number(input.rewardCatalogId),
-    promotion_campaign_id: flashSaleCampaignId,
-  });
-
-  const fifoConsume = await supabase.rpc("loyalty_consume_points_fifo", {
-    p_member_id: pk.value,
-    p_points_to_consume: pointsToDeduct,
-  });
-  if (fifoConsume.error) throw fifoConsume.error;
-  await refreshMemberBadges(Number(pk.value));
-  await queueNewBadgeNotifications({ member, memberPk: pk, previousEarnedBadgeIds });
-  const { newBalance, newTier } = await readMemberBalanceSnapshot(pk, currentBalance);
-
-  await ensureMemberTransactionNotification({
-    member,
-    memberPk: pk,
-    subject: input.transactionType === "GIFT" ? "Points Gifted" : "Reward Redeemed",
-    message:
-      input.transactionType === "GIFT"
-        ? `Hi ${String(member.first_name || "Member")}, you gifted ${pointsToDeduct} points. Reason: ${input.reason}.`
-        : `Hi ${String(member.first_name || "Member")}, you redeemed ${pointsToDeduct} points. Reason: ${input.reason}.`,
-  });
-
-  if (flashSaleCampaignId && input.transactionType !== "GIFT") {
-    await ensureMemberTransactionNotification({
-      member,
-      memberPk: pk,
-      subject: "Flash Sale Redemption Confirmed",
-      message: `Hi ${String(member.first_name || "Member")}, your flash sale redemption is confirmed. Reward: ${input.reason}.`,
-    });
-  }
-
-  return { newBalance, newTier, pointsDeducted: pointsToDeduct };
+  throw new Error("Points Service redeem endpoint did not return a usable result.");
 }
 
 export async function updateMemberProfile(input: {
@@ -1511,27 +1115,23 @@ export async function updateMemberProfile(input: {
     clearPendingEmailAlias(normalizedAuthEmail);
   }
 
-  const updateRes = await supabase
-    .from("loyalty_members")
-    .update({
-      first_name: input.firstName,
-      last_name: input.lastName,
-      email: persistedAuthEmail,
-      phone: input.phone,
-      birthdate: input.birthdate || null,
-      address: input.address ?? null,
-      profile_photo_url: input.profilePhotoUrl ?? null,
-    })
-    .eq("id", Number(member.id))
-    .select("id,email");
-  if (updateRes.error) throw updateRes.error;
-  if (!updateRes.data?.length) throw new Error("Member not found in loyalty_members.");
+  const updateRes = await updateMemberProfileViaApi(String(member.member_number || input.memberIdentifier), {
+    fallbackEmail: input.fallbackEmail,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: persistedAuthEmail,
+    phone: input.phone,
+    birthdate: input.birthdate || undefined,
+    address: input.address ?? null,
+    profilePhotoUrl: input.profilePhotoUrl ?? null,
+  });
+  const updatedMember = updateRes.member || {};
 
   return {
     success: true,
     emailChanged,
     pendingEmailVerification,
-    effectiveEmail: String(updateRes.data[0].email || persistedAuthEmail),
+    effectiveEmail: String(updatedMember.email || persistedAuthEmail),
   };
 }
 
@@ -1558,34 +1158,26 @@ export async function uploadRegistrationProfilePhoto(memberIdentifier: string, f
   if (!member) throw new Error("Member not found in loyalty_members.");
 
   const photoUrl = await uploadMemberProfilePhoto(memberIdentifier, file);
-  const { error } = await supabase
-    .from("loyalty_members")
-    .update({ profile_photo_url: photoUrl })
-    .eq("id", Number(member.id ?? member.member_id));
-
-  if (error) throw error;
+  await updateMemberProfileViaApi(String(member.member_number || memberIdentifier), {
+    fallbackEmail: String(member.email || "") || undefined,
+    profilePhotoUrl: photoUrl,
+  });
   return photoUrl;
 }
 
-export async function loadTierHistory(memberIdentifier: string, fallbackEmail?: string) {
-  const member = await findMember(memberIdentifier, fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-  const memberId = Number(member.id ?? member.member_id);
-
-  const { data, error } = await supabase
-    .from("tier_history")
-    .select("id,old_tier,new_tier,changed_at,reason")
-    .eq("member_id", memberId)
-    .order("changed_at", { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (data || []) as AnyRecord[];
+export async function loadTierHistory(memberIdentifier: string, fallbackEmail?: string): Promise<Array<{
+  id: string | number;
+  old_tier?: string | null;
+  new_tier?: string | null;
+  changed_at?: string | null;
+  reason?: string | null;
+}>> {
+  return loadTierHistoryViaApi(memberIdentifier, fallbackEmail);
 }
 
 export async function queueExpiryReminderNotifications() {
-  const { data, error } = await supabase.rpc("loyalty_queue_expiry_warning_notifications");
-  if (error) throw error;
-  return Number(data || 0);
+  const result = await runExpiryViaService();
+  return Number(result?.result?.pointsExpired ?? 0);
 }
 
 export async function trackMemberLoginActivity(input?: {
@@ -1600,19 +1192,11 @@ export async function trackMemberLoginActivity(input?: {
   const pk = getMemberPk(member);
   if (!pk) return false;
 
-  const result = await supabase.from("member_login_activity").insert({
-    member_id: pk.value,
-    login_at: new Date().toISOString(),
+  const result = await recordMemberLoginActivityViaApi(String(member.member_number || input?.memberIdentifier || pk.value), {
     channel: input?.channel ?? "web",
     source: input?.source ?? "customer_portal",
   });
-
-  if (result.error) {
-    if (isMissingRelationError(result.error, "member_login_activity")) return false;
-    throw result.error;
-  }
-
-  return true;
+  return Boolean(result.recorded);
 }
 
 export async function createReengagementAction(input: {
@@ -1625,40 +1209,11 @@ export async function createReengagementAction(input: {
   status?: "planned" | "sent" | "completed" | "dismissed";
   followUpDueAt?: string;
 }) {
-  const member = await findMember(input.memberIdentifier, input.fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-
-  const pk = getMemberPk(member);
-  if (!pk) throw new Error("Member primary key is missing.");
-
-  const authRes = await supabase.auth.getUser();
-  if (authRes.error) throw authRes.error;
-
-  const { data, error } = await supabase
-    .from("member_reengagement_actions")
-    .insert({
-      member_id: pk.value,
-      initiated_by: authRes.data.user?.id ?? null,
-      risk_level: input.riskLevel,
-      action_type: input.actionType,
-      recommended_action: input.recommendedAction,
-      action_notes: input.actionNotes ?? null,
-      status: input.status ?? "planned",
-      follow_up_due_at: input.followUpDueAt ?? null,
-      sent_at: input.status === "sent" ? new Date().toISOString() : null,
-      completed_at: input.status === "completed" ? new Date().toISOString() : null,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "member_reengagement_actions")) {
-      throw new Error("Run the updated Supabase SQL first to enable re-engagement tracking.");
-    }
-    throw error;
-  }
-
-  return data as AnyRecord;
+  const response = await requestJson<{ ok: true; action: AnyRecord }>("/api/members/reengagement-actions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return response.action;
 }
 
 export async function updateReengagementActionOutcome(input: {
@@ -1669,45 +1224,17 @@ export async function updateReengagementActionOutcome(input: {
   sentAt?: string | null;
   completedAt?: string | null;
 }) {
-  const patch: AnyRecord = {
-    success: input.success ?? null,
-    success_metric: input.successMetric ?? null,
-  };
-
-  if (input.status) patch.status = input.status;
-  if (input.sentAt !== undefined) patch.sent_at = input.sentAt;
-  if (input.completedAt !== undefined) patch.completed_at = input.completedAt;
-  if (input.status === "sent" && input.sentAt === undefined) patch.sent_at = new Date().toISOString();
-  if (input.status === "completed" && input.completedAt === undefined) patch.completed_at = new Date().toISOString();
-
-  const { data, error } = await supabase
-    .from("member_reengagement_actions")
-    .update(patch)
-    .eq("id", input.id)
-    .select("*")
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error, "member_reengagement_actions")) {
-      throw new Error("Run the updated Supabase SQL first to enable re-engagement tracking.");
-    }
-    throw error;
-  }
-
-  return data as AnyRecord;
+  const response = await requestJson<{ ok: true; action: AnyRecord }>(
+    `/api/members/reengagement-actions/${encodeURIComponent(String(input.id))}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  return response.action;
 }
 
 export async function loadReengagementActions() {
-  const { data, error } = await supabase
-    .from("member_reengagement_actions")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1000);
-
-  if (error) {
-    if (isMissingRelationError(error, "member_reengagement_actions")) return [];
-    throw error;
-  }
-
-  return (data || []) as AnyRecord[];
+  const response = await requestJson<{ ok: true; actions: AnyRecord[] }>("/api/members/reengagement-actions");
+  return response.actions || [];
 }
