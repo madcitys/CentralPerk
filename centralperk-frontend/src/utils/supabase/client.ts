@@ -4,7 +4,7 @@ import { publicAnonKey, supabaseUrl } from '../../../utils/supabase/info';
 export const hasSupabaseConfig = Boolean(supabaseUrl && publicAnonKey);
 export const supabaseConfigError = hasSupabaseConfig
   ? ''
-  : 'Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and either NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY. In split database mode, MEMBER_SUPABASE_URL and MEMBER_SUPABASE_ANON_KEY are also supported.';
+  : 'Missing Supabase environment variables. Set NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL and either NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY. In split database mode, SCM_MEMBER_SUPABASE_URL and SCM_MEMBER_SUPABASE_ANON_KEY are also supported.';
 
 if (!hasSupabaseConfig) {
   throw new Error(supabaseConfigError);

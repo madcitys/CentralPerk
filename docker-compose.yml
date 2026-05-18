@@ -5,16 +5,16 @@ services:
     container_name: member-service
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4003"
-      MEMBER_SUPABASE_URL: ${MEMBER_SUPABASE_URL:?Set MEMBER_SUPABASE_URL}
-      MEMBER_SUPABASE_SERVICE_ROLE_KEY: ${MEMBER_SUPABASE_SERVICE_ROLE_KEY:?Set MEMBER_SUPABASE_SERVICE_ROLE_KEY}
-      MEMBER_DATABASE_URL: ${MEMBER_DATABASE_URL:?Set MEMBER_DATABASE_URL}
-      MEMBER_DB_SCHEMA: ${MEMBER_DB_SCHEMA:-public}
+      SCM_MEMBER_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_MEMBER_PORT: "3012"
+      SCM_MEMBER_SUPABASE_URL: ${SCM_MEMBER_SUPABASE_URL:?Set SCM_MEMBER_SUPABASE_URL}
+      SCM_MEMBER_SUPABASE_SERVICE_ROLE_KEY: ${SCM_MEMBER_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_MEMBER_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_MEMBER_DATABASE_URL: ${SCM_MEMBER_DATABASE_URL:?Set SCM_MEMBER_DATABASE_URL}
+      SCM_MEMBER_DB_SCHEMA: ${SCM_MEMBER_DB_SCHEMA:-public}
     ports:
-      - "4003:4003"
+      - "3012:3012"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://member-service:4003/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://member-service:3012/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,20 +26,20 @@ services:
     container_name: segment-service
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4004"
-      SEGMENT_SUPABASE_URL: ${SEGMENT_SUPABASE_URL:?Set SEGMENT_SUPABASE_URL}
-      SEGMENT_SUPABASE_SERVICE_ROLE_KEY: ${SEGMENT_SUPABASE_SERVICE_ROLE_KEY:?Set SEGMENT_SUPABASE_SERVICE_ROLE_KEY}
-      SEGMENT_DATABASE_URL: ${SEGMENT_DATABASE_URL:?Set SEGMENT_DATABASE_URL}
-      SEGMENT_DB_SCHEMA: ${SEGMENT_DB_SCHEMA:-public}
-      MEMBER_SERVICE_URL: http://member-service:4003
+      SCM_SEGMENT_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_SEGMENT_PORT: "3013"
+      SCM_SEGMENT_SUPABASE_URL: ${SCM_SEGMENT_SUPABASE_URL:?Set SCM_SEGMENT_SUPABASE_URL}
+      SCM_SEGMENT_SUPABASE_SERVICE_ROLE_KEY: ${SCM_SEGMENT_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_SEGMENT_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_SEGMENT_DATABASE_URL: ${SCM_SEGMENT_DATABASE_URL:?Set SCM_SEGMENT_DATABASE_URL}
+      SCM_SEGMENT_DB_SCHEMA: ${SCM_SEGMENT_DB_SCHEMA:-public}
+      SCM_MEMBER_SERVICE_URL: http://member-service:3012
     ports:
-      - "4004:4004"
+      - "3013:3013"
     depends_on:
       member-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://segment-service:4004/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://segment-service:3013/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -51,20 +51,20 @@ services:
     container_name: campaign-service
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4002"
-      CAMPAIGN_SUPABASE_URL: ${CAMPAIGN_SUPABASE_URL:?Set CAMPAIGN_SUPABASE_URL}
-      CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY: ${CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY:?Set CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY}
-      CAMPAIGN_DATABASE_URL: ${CAMPAIGN_DATABASE_URL:?Set CAMPAIGN_DATABASE_URL}
-      CAMPAIGN_DB_SCHEMA: ${CAMPAIGN_DB_SCHEMA:-public}
-      MEMBER_SERVICE_URL: http://member-service:4003
+      SCM_CAMPAIGN_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_CAMPAIGN_PORT: "3014"
+      SCM_CAMPAIGN_SUPABASE_URL: ${SCM_CAMPAIGN_SUPABASE_URL:?Set SCM_CAMPAIGN_SUPABASE_URL}
+      SCM_CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY: ${SCM_CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_CAMPAIGN_DATABASE_URL: ${SCM_CAMPAIGN_DATABASE_URL:?Set SCM_CAMPAIGN_DATABASE_URL}
+      SCM_CAMPAIGN_DB_SCHEMA: ${SCM_CAMPAIGN_DB_SCHEMA:-public}
+      SCM_MEMBER_SERVICE_URL: http://member-service:3012
     ports:
-      - "4002:4002"
+      - "3014:3014"
     depends_on:
       member-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://campaign-service:4002/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://campaign-service:3014/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,16 +76,16 @@ services:
     container_name: notification-service
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4005"
-      NOTIFICATION_SUPABASE_URL: ${NOTIFICATION_SUPABASE_URL:?Set NOTIFICATION_SUPABASE_URL}
-      NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY: ${NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY:?Set NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY}
-      NOTIFICATION_DATABASE_URL: ${NOTIFICATION_DATABASE_URL:?Set NOTIFICATION_DATABASE_URL}
-      NOTIFICATION_DB_SCHEMA: ${NOTIFICATION_DB_SCHEMA:-public}
+      SCM_NOTIFICATION_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_NOTIFICATION_PORT: "3015"
+      SCM_NOTIFICATION_SUPABASE_URL: ${SCM_NOTIFICATION_SUPABASE_URL:?Set SCM_NOTIFICATION_SUPABASE_URL}
+      SCM_NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY: ${SCM_NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_NOTIFICATION_DATABASE_URL: ${SCM_NOTIFICATION_DATABASE_URL:?Set SCM_NOTIFICATION_DATABASE_URL}
+      SCM_NOTIFICATION_DB_SCHEMA: ${SCM_NOTIFICATION_DB_SCHEMA:-public}
     ports:
-      - "4005:4005"
+      - "3015:3015"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://notification-service:4005/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://notification-service:3015/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -97,20 +97,20 @@ services:
     container_name: reward-service
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4006"
-      REWARD_SUPABASE_URL: ${REWARD_SUPABASE_URL:?Set REWARD_SUPABASE_URL}
-      REWARD_SUPABASE_SERVICE_ROLE_KEY: ${REWARD_SUPABASE_SERVICE_ROLE_KEY:?Set REWARD_SUPABASE_SERVICE_ROLE_KEY}
-      REWARD_DATABASE_URL: ${REWARD_DATABASE_URL:?Set REWARD_DATABASE_URL}
-      REWARD_DB_SCHEMA: ${REWARD_DB_SCHEMA:-public}
-      POINTS_SERVICE_URL: http://points-engine:4001
+      SCM_REWARD_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_REWARD_PORT: "3016"
+      SCM_REWARD_SUPABASE_URL: ${SCM_REWARD_SUPABASE_URL:?Set SCM_REWARD_SUPABASE_URL}
+      SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY: ${SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_REWARD_DATABASE_URL: ${SCM_REWARD_DATABASE_URL:?Set SCM_REWARD_DATABASE_URL}
+      SCM_REWARD_DB_SCHEMA: ${SCM_REWARD_DB_SCHEMA:-public}
+      SCM_POINTS_SERVICE_URL: http://points-engine:3017
     ports:
-      - "4006:4006"
+      - "3016:3016"
     depends_on:
       points-engine:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://reward-service:4006/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://reward-service:3016/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -122,23 +122,23 @@ services:
     container_name: points-engine
     restart: unless-stopped
     environment:
-      USE_SPLIT_SERVICE_DATABASES: "true"
-      PORT: "4001"
-      POINTS_SUPABASE_URL: ${POINTS_SUPABASE_URL:?Set POINTS_SUPABASE_URL}
-      POINTS_SUPABASE_SERVICE_ROLE_KEY: ${POINTS_SUPABASE_SERVICE_ROLE_KEY:?Set POINTS_SUPABASE_SERVICE_ROLE_KEY}
-      POINTS_DATABASE_URL: ${POINTS_DATABASE_URL:?Set POINTS_DATABASE_URL}
-      POINTS_DB_SCHEMA: ${POINTS_DB_SCHEMA:-public}
-      MEMBER_SERVICE_URL: http://member-service:4003
-      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
+      SCM_POINTS_USE_SPLIT_SERVICE_DATABASES: "true"
+      SCM_POINTS_PORT: "3017"
+      SCM_POINTS_SUPABASE_URL: ${SCM_POINTS_SUPABASE_URL:?Set SCM_POINTS_SUPABASE_URL}
+      SCM_POINTS_SUPABASE_SERVICE_ROLE_KEY: ${SCM_POINTS_SUPABASE_SERVICE_ROLE_KEY:?Set SCM_POINTS_SUPABASE_SERVICE_ROLE_KEY}
+      SCM_POINTS_DATABASE_URL: ${SCM_POINTS_DATABASE_URL:?Set SCM_POINTS_DATABASE_URL}
+      SCM_POINTS_DB_SCHEMA: ${SCM_POINTS_DB_SCHEMA:-public}
+      SCM_MEMBER_SERVICE_URL: http://member-service:3012
+      SCM_CAMPAIGN_SERVICE_URL: http://campaign-service:3014
     ports:
-      - "4001:4001"
+      - "3017:3017"
     depends_on:
       member-service:
         condition: service_healthy
       campaign-service:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://points-engine:4001/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://points-engine:3017/health/db').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -150,17 +150,17 @@ services:
     container_name: backend-api
     restart: unless-stopped
     environment:
-      PORT: "4000"
-      GATEWAY_URL: http://gateway:4000
-      MEMBER_SERVICE_URL: http://member-service:4003
-      SEGMENT_SERVICE_URL: http://segment-service:4004
-      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
-      NOTIFICATION_SERVICE_URL: http://notification-service:4005
-      REWARD_SERVICE_URL: http://reward-service:4006
-      POINTS_SERVICE_URL: http://points-engine:4001
-      ADMIN_ROLE: ${ADMIN_ROLE:-admin}
+      SCM_GATEWAY_PORT: "3011"
+      SCM_GATEWAY_URL: http://gateway:3011
+      SCM_MEMBER_SERVICE_URL: http://member-service:3012
+      SCM_SEGMENT_SERVICE_URL: http://segment-service:3013
+      SCM_CAMPAIGN_SERVICE_URL: http://campaign-service:3014
+      SCM_NOTIFICATION_SERVICE_URL: http://notification-service:3015
+      SCM_REWARD_SERVICE_URL: http://reward-service:3016
+      SCM_POINTS_SERVICE_URL: http://points-engine:3017
+      SCM_GATEWAY_ADMIN_ROLE: ${SCM_GATEWAY_ADMIN_ROLE:-admin}
     ports:
-      - "4000:4000"
+      - "3011:3011"
     depends_on:
       member-service:
         condition: service_healthy
@@ -175,7 +175,7 @@ services:
       points-engine:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3011/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -186,42 +186,42 @@ services:
       context: ./centralperk-frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-        NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SUPABASE_PROJECT_ID:-}
-        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
-        NEXT_PUBLIC_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_ENABLE_DEMO_AUTH:-false}
-        NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH:-false}
-        NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES:-${USE_SPLIT_SERVICE_DATABASES:-true}}
-        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:4000}
+        NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL:-}
+        NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PROJECT_ID:-}
+        NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH:-false}
+        NEXT_PUBLIC_SCM_FRONTEND_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_SCM_FRONTEND_FORCE_CUSTOMER_DEMO_AUTH:-false}
+        NEXT_PUBLIC_SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES:-${SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES:-true}}
+        NEXT_PUBLIC_SCM_GATEWAY_URL: ${NEXT_PUBLIC_SCM_GATEWAY_URL:-http://localhost:3011}
     container_name: frontend
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: "3000"
+      SCM_FRONTEND_PORT: "3010"
       HOSTNAME: "0.0.0.0"
-      GATEWAY_URL: http://gateway:4000
-      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:4000}
-      MEMBER_SERVICE_URL: http://member-service:4003
-      SEGMENT_SERVICE_URL: http://segment-service:4004
-      CAMPAIGN_SERVICE_URL: http://campaign-service:4002
-      NOTIFICATION_SERVICE_URL: http://notification-service:4005
-      REWARD_SERVICE_URL: http://reward-service:4006
-      POINTS_SERVICE_URL: http://points-engine:4001
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SUPABASE_PROJECT_ID:-}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
-      NEXT_PUBLIC_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_ENABLE_DEMO_AUTH:-false}
-      NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH:-false}
-      NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES:-${USE_SPLIT_SERVICE_DATABASES:-true}}
+      SCM_GATEWAY_URL: http://gateway:3011
+      NEXT_PUBLIC_SCM_GATEWAY_URL: ${NEXT_PUBLIC_SCM_GATEWAY_URL:-http://localhost:3011}
+      SCM_MEMBER_SERVICE_URL: http://member-service:3012
+      SCM_SEGMENT_SERVICE_URL: http://segment-service:3013
+      SCM_CAMPAIGN_SERVICE_URL: http://campaign-service:3014
+      SCM_NOTIFICATION_SERVICE_URL: http://notification-service:3015
+      SCM_REWARD_SERVICE_URL: http://reward-service:3016
+      SCM_POINTS_SERVICE_URL: http://points-engine:3017
+      NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL:-}
+      NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PROJECT_ID: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PROJECT_ID:-}
+      NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY:-}
+      NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH: ${NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH:-false}
+      NEXT_PUBLIC_SCM_FRONTEND_FORCE_CUSTOMER_DEMO_AUTH: ${NEXT_PUBLIC_SCM_FRONTEND_FORCE_CUSTOMER_DEMO_AUTH:-false}
+      NEXT_PUBLIC_SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES: ${NEXT_PUBLIC_SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES:-${SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES:-true}}
     ports:
-      - "3000:3000"
+      - "3010:3010"
     depends_on:
       gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3010/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5

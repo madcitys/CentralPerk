@@ -3,7 +3,7 @@ import { serviceBaseUrl } from "./service-proxy";
 import type { VoucherRecord } from "./voucher-types";
 
 function rewardServiceUrl(path: string) {
-  return `${serviceBaseUrl("REWARD_SERVICE_URL", "http://127.0.0.1:4006")}${path}`;
+  return `${serviceBaseUrl("SCM_REWARD_SERVICE_URL", "http://127.0.0.1:3016")}${path}`;
 }
 
 function messageFromPayload(payload: unknown, fallback: string) {

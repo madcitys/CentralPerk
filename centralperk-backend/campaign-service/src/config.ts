@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const serviceName = "campaign-service";
-const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+const splitMode = process.env.SCM_CAMPAIGN_USE_SPLIT_SERVICE_DATABASES === "true";
 
 function readEnv(name: string) {
   return process.env[name]?.trim() || "";
@@ -47,11 +47,11 @@ function requirePostgresUrl(name: string) {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4002;
+  const raw = readEnv("SCM_CAMPAIGN_PORT");
+  if (!raw) return 3014;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fail("Invalid port in environment variable: PORT");
+    fail("Invalid port in environment variable: SCM_CAMPAIGN_PORT");
   }
   return port;
 }
@@ -61,11 +61,11 @@ export const config = {
   dbMode: splitMode ? "split" : "shared",
   splitMode,
   port: parsePort(),
-  schema: readEnv("CAMPAIGN_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("CAMPAIGN_DATABASE_URL") || readEnv("DATABASE_URL"),
-  supabaseUrl: requireHttpUrl("CAMPAIGN_SUPABASE_URL"),
-  supabaseServiceKey: requireEnv("CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY"),
-  memberServiceUrl: splitMode ? requireHttpUrl("MEMBER_SERVICE_URL") : readEnv("MEMBER_SERVICE_URL") || "http://localhost:4003",
+  schema: readEnv("SCM_CAMPAIGN_DB_SCHEMA") || "public",
+  databaseUrl: readEnv("SCM_CAMPAIGN_DATABASE_URL"),
+  supabaseUrl: requireHttpUrl("SCM_CAMPAIGN_SUPABASE_URL"),
+  supabaseServiceKey: requireEnv("SCM_CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY"),
+  memberServiceUrl: splitMode ? requireHttpUrl("SCM_MEMBER_SERVICE_URL") : readEnv("SCM_MEMBER_SERVICE_URL") || "http://localhost:3012",
   hasSupabaseConfig: false,
 };
 

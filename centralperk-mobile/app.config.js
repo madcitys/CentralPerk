@@ -36,16 +36,16 @@ const fileEnv = envFiles.reduce(
 const readEnv = (...keys) => keys.map((key) => process.env[key] || fileEnv[key]).find(Boolean);
 
 const supabaseUrl =
-  readEnv("EXPO_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "MEMBER_SUPABASE_URL");
+  readEnv("EXPO_PUBLIC_SCM_MOBILE_SUPABASE_URL", "NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL", "SCM_MEMBER_SUPABASE_URL");
 const supabaseAnonKey =
   readEnv(
-    "EXPO_PUBLIC_SUPABASE_ANON_KEY",
-    "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-    "MEMBER_SUPABASE_ANON_KEY",
+    "EXPO_PUBLIC_SCM_MOBILE_SUPABASE_ANON_KEY",
+    "EXPO_PUBLIC_SCM_MOBILE_SUPABASE_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY",
+    "SCM_MEMBER_SUPABASE_ANON_KEY",
   );
-const configuredApiBaseUrl = readEnv("EXPO_PUBLIC_API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL", "NEXT_PUBLIC_APP_URL");
+const configuredApiBaseUrl = readEnv("EXPO_PUBLIC_SCM_MOBILE_API_BASE_URL", "NEXT_PUBLIC_SCM_FRONTEND_API_BASE_URL", "NEXT_PUBLIC_SCM_FRONTEND_APP_URL");
 
 function localNetworkHost() {
   const interfaces = os.networkInterfaces();
@@ -101,8 +101,8 @@ module.exports = {
       supabaseUrl,
       supabaseAnonKey,
       apiBaseUrl,
-      enableDemoAuth: readEnv("NEXT_PUBLIC_ENABLE_DEMO_AUTH", "EXPO_PUBLIC_ENABLE_DEMO_AUTH") !== "false",
-      allowProfileLogin: readEnv("EXPO_PUBLIC_ALLOW_PROFILE_LOGIN", "NEXT_PUBLIC_ALLOW_PROFILE_LOGIN") !== "false",
+      enableDemoAuth: readEnv("NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH", "EXPO_PUBLIC_SCM_MOBILE_ENABLE_DEMO_AUTH") !== "false",
+      allowProfileLogin: readEnv("EXPO_PUBLIC_SCM_MOBILE_ALLOW_PROFILE_LOGIN", "NEXT_PUBLIC_SCM_FRONTEND_ALLOW_PROFILE_LOGIN") !== "false",
     },
   },
 };

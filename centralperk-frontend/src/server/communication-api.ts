@@ -81,7 +81,7 @@ export const communicationsAnalyticsHandler = createApiHandler({
   methods: ["GET"] as const,
   rateLimit: { limit: 60, windowMs: 60_000 },
   handler: async () => {
-    const response = await fetch(`${serviceBaseUrl("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:4005")}/communications/analytics`, {
+    const response = await fetch(`${serviceBaseUrl("SCM_NOTIFICATION_SERVICE_URL", "http://127.0.0.1:3015")}/communications/analytics`, {
       headers: { accept: "application/json" },
     });
     const payload = await response.json().catch(() => ({}));

@@ -50,24 +50,24 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   context.res.setHeader("Expires", "0");
 
   const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
-    process.env.MEMBER_SUPABASE_URL?.trim() ||
-    process.env.VITE_SUPABASE_URL?.trim() ||
-    process.env.SUPABASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL?.trim() ||
+    process.env.SCM_MEMBER_SUPABASE_URL?.trim() ||
+    process.env.VITE_SCM_FRONTEND_SUPABASE_URL?.trim() ||
+    process.env.SCM_FRONTEND_SUPABASE_URL?.trim() ||
     "";
   const projectId =
-    process.env.NEXT_PUBLIC_SUPABASE_PROJECT_ID?.trim() ||
-    process.env.VITE_SUPABASE_PROJECT_ID?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PROJECT_ID?.trim() ||
+    process.env.VITE_SCM_FRONTEND_SUPABASE_PROJECT_ID?.trim() ||
     supabaseUrl.replace(/^https?:\/\//, "").replace(".supabase.co", "").split(".")[0] ||
     "";
   const publicAnonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
-    process.env.MEMBER_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_DEFAULT_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY?.trim() ||
+    process.env.SCM_MEMBER_SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    process.env.VITE_SCM_FRONTEND_SUPABASE_ANON_KEY?.trim() ||
+    process.env.SCM_FRONTEND_SUPABASE_ANON_KEY?.trim() ||
     "";
 
   return {

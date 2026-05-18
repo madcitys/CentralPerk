@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const baseUrl = (process.env.CENTRALPERK_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+const baseUrl = (process.env.SCM_FRONTEND_BASE_URL || "http://127.0.0.1:3010").replace(/\/+$/, "");
 
 async function fetchText(path, init) {
   const response = await fetch(`${baseUrl}${path}`, {

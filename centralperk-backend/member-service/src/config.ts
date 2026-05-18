@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const serviceName = "member-service";
-const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+const splitMode = process.env.SCM_MEMBER_USE_SPLIT_SERVICE_DATABASES === "true";
 
 function readEnv(name: string) {
   return process.env[name]?.trim() || "";
@@ -47,11 +47,11 @@ function requirePostgresUrl(name: string) {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4003;
+  const raw = readEnv("SCM_MEMBER_PORT");
+  if (!raw) return 3012;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fail("Invalid port in environment variable: PORT");
+    fail("Invalid port in environment variable: SCM_MEMBER_PORT");
   }
   return port;
 }
@@ -61,10 +61,10 @@ export const config = {
   dbMode: splitMode ? "split" : "shared",
   splitMode,
   port: parsePort(),
-  schema: readEnv("MEMBER_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("MEMBER_DATABASE_URL") || readEnv("DATABASE_URL"),
-  supabaseUrl: requireHttpUrl("MEMBER_SUPABASE_URL"),
-  supabaseServiceKey: requireEnv("MEMBER_SUPABASE_SERVICE_ROLE_KEY"),
+  schema: readEnv("SCM_MEMBER_DB_SCHEMA") || "public",
+  databaseUrl: readEnv("SCM_MEMBER_DATABASE_URL"),
+  supabaseUrl: requireHttpUrl("SCM_MEMBER_SUPABASE_URL"),
+  supabaseServiceKey: requireEnv("SCM_MEMBER_SUPABASE_SERVICE_ROLE_KEY"),
 };
 
 export type ServiceConfig = typeof config;

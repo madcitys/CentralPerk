@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$ports = @(3000, 4000, 4001, 4002, 4003, 4004, 4005, 4006)
+$ports = @(3010, 3011, 3012, 3013, 3014, 3015, 3016, 3017)
 $currentPid = $PID
 $pids = @()
 

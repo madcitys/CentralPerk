@@ -7,8 +7,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!campaignId) return res.status(400).json({ error: { message: "campaignId is required." } });
 
   return proxyToService(req, res, {
-    baseUrlEnv: "CAMPAIGN_SERVICE_URL",
-    fallbackBaseUrl: "http://127.0.0.1:4002",
+    baseUrlEnv: "SCM_CAMPAIGN_SERVICE_URL",
+    fallbackBaseUrl: "http://127.0.0.1:3014",
     targetPath: `/campaigns/${encodeURIComponent(campaignId)}/notify`,
     methods: ["POST"] as const,
     adminWrite: true,

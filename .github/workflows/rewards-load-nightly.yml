@@ -40,12 +40,12 @@ jobs:
           npm run server > tests/load/results/nightly/server.log 2>&1 &
 
       - name: Wait for API readiness
-        run: node tests/support/wait-for-url.mjs http://127.0.0.1:3000/api/campaigns/performance 120000
+        run: node tests/support/wait-for-url.mjs http://127.0.0.1:3010/api/campaigns/performance 120000
 
       - name: Run nightly baseline with Grafana remote write
         if: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL != '' }}
         env:
-          K6_BASE_URL: http://127.0.0.1:3000
+          K6_BASE_URL: http://127.0.0.1:3010
           K6_SUMMARY_DIR: tests/load/results/nightly
           K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
           K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
@@ -55,7 +55,7 @@ jobs:
       - name: Run nightly baseline without Grafana remote write
         if: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL == '' }}
         env:
-          K6_BASE_URL: http://127.0.0.1:3000
+          K6_BASE_URL: http://127.0.0.1:3010
           K6_SUMMARY_DIR: tests/load/results/nightly
         run: k6 run tests/load/k6/points-and-campaigns.js
 

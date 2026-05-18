@@ -20,7 +20,7 @@ function dependencies() {
 
 async function checkDependency(name: string, baseUrl: string) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2_500);
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch(buildTarget(baseUrl, "/health/db"), {
       signal: controller.signal,

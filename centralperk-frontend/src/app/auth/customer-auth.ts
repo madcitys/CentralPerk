@@ -7,9 +7,9 @@ import {
 } from "../lib/member-service-api";
 
 const DEMO_ACCOUNTS_KEY = "loyaltyhub-demo-accounts-v1";
-const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "true";
-const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_FORCE_CUSTOMER_DEMO_AUTH === "true";
-const DEMO_PROFILE_BOOTSTRAP_ENABLED = DEMO_AUTH_ENABLED && process.env.NEXT_PUBLIC_ENABLE_DEMO_PROFILE_BOOTSTRAP === "true";
+const DEMO_AUTH_ENABLED = process.env.NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH === "true";
+const FORCE_CUSTOMER_DEMO_AUTH = process.env.NEXT_PUBLIC_SCM_FRONTEND_FORCE_CUSTOMER_DEMO_AUTH === "true";
+const DEMO_PROFILE_BOOTSTRAP_ENABLED = DEMO_AUTH_ENABLED && process.env.NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_PROFILE_BOOTSTRAP === "true";
 const MIN_PASSWORD_LENGTH = 8;
 const DEMO_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_EMAIL_ALIASES_KEY = "centralperk-pending-email-aliases-v1";

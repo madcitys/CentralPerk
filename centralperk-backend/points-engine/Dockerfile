@@ -17,6 +17,6 @@ COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/dist ./dist
 
 ENV NODE_ENV=production
-ENV PORT=4001
+ENV SCM_POINTS_PORT=3017
 EXPOSE 4001
 CMD ["node", "dist/server.js"]

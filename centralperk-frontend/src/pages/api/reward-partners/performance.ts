@@ -4,8 +4,8 @@ import { proxyToService } from "../../../server/service-proxy";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   return proxyToService(req, res, {
-    baseUrlEnv: "REWARD_SERVICE_URL",
-    fallbackBaseUrl: "http://127.0.0.1:4006",
+    baseUrlEnv: "SCM_REWARD_SERVICE_URL",
+    fallbackBaseUrl: "http://127.0.0.1:3016",
     targetPath: "/reward-partners/performance",
     methods: ["GET"] as const,
   });
