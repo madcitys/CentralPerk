@@ -189,6 +189,18 @@ export async function submitFeedbackViaApi(input: AnyRecord) {
   return response.feedback;
 }
 
+export async function generateFeedbackInsightsViaApi() {
+  const response = await requestJson<{ ok: true; insights: AnyRecord }>("/api/members/feedback-insights/generate", {
+    method: "POST",
+  });
+  return response.insights;
+}
+
+export async function loadLatestFeedbackInsightsViaApi() {
+  const response = await requestJson<{ ok: true; insights: AnyRecord | null }>("/api/members/feedback-insights/latest");
+  return response.insights;
+}
+
 export async function loadTierHistoryViaApi(memberIdentifier: string, fallbackEmail?: string) {
   const params = new URLSearchParams({ memberIdentifier });
   if (fallbackEmail?.trim()) params.set("fallbackEmail", fallbackEmail.trim());

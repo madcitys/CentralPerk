@@ -67,7 +67,7 @@ function localNetworkHost() {
 const apiBaseUrl =
   configuredApiBaseUrl && !configuredApiBaseUrl.includes("localhost")
     ? configuredApiBaseUrl
-    : `http://${localNetworkHost()}:3000`;
+    : `http://${localNetworkHost()}:3010`;
 
 module.exports = {
   expo: {

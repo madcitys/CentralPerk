@@ -4,12 +4,12 @@ function resolveBaseUrl() {
   const baseUrl =
     process.env.SCM_GATEWAY_URL ||
     process.env.NEXT_PUBLIC_SCM_GATEWAY_URL ||
-    process.env.SCM_POINTS_ENGINE_URL ||
+    process.env.SCM_POINTS_SERVICE_URL ||
     process.env.NEXT_PUBLIC_SCM_POINTS_ENGINE_URL;
 
   if (!baseUrl) {
     throw new Error(
-      "Missing points service configuration. Set SCM_GATEWAY_URL, NEXT_PUBLIC_SCM_GATEWAY_URL, SCM_POINTS_ENGINE_URL, or NEXT_PUBLIC_SCM_POINTS_ENGINE_URL."
+      "Missing points service configuration. Set SCM_GATEWAY_URL, NEXT_PUBLIC_SCM_GATEWAY_URL, SCM_POINTS_SERVICE_URL, or NEXT_PUBLIC_SCM_POINTS_ENGINE_URL."
     );
   }
 

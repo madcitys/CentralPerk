@@ -18,5 +18,5 @@ COPY --from=base /app/dist ./dist
 
 ENV NODE_ENV=production
 ENV SCM_SEGMENT_PORT=3013
-EXPOSE 4004
+EXPOSE 3013
 CMD ["node", "dist/server.js"]

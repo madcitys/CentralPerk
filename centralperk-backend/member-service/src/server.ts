@@ -465,6 +465,192 @@ function stripOptionalProfileColumns(payload: Record<string, unknown>) {
   return clone;
 }
 
+const STOP_WORDS = new Set([
+  "about",
+  "after",
+  "all",
+  "also",
+  "and",
+  "any",
+  "are",
+  "but",
+  "can",
+  "for",
+  "from",
+  "get",
+  "have",
+  "here",
+  "how",
+  "just",
+  "like",
+  "more",
+  "not",
+  "now",
+  "our",
+  "out",
+  "points",
+  "reward",
+  "rewards",
+  "that",
+  "the",
+  "this",
+  "too",
+  "use",
+  "very",
+  "was",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
+function tokenizeFeedback(text: string) {
+  return text
+    .toLowerCase()
+    .split(/[\W_]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
+}
+
+function cosineSimilarity(a: Map<string, number>, b: Map<string, number>) {
+  let dot = 0;
+  let aMagnitude = 0;
+  let bMagnitude = 0;
+
+  for (const [term, value] of a.entries()) {
+    dot += value * (b.get(term) ?? 0);
+    aMagnitude += value * value;
+  }
+
+  for (const value of b.values()) {
+    bMagnitude += value * value;
+  }
+
+  if (!aMagnitude || !bMagnitude) return 0;
+  return dot / (Math.sqrt(aMagnitude) * Math.sqrt(bMagnitude));
+}
+
+function processFeedbackInsights(feedbackRows: any[]) {
+  const sentimentSplit = { positive: 0, neutral: 0, negative: 0 };
+  const documents = feedbackRows
+    .map((row, index) => {
+      const tokens = tokenizeFeedback(String(row.comment || ""));
+      const rating = Math.max(1, Math.min(5, Number(row.rating || 5)));
+      if (rating >= 4) sentimentSplit.positive += 1;
+      else if (rating === 3) sentimentSplit.neutral += 1;
+      else sentimentSplit.negative += 1;
+
+      return {
+        id: String(row.id ?? index),
+        category: String(row.category || "service"),
+        comment: String(row.comment || ""),
+        tokens,
+      };
+    })
+    .filter((document) => document.comment.trim().length > 0);
+
+  const documentFrequency = new Map<string, number>();
+  for (const document of documents) {
+    for (const token of new Set(document.tokens)) {
+      documentFrequency.set(token, (documentFrequency.get(token) ?? 0) + 1);
+    }
+  }
+
+  const documentCount = Math.max(1, documents.length);
+  const vectors = documents.map((document) => {
+    const termFrequency = new Map<string, number>();
+    for (const token of document.tokens) {
+      termFrequency.set(token, (termFrequency.get(token) ?? 0) + 1);
+    }
+
+    const vector = new Map<string, number>();
+    for (const [term, count] of termFrequency.entries()) {
+      const tf = count / Math.max(1, document.tokens.length);
+      const idf = Math.log((documentCount + 1) / ((documentFrequency.get(term) ?? 0) + 1)) + 1;
+      vector.set(term, Number((tf * idf).toFixed(6)));
+    }
+    return vector;
+  });
+
+  const wordScores = new Map<string, number>();
+  for (const vector of vectors) {
+    for (const [term, score] of vector.entries()) {
+      wordScores.set(term, (wordScores.get(term) ?? 0) + score);
+    }
+  }
+
+  const wordCloud = Array.from(wordScores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30)
+    .map(([word, weight]) => ({ word, weight: Number(weight.toFixed(4)) }));
+
+  const grouped = new Set<number>();
+  const similarFeedbackGroups: Array<{
+    topic: string;
+    count: number;
+    averageSimilarity: number;
+    feedbackIds: string[];
+  }> = [];
+
+  for (let index = 0; index < documents.length; index += 1) {
+    if (grouped.has(index)) continue;
+
+    const groupIndexes = [index];
+    grouped.add(index);
+
+    for (let candidate = index + 1; candidate < documents.length; candidate += 1) {
+      if (grouped.has(candidate)) continue;
+      const similarity = cosineSimilarity(vectors[index], vectors[candidate]);
+      if (similarity >= 0.32) {
+        groupIndexes.push(candidate);
+        grouped.add(candidate);
+      }
+    }
+
+    const groupTokens = new Map<string, number>();
+    let similarityTotal = 0;
+    let similarityPairs = 0;
+
+    for (const groupIndex of groupIndexes) {
+      for (const token of documents[groupIndex].tokens) {
+        groupTokens.set(token, (groupTokens.get(token) ?? 0) + 1);
+      }
+    }
+
+    for (let left = 0; left < groupIndexes.length; left += 1) {
+      for (let right = left + 1; right < groupIndexes.length; right += 1) {
+        similarityTotal += cosineSimilarity(vectors[groupIndexes[left]], vectors[groupIndexes[right]]);
+        similarityPairs += 1;
+      }
+    }
+
+    const topic =
+      Array.from(groupTokens.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+      documents[index].category ??
+      "feedback";
+
+    similarFeedbackGroups.push({
+      topic: topic.charAt(0).toUpperCase() + topic.slice(1),
+      count: groupIndexes.length,
+      averageSimilarity: Number((similarityPairs ? similarityTotal / similarityPairs : 1).toFixed(4)),
+      feedbackIds: groupIndexes.map((groupIndex) => documents[groupIndex].id),
+    });
+  }
+
+  const topTopics = similarFeedbackGroups
+    .sort((a, b) => b.count - a.count || b.averageSimilarity - a.averageSimilarity)
+    .slice(0, 3)
+    .map((group) => ({ topic: group.topic, count: group.count }));
+
+  return {
+    sentimentSplit,
+    wordCloud,
+    topTopics,
+    similarFeedbackGroups: similarFeedbackGroups.slice(0, 8),
+    sourceCount: documents.length,
+  };
+}
+
 export function createServer() {
   const app = Fastify({ logger: true });
 
@@ -1039,6 +1225,85 @@ export function createServer() {
       throw error;
     }
     return { ok: true, feedback: mapFeedback(data) };
+  });
+
+  app.post("/feedback-insights/generate", async (_request, reply) => {
+    const { data: rawFeedback, error: fetchError } = await supabase
+      .from("member_feedback")
+      .select("id,category,rating,comment")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+
+    if (fetchError) {
+      if (tableMissing(fetchError, "member_feedback")) {
+        return { ok: true, insights: processFeedbackInsights([]), warning: "member_feedback_table_missing" };
+      }
+      throw fetchError;
+    }
+
+    const insights = processFeedbackInsights(rawFeedback || []);
+    const { data, error } = await supabase
+      .from("feedback_insights")
+      .insert({
+        id: randomUUID(),
+        sentiment_split: insights.sentimentSplit,
+        word_cloud: insights.wordCloud,
+        top_topics: insights.topTopics,
+        similar_feedback_groups: insights.similarFeedbackGroups,
+        source_count: insights.sourceCount,
+        created_at: new Date().toISOString(),
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      if (tableMissing(error, "feedback_insights")) {
+        return { ok: true, insights, warning: "feedback_insights_table_missing" };
+      }
+      throw error;
+    }
+
+    return {
+      ok: true,
+      insights: {
+        sentimentSplit: data.sentiment_split ?? insights.sentimentSplit,
+        wordCloud: data.word_cloud ?? insights.wordCloud,
+        topTopics: data.top_topics ?? insights.topTopics,
+        similarFeedbackGroups: data.similar_feedback_groups ?? insights.similarFeedbackGroups,
+        sourceCount: Number(data.source_count ?? insights.sourceCount),
+        createdAt: String(data.created_at ?? new Date().toISOString()),
+      },
+    };
+  });
+
+  app.get("/feedback-insights/latest", async (_request, reply) => {
+    const { data, error } = await supabase
+      .from("feedback_insights")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (tableMissing(error, "feedback_insights")) {
+        return { ok: true, insights: null };
+      }
+      throw error;
+    }
+
+    if (!data) return { ok: true, insights: null };
+
+    return {
+      ok: true,
+      insights: {
+        sentimentSplit: data.sentiment_split ?? { positive: 0, neutral: 0, negative: 0 },
+        wordCloud: data.word_cloud ?? [],
+        topTopics: data.top_topics ?? [],
+        similarFeedbackGroups: data.similar_feedback_groups ?? [],
+        sourceCount: Number(data.source_count ?? 0),
+        createdAt: String(data.created_at ?? new Date().toISOString()),
+      },
+    };
   });
 
   app.get("/tier-history", async (request) => {

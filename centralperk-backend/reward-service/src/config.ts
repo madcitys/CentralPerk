@@ -1,4 +1,8 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "reward-service";
@@ -57,8 +61,8 @@ export const config = {
   splitMode,
   port: parsePort(),
   schema: readEnv("SCM_REWARD_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("SCM_REWARD_DATABASE_URL"),
+  databaseUrl: readEnv("SCM_REWARD_DATABASE_URL") || readEnv("SCM_SHARED_DATABASE_URL"),
   supabaseUrl: requireHttpUrl("SCM_REWARD_SUPABASE_URL"),
   supabaseServiceKey: requireEnv("SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY"),
-  pointsServiceUrl: splitMode ? requireHttpUrl("SCM_POINTS_SERVICE_URL") : readEnv("SCM_POINTS_SERVICE_URL") || readEnv("SCM_POINTS_ENGINE_URL") || "http://localhost:3017",
+  pointsServiceUrl: splitMode ? requireHttpUrl("SCM_POINTS_SERVICE_URL") : readEnv("SCM_POINTS_SERVICE_URL") || "http://localhost:3017",
 };

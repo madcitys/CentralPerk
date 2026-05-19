@@ -634,13 +634,13 @@ export default function CustomerEngagementPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 pb-4">
-      <section className="grid gap-4 rounded-[24px] border border-[#b9d7f4] bg-[linear-gradient(135deg,#f8fcff,#edf7ff)] p-5 shadow-[0_12px_30px_rgba(15,35,60,0.06)] lg:grid-cols-[1fr_360px]">
+    <div className="mx-auto max-w-[1180px] space-y-5 px-4 py-5 sm:px-5 lg:px-6">
+      <section className="grid gap-4 rounded-[16px] border border-[#bfe9e4] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] p-5 shadow-[0_12px_28px_rgba(0,96,86,0.07)] lg:grid-cols-[1fr_280px]">
         <div>
-          <div className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">
+          <div className="inline-flex items-center rounded-full border border-[#bfe5e8] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#007d87]">
             Engagement Hub
           </div>
-          <h1 className="mt-3 text-2xl font-bold text-[#10213a] md:text-[32px]">Member Engagement</h1>
+          <h1 className="mt-3 text-[28px] font-extrabold leading-tight text-[#071a35] md:text-[30px]">Member Engagement</h1>
           <p className="mt-2 max-w-2xl text-sm text-[#344054] md:text-[15px]">
             Join challenges, share referrals, answer surveys, and unlock member perks.
           </p>

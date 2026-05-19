@@ -13,6 +13,7 @@
     "build:backend": "npm --prefix ./centralperk-backend run build",
     "build:services": "npm run build:backend",
     "validate:split-dbs": "npm --prefix ./centralperk-backend run validate:split-dbs",
+    "scan:secrets": "powershell -ExecutionPolicy Bypass -File ./scripts/scan-secrets.ps1",
     "test:api-sample": "npm --prefix ./centralperk-frontend run test:api-sample",
     "test:browser-flow": "npm --prefix ./centralperk-frontend run test:browser-flow",
     "start:frontend": "npm --prefix ./centralperk-frontend run start",

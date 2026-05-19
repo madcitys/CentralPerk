@@ -249,8 +249,8 @@ export default function PointsActivity() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f7fa] px-7 py-6 text-[#0f172a]">
-      <div className="mx-auto max-w-[1600px] space-y-4">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f2fbf8_0%,#f7fafc_48%,#edf8f4_100%)] px-4 py-5 text-[#0f172a] sm:px-5 lg:px-6">
+      <div className="mx-auto max-w-[1180px] space-y-4">
         <div className="flex justify-end gap-3">
           <button
             type="button"
@@ -274,11 +274,11 @@ export default function PointsActivity() {
           </button>
         </div>
 
-        <Card className="gap-0 rounded-[22px] border border-[#dfe7f0] bg-white p-6 shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
-          <span className="w-fit rounded-full border border-[#9ddbd4] bg-[#eefbf8] px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-[#007f78]">
+        <Card className="gap-0 rounded-[16px] border border-[#bfe9e4] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] p-5 shadow-[0_12px_28px_rgba(0,96,86,0.07)]">
+          <span className="w-fit rounded-full border border-[#9ddbd4] bg-white/90 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-[#007f78]">
             Points Timeline
           </span>
-          <h1 className="mt-4 text-[30px] font-black leading-tight tracking-tight text-[#0f172a]">Points Activity</h1>
+          <h1 className="mt-3 text-[30px] font-black leading-tight tracking-normal text-[#071a35]">Points Activity</h1>
           <p className="mt-2 max-w-3xl text-[14px] font-medium leading-6 text-[#64748b]">
             View and track all your points transactions with the same softer, more cohesive layout used across the member portal.
           </p>

@@ -53,12 +53,12 @@
 ## Points Engine Service (Sprint 4)
 
 - Location: `services/points-engine`
-- Env: set `SCM_FRONTEND_SUPABASE_URL`, `SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY`, and `SCM_POINTS_ENGINE_URL` (or `NEXT_PUBLIC_SCM_POINTS_ENGINE_URL`) in `.env`.
+- Env: set `SCM_FRONTEND_SUPABASE_URL`, `SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY`, and `SCM_POINTS_SERVICE_URL` (or `NEXT_PUBLIC_SCM_POINTS_ENGINE_URL`) in `.env`.
 - Install deps and build (service only):
   - `cd services/points-engine`
   - `npm install`
   - `npm run build`
-  - `npm run start` (listens on port 4001 by default)
+  - `npm run start` (listens on port 3017 by default)
 - Docker: `docker build -t points-engine ./services/points-engine`
 - Nightly expiry is scheduled in SQL via `points_run_nightly_expiry`; SQL migrations live in `SQL_CODES/6_points_engine.sql`.
 
@@ -70,7 +70,7 @@
 
 ## Gateway (Sprint 4)
 - Location: `services/gateway`
-- Env: `SCM_GATEWAY_URL` (default http://localhost:3011), `SCM_POINTS_ENGINE_URL`, `SCM_CAMPAIGN_SERVICE_URL`, `SCM_GATEWAY_ADMIN_ROLE` (default `admin`)
+- Env: `SCM_GATEWAY_URL` (default http://localhost:3011), `SCM_POINTS_SERVICE_URL`, `SCM_CAMPAIGN_SERVICE_URL`, `SCM_GATEWAY_ADMIN_ROLE` (default `admin`)
 - Commands: `npm run build`, `npm run verify` (runs mock integration), `npm start`
 - Rate limit: `/points/award` limited to 1000 req/min. Campaign write routes require header `x-role: admin`.
 - Load test: `k6 run services/gateway/load-test/k6-gateway.js` (requires k6).

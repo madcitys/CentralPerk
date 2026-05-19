@@ -4,10 +4,8 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Coins,
   Grid3X3,
   Gift,
-  Info,
   List,
   MapPin,
   PackageCheck,
@@ -27,7 +25,6 @@ import { Badge } from "../../../components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
-import { Switch } from "../../../components/ui/switch";
 import { Textarea } from "../../../components/ui/textarea";
 import { ImageWithFallback } from "../../../components/figma/ImageWithFallback";
 import { toast } from "sonner";
@@ -45,7 +42,7 @@ import {
   redeemPointsViaApi,
   redeemRewardViaApi,
 } from "../../lib/api";
-import { normalizeRewardDisplayName, normalizeTransactionDescription } from "../../lib/reward-display";
+import { PHARMACY_FALLBACK_IMAGE, normalizeRewardDisplayName, normalizeTransactionDescription } from "../../lib/reward-display";
 import { generateVoucherQrDataUrl } from "../../lib/voucher-qr";
 import {
   brandNavyBadgeClass,
@@ -53,27 +50,15 @@ import {
   brandNavySolidHoverClass,
   brandTealSolidClass,
   brandTealSolidHoverClass,
-  brandTealSurfaceClass,
 } from "../../lib/ui-color-tokens";
 import {
   customerPanelClass,
   customerPanelSoftClass,
 } from "../lib/page-theme";
 
-const rewardImages = [
-  "https://images.unsplash.com/photo-1657048167114-0942f3a2dc93?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1751151856149-5ebf1d21586a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1680381724318-c8ac9fe3a484?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1738682585466-c287db5404de?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1561766858-62033ae40ec3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1666447616947-cd26838cb88b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1637910116483-7efcc9480847?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-  "https://images.unsplash.com/photo-1683888046273-38c106471115?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
-];
-
 type RedemptionMethod = "in-store" | "online";
 type RewardCategoryTab = "all" | "flash" | "partner" | "pharmacy" | "wellness" | "voucher";
-type RewardsWorkspace = "catalog" | "flash" | "checkout" | "wallet" | "history";
+type RewardsWorkspace = "catalog" | "flash" | "wallet" | "history";
 type DeliveryPartner = "grab" | "foodpanda" | "lalamove" | "pickup";
 
 const REWARDS_PAGE_SIZE = 8;
@@ -105,10 +90,16 @@ const partnerMarks: Record<DeliveryPartner, { label: string; className: string }
 function formatRewardCategory(value: string, name = "", description = "") {
   const normalized = `${value || "voucher"} ${name} ${description}`.toLowerCase();
   if (normalized.includes("wellness")) return "Wellness";
-  if (normalized.includes("medicine") || normalized.includes("pharmacy")) return "Medicine";
+  if (normalized.includes("medicine") || normalized.includes("pharmacy")) return "Pharmacy";
   if (normalized.includes("food") || normalized.includes("beverage")) return "Voucher";
   if (normalized.includes("partner")) return "Partner";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function resolveRewardImageUrl(imageUrl?: string | null) {
+  const rawImageUrl = String(imageUrl || "").trim();
+  if (rawImageUrl && !rawImageUrl.includes("images.unsplash.com")) return rawImageUrl;
+  return PHARMACY_FALLBACK_IMAGE;
 }
 
 function buildVoucherScanUrl(voucherId: string, voucherCode: string) {
@@ -274,10 +265,6 @@ export default function Rewards() {
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [deliveryPartnerInstructions, setDeliveryPartnerInstructions] = useState("");
   const [contactNumber, setContactNumber] = useState("");
-  const [usePoints, setUsePoints] = useState(false);
-  const [autoApplyAtCheckout, setAutoApplyAtCheckout] = useState(false);
-  const [checkoutAmount, setCheckoutAmount] = useState("");
-  const [pointsToUse, setPointsToUse] = useState("");
   const [giftEmail, setGiftEmail] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
   const [redeemSearch, setRedeemSearch] = useState("");
@@ -418,11 +405,6 @@ export default function Rewards() {
 
   const partnerRewards = useMemo(() => filteredRewards.filter((reward) => Boolean(reward.partnerId)), [filteredRewards]);
 
-  const bonusCampaigns = useMemo(
-    () => activeCampaigns.filter((campaign) => campaign.campaignType !== "flash_sale"),
-    [activeCampaigns]
-  );
-
   const redeemedHistory = useMemo(() => {
     const keyword = redeemSearch.trim().toLowerCase();
     return user.transactions
@@ -500,6 +482,10 @@ export default function Rewards() {
   }, [historyPageCount]);
 
   const featuredFlashRewards = flashSaleRewards.slice(0, 2);
+  const redeemableRewardsCount = filteredRewards.filter((reward) => user.points >= reward.pointsCost).length;
+  const nextReward = filteredRewards
+    .filter((reward) => reward.pointsCost > user.points)
+    .sort((left, right) => left.pointsCost - right.pointsCost)[0] ?? null;
 
   const isFlashSaleSoldOut = (reward: Reward) =>
     Boolean(
@@ -773,59 +759,7 @@ export default function Rewards() {
     }
   };
 
-  const handlePartialPayment = async () => {
-    const points = parseInt(pointsToUse, 10);
-    if (!Number.isFinite(points) || points <= 0) {
-      toast.error("Enter a valid point amount.");
-      return;
-    }
-    if (points > user.points) {
-      toast.error("You cannot use more points than your current balance.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await spendPoints(points, "Partial payment applied", "Checkout");
-      toast.success(`${points} points applied.`);
-      setUsePoints(false);
-      setPointsToUse("");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Apply failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAutoApplyCheckout = async () => {
-    const subtotal = parseFloat(checkoutAmount);
-    if (!subtotal || subtotal <= 0) {
-      toast.error("Enter a valid checkout amount.");
-      return;
-    }
-
-    const maxApplicablePoints = Math.min(user.points, Math.floor(subtotal * 100));
-    if (maxApplicablePoints <= 0) {
-      toast.error("No points available to apply.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await spendPoints(maxApplicablePoints, `Auto apply checkout ($${subtotal.toFixed(2)})`, "Checkout");
-      const finalAmount = Math.max(0, subtotal - maxApplicablePoints / 100);
-      toast.success("Points auto-applied.", {
-        description: `${maxApplicablePoints} points used. New payable total: $${finalAmount.toFixed(2)}.`,
-      });
-      setCheckoutAmount("");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Auto apply failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const renderRewardCard = (reward: Reward, imageIndex: number) => {
+  const renderRewardCard = (reward: Reward) => {
     const isReserved = reservedRewards.includes(reward.id);
     const canAfford = user.points >= reward.pointsCost;
     const soldOut = isFlashSaleSoldOut(reward);
@@ -837,22 +771,22 @@ export default function Rewards() {
       <Card
         key={reward.id}
         className={cn(
-          "group flex h-full min-h-[334px] flex-col overflow-hidden rounded-[18px] border border-[#dfe7f0] bg-white shadow-[0_12px_26px_rgba(8,26,53,0.05)] transition hover:-translate-y-0.5 hover:border-[#c6d5e5] hover:shadow-[0_18px_36px_rgba(8,26,53,0.09)]",
+          "group grid h-full min-h-[164px] overflow-hidden rounded-[14px] border border-[#dfe7f0] bg-white shadow-[0_10px_24px_rgba(8,26,53,0.05)] transition hover:-translate-y-0.5 hover:border-[#c6d5e5] hover:shadow-[0_18px_36px_rgba(8,26,53,0.09)] sm:grid-cols-[150px_minmax(0,1fr)]",
           unavailable && "border-[#f3c2c2] bg-[#fff8f8]"
         )}
       >
-        <div className="relative">
+        <div className="relative min-h-[156px]">
           <ImageWithFallback
-            src={reward.imageUrl || rewardImages[imageIndex % rewardImages.length]}
+            src={resolveRewardImageUrl(reward.imageUrl)}
             alt={reward.name}
-            className="h-[132px] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+            className="h-full min-h-[156px] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
           />
           <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-2">
-            <Badge variant="outline" className="h-8 rounded-xl border-white/70 bg-white/95 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-[#0b706d] shadow-sm">
+            <Badge variant="outline" className="h-7 rounded-lg border-white/70 bg-white/95 px-3 text-[11px] font-black text-[#0b706d] shadow-sm">
               {categoryLabel}
             </Badge>
             {reward.activeFlashSaleId ? (
-              <Badge className="h-8 rounded-xl bg-[#ffe8e8] px-3 text-[11px] font-black text-[#ef4444] shadow-sm">
+              <Badge className="h-7 rounded-lg bg-[#ffe8e8] px-3 text-[11px] font-black text-[#ef4444] shadow-sm">
                 {soldOut ? "Sold Out" : expired ? "Ended" : `Flash ${formatCountdown(reward.flashSaleEndsAt, countdownNow)}`}
               </Badge>
             ) : null}
@@ -860,14 +794,14 @@ export default function Rewards() {
           {isReserved ? <Badge className="absolute right-3 top-3 h-8 rounded-xl bg-sky-600 px-3 text-[11px] text-white shadow-sm">Reserved</Badge> : null}
         </div>
 
-        <div className="flex flex-1 flex-col p-4">
-          <div className="min-h-[78px]">
+        <div className="flex min-w-0 flex-1 flex-col p-4">
+          <div>
             <p className="line-clamp-2 text-[15px] font-black leading-5 text-[#10213a]">{reward.name}</p>
             <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-[#657286]">{reward.description}</p>
           </div>
 
           {reward.activeFlashSaleId ? (
-            <div className="mt-3 rounded-2xl border border-[#ffd2d2] bg-[#fff8f8] px-3 py-2">
+            <div className="mt-3 rounded-xl border border-[#ffd2d2] bg-[#fff8f8] px-3 py-2">
               <p className="text-xs font-black text-[#991b1b]">{reward.flashSaleBanner || "Limited-time offer"}</p>
               <p className="mt-1 text-xs font-semibold text-[#b45309]">
                 {(reward.flashSaleClaimedCount ?? 0).toLocaleString()}
@@ -877,79 +811,88 @@ export default function Rewards() {
           ) : null}
 
           <div className="mt-auto border-t border-[#edf1f5] pt-4">
-            <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#0b706d]">Cost</p>
-              <p className="text-[22px] font-black leading-none text-[#0b8a80]">
-                {reward.pointsCost.toLocaleString()}
-                <span className="ml-1 text-sm font-bold text-[#10213a]">pts</span>
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-            <Button
-              className="h-10 rounded-xl bg-[#008c80] px-5 text-sm font-black text-white hover:bg-[#00736f]"
-              disabled={saving || unavailable || !canAfford}
-              onClick={() => handleRedeem(reward)}
-            >
-              {expired ? "Reward Expired" : soldOut ? "Sold Out" : "Redeem"}
-            </Button>
-            <Button variant="outline" className="h-10 w-10 rounded-xl border-[#dce7ef] p-0 text-[#10213a] hover:bg-[#f3f7fb]" size="icon" onClick={() => handleGift(reward)} disabled={saving}>
-              <Gift className="h-4 w-4" />
-            </Button>
-            </div>
+            <div className="grid items-center gap-3 sm:grid-cols-[auto_minmax(112px,1fr)]">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#0b706d]">Point Cost</p>
+                <p className="mt-1 text-[20px] font-black leading-none text-[#0b8a80]">
+                  {reward.pointsCost.toLocaleString()}
+                  <span className="ml-1 text-sm font-bold text-[#10213a]">pts</span>
+                </p>
+              </div>
+              <Button
+                className="h-10 rounded-lg bg-[#008c80] px-5 text-sm font-black text-white hover:bg-[#00736f]"
+                disabled={saving || unavailable || !canAfford}
+                onClick={() => handleRedeem(reward)}
+              >
+                {expired ? "Reward Expired" : soldOut ? "Sold Out" : "Redeem"}
+              </Button>
             </div>
           </div>
 
-          {!canAfford ? <p className="text-xs font-medium text-orange-600">Need {reward.pointsCost - user.points} more points.</p> : null}
-          {expired ? <p className="text-xs font-medium text-[#991b1b]">This reward is no longer available.</p> : null}
-          {soldOut ? <p className="text-xs font-medium text-[#991b1b]">This flash reward is sold out.</p> : null}
+          {!canAfford ? <p className="mt-2 text-xs font-medium text-orange-600">Need {(reward.pointsCost - user.points).toLocaleString()} more points.</p> : null}
+          {expired ? <p className="mt-2 text-xs font-medium text-[#991b1b]">This reward is no longer available.</p> : null}
+          {soldOut ? <p className="mt-2 text-xs font-medium text-[#991b1b]">This flash reward is sold out.</p> : null}
         </div>
       </Card>
     );
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f7fa] text-[#10213a]">
-      <header className="border-b border-[#e3e9f1] bg-white">
-        <div className="mx-auto flex max-w-[1360px] flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-6">
-          <div>
-            <h1 className="mt-2 text-[30px] font-black leading-tight tracking-tight text-[#10213a]">Rewards Catalog</h1>
-            <p className="mt-1 text-sm font-medium text-[#64748b]">Redeem pharmacy vouchers, wellness perks, and partner rewards.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 rounded-[18px] border border-[#dfe7f0] bg-white px-4 py-3 text-[#10213a] shadow-[0_12px_30px_rgba(8,26,53,0.05)]">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#008c80,#006d68)] text-white shadow-[0_12px_26px_rgba(0,140,128,0.25)]">
-                <Coins className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#64748b]">Available Points</p>
-                <p className="text-[30px] font-black leading-none tracking-tight">{user.points.toLocaleString()}</p>
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f2fbf8_0%,#f7fafc_48%,#edf8f4_100%)] text-[#10213a]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <header>
+        <div className="mx-auto max-w-[1180px] px-5 pb-2 pt-5 lg:px-6">
+          <div className="mb-5 rounded-[16px] border border-[#bfe9e4] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(0,96,86,0.07)]">
+            <div>
+              <div className="inline-flex items-center rounded-full border border-[#bfe5e8] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0f766e]">
+                Rewards Center
               </div>
-            </div>
-            <div className="h-10 w-px bg-[#e3e9f1]" />
-          <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setWorkspace("wallet")}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#d9e3ee] bg-white px-4 text-sm font-black text-[#10213a] transition hover:bg-[#f8fafc]"
-              >
-                <QrCode className="h-4 w-4" />
-                View QR Vouchers
-              </button>
-              <span className="text-sm font-bold text-[#64748b]">Auto Apply</span>
-              <Info className="h-4 w-4 text-[#64748b]" />
-              <Switch
-                checked={autoApplyAtCheckout}
-                onCheckedChange={setAutoApplyAtCheckout}
-                className="data-[state=checked]:bg-[#008c80] data-[state=unchecked]:bg-[#cbd5e1]"
-              />
+              <h1 className="mt-3 text-[30px] font-extrabold leading-tight tracking-normal text-[#071a35]">Rewards</h1>
+              <p className="mt-1 text-[13px] font-medium text-[#64748b]">Redeem pharmacy vouchers, wellness perks, and partner rewards.</p>
             </div>
           </div>
+
+          <section className="grid gap-4 lg:grid-cols-[0.95fr_1.35fr]">
+            <Card className="relative min-h-[230px] overflow-hidden rounded-[14px] border border-[#d7e2ef] bg-[radial-gradient(circle_at_88%_88%,rgba(8,105,134,0.34),transparent_35%),linear-gradient(135deg,#061d3a_0%,#062c55_100%)] p-6 text-white shadow-[0_18px_34px_rgba(8,26,53,0.16)]">
+              <div className="pointer-events-none absolute -bottom-24 -right-20 h-72 w-72 rounded-full border border-white/6" />
+              <div className="pointer-events-none absolute -bottom-14 -right-12 h-52 w-52 rounded-full border border-white/6" />
+              <div className="relative flex items-start justify-between gap-4">
+                <p className="text-[12px] font-extrabold uppercase tracking-[0.18em] text-[#bfe7f2]">Member Balance</p>
+                <span className="inline-flex min-w-[140px] justify-center rounded-full bg-[#d8fff7] px-5 py-2 text-[12px] font-extrabold text-[#005f5a]">{user.tier} Tier</span>
+              </div>
+              <div className="relative mt-8 flex flex-wrap items-end justify-center gap-3 text-center">
+                <p className="text-[46px] font-extrabold leading-none tracking-normal sm:text-[52px]">{user.points.toLocaleString()}</p>
+                <p className="pb-2 text-[14px] font-extrabold uppercase tracking-[0.08em] text-white/88">points</p>
+              </div>
+              <p className="relative mx-auto mt-5 max-w-[380px] text-center text-[13px] font-semibold leading-6 text-white/90">
+                You are currently in {user.tier}. Use your balance for available rewards and active campaigns.
+              </p>
+            </Card>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card className="min-h-[122px] rounded-[12px] border border-[#e2e8f0] bg-white p-4 shadow-[0_12px_24px_rgba(8,26,53,0.06)]">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#64748b]">Redeemable</p>
+                <p className="mt-4 text-[32px] font-extrabold leading-none text-[#071a35]">{redeemableRewardsCount.toLocaleString()}</p>
+                <p className="mt-2 text-[12px] font-semibold text-[#0b8a80]">Available with your balance</p>
+              </Card>
+              <Card className="min-h-[122px] rounded-[12px] border border-[#e2e8f0] bg-white p-4 shadow-[0_12px_24px_rgba(8,26,53,0.06)]">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#64748b]">Campaigns</p>
+                <p className="mt-4 text-[32px] font-extrabold leading-none text-[#071a35]">{activeCampaigns.length.toLocaleString()}</p>
+                <p className="mt-2 text-[12px] font-semibold text-[#0b8a80]">Live promotions</p>
+              </Card>
+              <Card className="min-h-[122px] rounded-[12px] border border-[#e2e8f0] bg-white p-4 shadow-[0_12px_24px_rgba(8,26,53,0.06)]">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#64748b]">Next Unlock</p>
+                <p className="mt-4 text-[32px] font-extrabold leading-none text-[#071a35]">
+                  {nextReward ? Math.max(0, nextReward.pointsCost - user.points).toLocaleString() : "0"}
+                </p>
+                <p className="mt-2 truncate text-[12px] font-semibold text-[#0b8a80]">{nextReward ? "points away" : "All affordable"}</p>
+              </Card>
+            </div>
+          </section>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1360px] px-5 pb-10 lg:px-6">
-        <nav className="mt-4 flex gap-2 overflow-x-auto rounded-[18px] border border-[#dfe7f0] bg-white p-1 shadow-[0_10px_24px_rgba(8,26,53,0.04)]">
+      <main className="mx-auto max-w-[1180px] px-5 pb-10 lg:px-6">
+        <nav className="mt-4 grid gap-1 overflow-x-auto rounded-[14px] border border-[#dfe7f0] bg-white p-1 shadow-[0_10px_24px_rgba(8,26,53,0.04)] md:grid-cols-3 xl:grid-cols-6">
           {rewardCategoryTabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -961,9 +904,9 @@ export default function Rewards() {
                   setActiveTab(tab.value);
                 }}
                 className={cn(
-                  "inline-flex h-11 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-[14px] border px-5 text-sm font-black transition",
+                  "inline-flex h-11 min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-[10px] border px-5 text-sm font-black transition",
                   activeTab === tab.value
-                    ? "border-[#008c80] bg-[linear-gradient(135deg,#008c80,#00736f)] text-white shadow-[0_12px_28px_rgba(0,140,128,0.18)]"
+                    ? "border-[#008c80] bg-[#eefbf8] text-[#00736f] shadow-[inset_0_0_0_1px_rgba(0,140,128,0.12)]"
                     : "border-[#dde6ef] bg-white text-[#4a5a73] hover:border-[#cbd8e6] hover:bg-[#f8fafc]"
                 )}
               >
@@ -973,7 +916,36 @@ export default function Rewards() {
             );
           })}
         </nav>
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setWorkspace("wallet")}
+            className={cn(
+              "inline-flex h-10 items-center justify-center gap-2 rounded-[10px] border px-4 text-[13px] font-extrabold transition",
+              workspace === "wallet"
+                ? "border-[#008c80] bg-[#e7fbf7] text-[#006f69]"
+                : "border-[#d6e3ee] bg-white text-[#344563] hover:border-[#a8deda] hover:text-[#00736f]"
+            )}
+          >
+            <QrCode className="h-4 w-4" />
+            Saved Vouchers
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspace("history")}
+            className={cn(
+              "inline-flex h-10 items-center justify-center gap-2 rounded-[10px] border px-4 text-[13px] font-extrabold transition",
+              workspace === "history"
+                ? "border-[#008c80] bg-[#e7fbf7] text-[#006f69]"
+                : "border-[#d6e3ee] bg-white text-[#344563] hover:border-[#a8deda] hover:text-[#00736f]"
+            )}
+          >
+            <List className="h-4 w-4" />
+            Redemption History
+          </button>
+        </div>
 
+        {workspace === "catalog" || workspace === "flash" ? (
         <section className="pt-7">
           <div className="flex items-center justify-between gap-4">
             <h2 className="flex items-center gap-3 text-[22px] font-black">
@@ -988,7 +960,7 @@ export default function Rewards() {
               }}
               className="inline-flex items-center gap-2 text-sm font-black text-[#007f78] hover:text-[#005f5a]"
             >
-              View all flash sales
+              View All Flash Sales
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -996,15 +968,15 @@ export default function Rewards() {
             {featuredFlashRewards.length === 0 ? (
               <Card className="col-span-full rounded-[20px] border border-dashed border-[#d8e5f0] bg-white p-8 text-center shadow-[0_12px_26px_rgba(8,26,53,0.04)]">
                 <TicketPercent className="mx-auto h-10 w-10 text-[#ef4444]" />
-                <h3 className="mt-3 text-base font-black text-[#10213a]">No flash sales live right now.</h3>
+                <h3 className="mt-3 text-base font-black text-[#10213a]">No Flash Sales Live Right Now</h3>
                 <p className="mt-1 text-sm font-medium text-[#64748b]">Check back later for limited-time pharmacy rewards.</p>
               </Card>
             ) : featuredFlashRewards.map((reward, index) => {
               const soldOut = isFlashSaleSoldOut(reward);
               const expired = isFlashSaleExpired(reward);
               const claimed = reward.flashSaleClaimedCount ?? 0;
-              const limit = reward.flashSaleQuantityLimit ?? 100;
-              const progress = Math.min(100, (claimed / Math.max(limit, 1)) * 100);
+              const limit = reward.flashSaleQuantityLimit;
+              const progress = limit ? Math.min(100, (claimed / Math.max(limit, 1)) * 100) : 0;
               return (
                 <button
                   key={`flash-strip-${reward.id}`}
@@ -1020,15 +992,17 @@ export default function Rewards() {
                     <span className="block text-lg font-black text-[#10213a]">{reward.name}</span>
                     <span className="mt-1 block line-clamp-1 text-sm font-medium text-[#657286]">{reward.description}</span>
                     <span className="mt-3 block text-xs font-black text-[#dc2626]">
-                      {(reward.flashSaleClaimedCount ?? index * 0).toLocaleString()} / {limit} claimed
+                      {limit ? `${claimed.toLocaleString()} / ${limit.toLocaleString()} claimed` : `${claimed.toLocaleString()} claimed`}
                     </span>
-                    <span className="mt-2 block h-1.5 max-w-[360px] overflow-hidden rounded-full bg-[#e8edf3]">
-                      <span className="block h-full rounded-full bg-[#dc2626]" style={{ width: `${progress}%` }} />
-                    </span>
+                    {limit ? (
+                      <span className="mt-2 block h-1.5 max-w-[360px] overflow-hidden rounded-full bg-[#e8edf3]">
+                        <span className="block h-full rounded-full bg-[#dc2626]" style={{ width: `${progress}%` }} />
+                      </span>
+                    ) : null}
                   </span>
                   <span className="flex min-w-[116px] flex-col items-end gap-4">
                     <span className="rounded-full bg-[#ffecec] px-4 py-2 text-xs font-black text-[#ef4444]">
-                      {reward.activeFlashSaleId ? formatCountdown(reward.flashSaleEndsAt, countdownNow) : "2d 23h left"}
+                      {formatCountdown(reward.flashSaleEndsAt, countdownNow) || "Live"}
                     </span>
                     <span className="rounded-xl bg-[linear-gradient(135deg,#008c80,#006f69)] px-5 py-3 text-sm font-black text-white shadow-[0_10px_24px_rgba(0,140,128,0.18)]">
                       {reward.pointsCost.toLocaleString()} pts
@@ -1039,6 +1013,7 @@ export default function Rewards() {
             })}
           </div>
         </section>
+        ) : null}
 
       {workspace === "catalog" ? (
         <section className="space-y-5 pt-9">
@@ -1057,8 +1032,8 @@ export default function Rewards() {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {pagedVisibleRewards.map((reward, index) => renderRewardCard(reward, index))}
+            <div className="mt-6 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+              {pagedVisibleRewards.map((reward) => renderRewardCard(reward))}
             </div>
 
             {renderPaginationControls({
@@ -1083,14 +1058,11 @@ export default function Rewards() {
               <Badge className="bg-[#ef4444] text-white">{flashSaleRewards.length} live</Badge>
             </div>
             {flashSaleRewards.length === 0 ? (
-              <p className="mt-5 text-sm text-gray-600">No live flash rewards right now.</p>
+              <p className="mt-5 text-sm text-gray-600">No Live Flash Rewards Right Now.</p>
             ) : (
               <>
                 <div className="mt-5 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
-                  {pagedFlashRewards.map((reward) => {
-                    const imageIndex = catalog.findIndex((item) => item.id === reward.id);
-                    return renderRewardCard(reward, imageIndex);
-                  })}
+                  {pagedFlashRewards.map((reward) => renderRewardCard(reward))}
                 </div>
                 {renderPaginationControls({
                   currentPage: flashPage,
@@ -1102,92 +1074,6 @@ export default function Rewards() {
               </>
             )}
           </Card>
-        </section>
-      ) : null}
-
-      {workspace === "checkout" ? (
-        <section className="grid gap-4 2xl:grid-cols-[1fr_1fr]">
-          <Card className={customerPanelClass}>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900">Use Points as Partial Payment</h3>
-                <p className="mt-1 text-sm text-gray-600">Apply a chosen number of points to reduce a purchase total in a more guided flow.</p>
-                {usePoints ? (
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <Input type="number" placeholder="Enter points" value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)} max={user.points} />
-                    <Button className={`${brandTealSolidClass} ${brandTealSolidHoverClass}`} onClick={handlePartialPayment} disabled={saving || !pointsToUse || parseInt(pointsToUse, 10) <= 0}>
-                      Apply points
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-              <Button variant={usePoints ? "outline" : "default"} className={cn("w-full sm:w-auto", !usePoints ? `${brandNavySolidClass} ${brandNavySolidHoverClass}` : "")} onClick={() => setUsePoints((prev) => !prev)}>
-                {usePoints ? "Cancel" : "Use points"}
-              </Button>
-            </div>
-          </Card>
-
-          <Card className={cn("p-6", brandTealSurfaceClass)}>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900">Auto Apply at Checkout</h3>
-                <p className="mt-1 text-sm text-gray-600">Use the maximum possible points for a checkout amount without manual computation.</p>
-                {autoApplyAtCheckout ? (
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <Input type="number" step="0.01" min="0" placeholder="Checkout amount" value={checkoutAmount} onChange={(e) => setCheckoutAmount(e.target.value)} />
-                    <Button className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`} onClick={handleAutoApplyCheckout} disabled={saving}>
-                      Auto apply
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <Label htmlFor="auto-apply">Auto Apply</Label>
-                <Switch id="auto-apply" checked={autoApplyAtCheckout} onCheckedChange={setAutoApplyAtCheckout} />
-              </div>
-            </div>
-          </Card>
-
-          <Card className={cn(customerPanelClass, "2xl:col-span-2")}>
-            <div className="grid gap-4 lg:grid-cols-3">
-              <div className="rounded-3xl border border-[#dce7f2] bg-[#fbfdff] p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-[#6d829e]">Step 1</p>
-                <p className="mt-3 text-lg font-semibold text-[#10213a]">Choose manual or auto apply</p>
-              </div>
-              <div className="rounded-3xl border border-[#dce7f2] bg-[#fbfdff] p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-[#6d829e]">Step 2</p>
-                <p className="mt-3 text-lg font-semibold text-[#10213a]">Validate point amount against balance</p>
-              </div>
-              <div className="rounded-3xl border border-[#dce7f2] bg-[#fbfdff] p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-[#6d829e]">Step 3</p>
-                <p className="mt-3 text-lg font-semibold text-[#10213a]">Confirm and let the balance reflect immediately</p>
-              </div>
-            </div>
-          </Card>
-
-          {reservedRewards.length > 0 ? (
-            <Card className={cn(customerPanelClass, "2xl:col-span-2")}>
-              <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
-                <ShoppingBag className="h-5 w-5" />
-                Reserved Rewards
-              </h3>
-              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                {catalog.filter((reward) => reservedRewards.includes(reward.id)).map((reward, index) => (
-                  <div key={reward.id} className="flex items-center gap-4 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
-                    <ImageWithFallback src={reward.imageUrl || rewardImages[index % rewardImages.length]} alt={reward.name} className="h-20 w-20 rounded-xl object-cover" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-gray-900">{reward.name}</p>
-                      <p className="text-sm text-gray-600">{reward.pointsCost} points</p>
-                      <Badge className="mt-1 bg-sky-100 text-sky-700">Reserved</Badge>
-                    </div>
-                    <Button size="sm" onClick={() => handleRedeem(reward)} className={`${brandNavySolidClass} ${brandNavySolidHoverClass}`}>
-                      Redeem
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ) : null}
         </section>
       ) : null}
 

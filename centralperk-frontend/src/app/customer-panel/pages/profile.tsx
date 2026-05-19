@@ -23,6 +23,7 @@ import type { AppOutletContext } from "../../types/app-context";
 import { brandNavyBadgeClass, brandNavySolidClass, brandNavySolidHoverClass, brandTealBadgeClass } from "../../lib/ui-color-tokens";
 import {
   customerEyebrowClass,
+  customerPageShellClass,
   customerPageDescriptionClass,
   customerPageHeroClass,
   customerPageHeroInnerClass,
@@ -250,7 +251,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={customerPageShellClass}>
       <div className={customerPageHeroClass}>
         <div className={customerPageHeroInnerClass}>
           <div className={customerEyebrowClass}>Member Identity</div>

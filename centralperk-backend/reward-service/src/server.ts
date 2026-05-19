@@ -11,6 +11,7 @@ const redemptionSchema = z.object({
   rewardCatalogId: z.union([z.string(), z.number()]),
   points: z.number().int().min(1).max(1_000_000),
   reason: z.string().trim().min(1).max(240).default("Reward redemption"),
+  promotionCampaignId: z.string().trim().max(80).nullable().optional(),
 });
 
 const partnerSchema = z.object({
@@ -90,10 +91,44 @@ function pointsUrl(path: string) {
   return `${config.pointsServiceUrl.replace(/\/+$/, "")}${path}`;
 }
 
-async function redeemPoints(payload: z.infer<typeof redemptionSchema>) {
+function requestError(message: string, statusCode: number) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function getIdempotencyKey(request: { headers: Record<string, any>; body?: unknown }) {
+  const headerValue = request.headers["idempotency-key"];
+  if (typeof headerValue === "string" && headerValue.trim()) return headerValue.trim();
+
+  const bodyValue = request.body && typeof request.body === "object" ? (request.body as { idempotencyKey?: unknown }).idempotencyKey : null;
+  return typeof bodyValue === "string" && bodyValue.trim() ? bodyValue.trim() : null;
+}
+
+function normalizeRewardCatalogId(value: string | number) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    throw requestError("Reward catalog ID must be a positive numeric database ID.", 400);
+  }
+  return numeric;
+}
+
+async function loadExistingRedemption(idempotencyKey: string) {
+  const { data, error } = await supabase
+    .from("reward_redemptions")
+    .select("*")
+    .eq("idempotency_key", idempotencyKey)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function redeemPoints(payload: z.infer<typeof redemptionSchema>, idempotencyKey: string | null) {
+  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+
   const response = await fetch(pointsUrl("/points/redeem"), {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers,
     body: JSON.stringify({
       memberIdentifier: payload.memberIdentifier,
       fallbackEmail: payload.fallbackEmail,
@@ -101,10 +136,28 @@ async function redeemPoints(payload: z.infer<typeof redemptionSchema>) {
       reason: payload.reason,
       transactionType: "REDEEM",
       rewardCatalogId: payload.rewardCatalogId,
+      promotionCampaignId: payload.promotionCampaignId ?? null,
     }),
   });
   if (!response.ok) throw new Error(`points-service redemption failed with status ${response.status}`);
   return response.json();
+}
+
+function mapRedemption(row: Record<string, any>) {
+  return {
+    id: String(row.id ?? ""),
+    memberIdentifier: String(row.member_identifier ?? ""),
+    fallbackEmail: row.fallback_email ? String(row.fallback_email) : null,
+    rewardCatalogId: row.reward_catalog_id === null || row.reward_catalog_id === undefined ? null : Number(row.reward_catalog_id),
+    points: Math.max(0, Math.floor(Number(row.points ?? 0))),
+    reason: String(row.reason ?? ""),
+    status: String(row.status ?? "redeemed"),
+    promotionCampaignId: row.promotion_campaign_id ? String(row.promotion_campaign_id) : null,
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
+    pointsResult: row.points_result ?? null,
+    redeemedAt: String(row.redeemed_at ?? row.created_at ?? new Date().toISOString()),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
 }
 
 function mapVoucher(row: Record<string, any>) {
@@ -529,30 +582,82 @@ export function createServer() {
   });
 
   app.post("/rewards/redeem", async (request) => {
-    const body = redemptionSchema.parse(request.body);
-    const pointsResult = await redeemPoints(body);
+    const parsed = redemptionSchema.parse(request.body);
+    const idempotencyKey = getIdempotencyKey(request);
+    const rewardCatalogId = normalizeRewardCatalogId(parsed.rewardCatalogId);
+
+    if (idempotencyKey) {
+      const existing = await loadExistingRedemption(idempotencyKey);
+      if (existing) {
+        return {
+          ok: true,
+          redemption: mapRedemption(existing as Record<string, any>),
+          points: (existing as Record<string, any>).points_result ?? null,
+          replayed: true,
+        };
+      }
+    }
+
+    const rewardResult = await supabase
+      .from("rewards_catalog")
+      .select("id,reward_id,name,points_cost,is_active")
+      .eq("id", rewardCatalogId)
+      .limit(1)
+      .maybeSingle();
+
+    if (rewardResult.error) throw rewardResult.error;
+    if (!rewardResult.data) throw requestError("Reward was not found in the rewards catalog.", 404);
+    if (!Boolean((rewardResult.data as Record<string, any>).is_active ?? true)) {
+      throw requestError("Reward is not currently active.", 409);
+    }
+
+    const dbPointsCost = Math.max(0, Math.floor(Number((rewardResult.data as Record<string, any>).points_cost ?? 0)));
+    if (dbPointsCost <= 0) throw requestError("Reward does not have a valid point cost.", 409);
+    if (dbPointsCost !== parsed.points) {
+      throw requestError("Reward point cost changed. Refresh the rewards catalog and try again.", 409);
+    }
+
+    const body = {
+      ...parsed,
+      rewardCatalogId,
+      points: dbPointsCost,
+    };
+    const pointsResponse = await redeemPoints(body, idempotencyKey);
+    const pointsResult = pointsResponse?.result ?? pointsResponse;
+
     const { data, error } = await supabase
       .from("reward_redemptions")
       .insert({
         member_identifier: body.memberIdentifier,
-        reward_catalog_id: Number(body.rewardCatalogId),
+        fallback_email: body.fallbackEmail ?? null,
+        reward_catalog_id: rewardCatalogId,
         points: body.points,
+        reason: body.reason,
         status: "redeemed",
+        promotion_campaign_id: body.promotionCampaignId ?? null,
+        idempotency_key: idempotencyKey,
+        points_result: pointsResult,
+        redeemed_at: new Date().toISOString(),
       })
       .select("*")
       .single();
+
     if (error) {
-      if (missingRelation(error)) {
-        return {
-          ok: true,
-          redemption: null,
-          points: pointsResult?.result ?? pointsResult,
-          warning: "reward_redemptions_table_missing",
-        };
+      if (duplicateRecord(error) && idempotencyKey) {
+        const existing = await loadExistingRedemption(idempotencyKey);
+        if (existing) {
+          return {
+            ok: true,
+            redemption: mapRedemption(existing as Record<string, any>),
+            points: (existing as Record<string, any>).points_result ?? pointsResult,
+            replayed: true,
+          };
+        }
       }
       throw error;
     }
-    return { ok: true, redemption: data, points: pointsResult?.result ?? pointsResult };
+
+    return { ok: true, redemption: mapRedemption(data as Record<string, any>), points: pointsResult };
   });
 
   app.get("/vouchers", async (request, reply) => {

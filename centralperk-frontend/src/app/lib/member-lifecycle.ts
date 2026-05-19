@@ -4,10 +4,12 @@ import {
   applyReferralCodeViaApi,
   claimBirthdayRewardViaApi,
   createReferralViaApi,
+  generateFeedbackInsightsViaApi,
   loadBirthdayRewardStatusViaApi,
   loadBirthdaySettingsViaApi,
   loadCommunicationPreferenceViaApi,
   loadFeedbackViaApi,
+  loadLatestFeedbackInsightsViaApi,
   loadReferralsViaApi,
   resolveMemberViaMemberApi,
   saveBirthdaySettingsViaApi,
@@ -487,4 +489,22 @@ export async function queueManagerFeedbackNotification(record: FeedbackRecord) {
       status: "queued",
     }),
   }).catch(() => undefined);
+}
+
+export interface FeedbackInsights {
+  sentimentSplit: { positive: number; neutral: number; negative: number };
+  wordCloud: Array<{ word: string; weight: number }>;
+  topTopics: Array<{ topic: string; count: number }>;
+  similarFeedbackGroups: Array<{ topic: string; count: number; averageSimilarity: number; feedbackIds: string[] }>;
+  sourceCount: number;
+  createdAt?: string;
+}
+
+export async function generateFeedbackInsights(): Promise<FeedbackInsights> {
+  return (await generateFeedbackInsightsViaApi()) as FeedbackInsights;
+}
+
+export async function loadLatestFeedbackInsights(): Promise<FeedbackInsights | null> {
+  const data = await loadLatestFeedbackInsightsViaApi();
+  return data ? (data as FeedbackInsights) : null;
 }

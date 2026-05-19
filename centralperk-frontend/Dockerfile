@@ -44,5 +44,5 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.ts ./next.config.ts
 
-EXPOSE 3000
-CMD ["./node_modules/.bin/next", "start", "--hostname", "0.0.0.0", "--port", "3000"]
+EXPOSE 3010
+CMD ["./node_modules/.bin/next", "start", "--hostname", "0.0.0.0", "--port", "3010"]

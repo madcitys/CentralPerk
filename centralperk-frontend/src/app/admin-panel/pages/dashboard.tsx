@@ -408,7 +408,7 @@ function SectionCard(props: {
   return (
     <section
       className={cn(
-        "rounded-[16px] border border-[#dde6f2] bg-white p-2.5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]",
+        "flex h-full min-h-0 flex-col rounded-[16px] border border-[#dde6f2] bg-white p-2.5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]",
         className,
       )}
     >
@@ -424,7 +424,7 @@ function SectionCard(props: {
         </div>
         {headerRight}
       </div>
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
   );
 }
@@ -455,9 +455,9 @@ function DashboardKpiCard(props: {
 }
 
 function ProgramHealthChart({ data, compact }: { data: TrendPoint[]; compact?: boolean }) {
-  const heightClass = compact ? "h-[150px]" : "h-[190px]";
   return (
-    <div className={cn(heightClass, "rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3")}>
+    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[180px]" : "min-h-[220px]")}>
+      <div className="flex-1 w-full min-h-0 mt-4">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 10, right: 18, left: 0, bottom: 2 }}>
           <CartesianGrid stroke="#e6eef9" strokeDasharray="4 4" vertical={false} />
@@ -478,6 +478,7 @@ function ProgramHealthChart({ data, compact }: { data: TrendPoint[]; compact?: b
           <Line type="monotone" dataKey="activeMembers30d" stroke="#74be45" strokeWidth={3} dot={{ r: 3, fill: "#74be45" }} />
         </LineChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -539,9 +540,9 @@ function ProgramHealthSummaryRow(props: StatusRow & { compareMode: CompareMode }
 }
 
 function PointsEconomyChart({ data, compact }: { data: EconomyPoint[]; compact?: boolean }) {
-  const heightClass = compact ? "h-[130px]" : "h-[210px]";
   return (
-    <div className={cn(heightClass, "rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3")}>
+    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[170px]" : "min-h-[220px]")}>
+      <div className="flex-1 w-full min-h-0 mt-4">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 2 }} barCategoryGap={18}>
           <CartesianGrid stroke="#e6eef9" strokeDasharray="4 4" vertical={false} />
@@ -562,6 +563,7 @@ function PointsEconomyChart({ data, compact }: { data: EconomyPoint[]; compact?:
           <Bar dataKey="pointsRedeemed" fill="#74be45" radius={[8, 8, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -584,11 +586,12 @@ function CampaignPerformanceChart({ data, compact }: { data: CampaignPerformance
   }
 
   return (
-    <div className={cn(compact ? "h-[160px]" : "h-[210px]", "rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3")}> 
+    <div className={cn("flex flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3", compact ? "min-h-[220px]" : "min-h-[270px]")}>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm font-semibold text-[#10213d]">Top campaign redemptions</p>
         <p className="text-xs text-[#64748b]">Top 6 campaigns</p>
       </div>
+      <div className="flex-1 min-h-0">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={sorted} margin={{ top: 10, right: 6, left: 0, bottom: 8 }} barCategoryGap={16}>
           <CartesianGrid stroke="#e6eef9" strokeDasharray="4 4" vertical={false} />
@@ -605,6 +608,7 @@ function CampaignPerformanceChart({ data, compact }: { data: CampaignPerformance
           <Bar dataKey="redemptions" fill="#0f766e" radius={[8, 8, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -653,7 +657,7 @@ function PerformanceTable<T>(props: {
 }) {
   const { title, subtitle, rows, emptyState, columns, footerHref, footerLabel } = props;
   return (
-    <div className="rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+    <div className="flex min-h-0 flex-1 flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-[#10213d]">{title}</h3>
@@ -665,11 +669,11 @@ function PerformanceTable<T>(props: {
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[#d6e0f2] bg-white px-4 py-10 text-center text-sm text-[#6b7c92]">
+        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[#d6e0f2] bg-white px-4 py-10 text-center text-sm text-[#6b7c92]">
           {emptyState}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#e8eef7] bg-white">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#e8eef7] bg-white">
           <div className="grid grid-cols-[1.55fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-[#edf2fb] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7a8aa3]">
             {columns.map((column) => (
               <div key={column.key} className={column.align === "right" ? "text-right" : ""}>
@@ -677,9 +681,9 @@ function PerformanceTable<T>(props: {
               </div>
             ))}
           </div>
-          <div className="divide-y divide-[#edf2fb]">
+          <div className="flex-1 divide-y divide-[#edf2fb]">
             {rows.map((row, index) => (
-              <div key={index} className="grid grid-cols-[1.55fr_0.9fr_0.9fr_0.9fr] gap-3 px-3 py-2 text-sm text-[#10213d]">
+              <div key={index} className="grid grid-cols-[1.55fr_0.9fr_0.9fr_0.9fr] gap-3 px-3 py-4 text-sm text-[#10213d]">
                 {columns.map((column) => (
                   <div key={column.key} className={column.align === "right" ? "text-right" : ""}>
                     {column.render(row)}
@@ -700,7 +704,7 @@ function ActionCenterCard(props: {
 }) {
   const { item, onOpen } = props;
   return (
-    <div className="flex items-center gap-3 rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] px-3 py-2.5">
+    <div className="flex shrink-0 items-center gap-3 rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] px-3 py-2.5">
       <div className={cn("inline-flex min-w-11 items-center justify-center rounded-full px-3 py-1 text-sm font-semibold", actionToneClass(item.tone))}>
         {integerFormatter.format(item.count)}
       </div>
@@ -1688,7 +1692,26 @@ export default function AdminDashboardPage() {
         icon={HeartPulse}
         className="p-2.5"
       >
-        <ProgramHealthChart data={dashboardData.programHealthTrend} compact />
+        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
+          <div className="flex h-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[#10213d]">Program Health Snapshot</h3>
+              <p className="mt-1 text-[11px] text-[#64748b]">Member growth and 30-day activity across the selected range.</p>
+            </div>
+            <ProgramHealthChart data={dashboardData.programHealthTrend} compact />
+          </div>
+          <div className="flex h-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[#10213d]">Health Indicators</h3>
+              <p className="mt-1 text-[11px] text-[#64748b]">New members, at-risk members, and active-rate performance.</p>
+            </div>
+            <div className="flex-1 flex flex-col justify-between mt-2">
+              {statusRows.map((row) => (
+                <ProgramHealthSummaryRow key={row.label} {...row} compareMode={compareMode} />
+              ))}
+            </div>
+          </div>
+        </div>
       </SectionCard>
 
       {/*  RIGHT: ACTION CENTER (NOW PREMIUM) */}
@@ -1698,7 +1721,7 @@ export default function AdminDashboardPage() {
         icon={TriangleAlert}
         className="border-[#dce8ff] bg-[#f8fbff] p-2.5"
       >
-        <div className="space-y-2">
+        <div className="flex-1 flex flex-col justify-between overflow-y-auto min-h-0 mt-4 pr-2">
           {actionCenterItems.map((item) => (
             <ActionCenterCard
               key={item.label}
@@ -1729,35 +1752,41 @@ export default function AdminDashboardPage() {
         icon={Coins}
         className="p-2.5"
       >
-        <div className="space-y-4">
-          <PointsEconomyChart data={dashboardData.pointsEconomyTrend} compact />
-          <div className="grid grid-cols-3 gap-3">
+        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,1fr)]">
+          <div className="flex h-full w-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[#10213d]">Points Economy Snapshot</h3>
+              <p className="mt-1 text-[11px] text-[#64748b]">Issued versus redeemed points across the reporting window.</p>
+            </div>
+            <PointsEconomyChart data={dashboardData.pointsEconomyTrend} compact />
+          </div>
+          <div className="flex flex-col justify-between h-full gap-3">
             <PointsSummaryTile
-            icon={ClipboardCheck}
-            label="Points Issued"
-            value={formatCompactValue(currentSummary.pointsIssued)}
-            monthDelta={differencePercent(currentSummary.pointsIssued, previousMonthSummary.pointsIssued)}
-            quarterDelta={differencePercent(currentSummary.pointsIssued, previousQuarterSummary.pointsIssued)}
-            compareMode={compareMode}
-          />
+              icon={ClipboardCheck}
+              label="Points Issued"
+              value={formatCompactValue(currentSummary.pointsIssued)}
+              monthDelta={differencePercent(currentSummary.pointsIssued, previousMonthSummary.pointsIssued)}
+              quarterDelta={differencePercent(currentSummary.pointsIssued, previousQuarterSummary.pointsIssued)}
+              compareMode={compareMode}
+            />
 
-          <PointsSummaryTile
-            icon={RefreshCcw}
-            label="Points Redeemed"
-            value={formatCompactValue(currentSummary.pointsRedeemed)}
-            monthDelta={differencePercent(currentSummary.pointsRedeemed, previousMonthSummary.pointsRedeemed)}
-            quarterDelta={differencePercent(currentSummary.pointsRedeemed, previousQuarterSummary.pointsRedeemed)}
-            compareMode={compareMode}
-          />
+            <PointsSummaryTile
+              icon={RefreshCcw}
+              label="Points Redeemed"
+              value={formatCompactValue(currentSummary.pointsRedeemed)}
+              monthDelta={differencePercent(currentSummary.pointsRedeemed, previousMonthSummary.pointsRedeemed)}
+              quarterDelta={differencePercent(currentSummary.pointsRedeemed, previousQuarterSummary.pointsRedeemed)}
+              compareMode={compareMode}
+            />
 
-          <PointsSummaryTile
-            icon={Coins}
-            label="Liability"
-            value={formatCompactValue(currentSummary.pointsLiability)}
-            monthDelta={differencePercent(currentSummary.pointsLiability, previousMonthSummary.pointsLiability)}
-            quarterDelta={differencePercent(currentSummary.pointsLiability, previousQuarterSummary.pointsLiability)}
-            compareMode={compareMode}
-          />
+            <PointsSummaryTile
+              icon={Coins}
+              label="Liability"
+              value={formatCompactValue(currentSummary.pointsLiability)}
+              monthDelta={differencePercent(currentSummary.pointsLiability, previousMonthSummary.pointsLiability)}
+              quarterDelta={differencePercent(currentSummary.pointsLiability, previousQuarterSummary.pointsLiability)}
+              compareMode={compareMode}
+            />
           </div>
         </div>
       </SectionCard>
@@ -1769,7 +1798,7 @@ export default function AdminDashboardPage() {
         icon={Megaphone}
         className="p-2.5"
       >
-        <div className="grid gap-4">
+        <div className="flex h-full min-h-0 flex-col gap-4">
           <CampaignPerformanceChart data={campaignPerformance} compact />
           <PerformanceTable<PerformanceRow>
             title="Top campaigns"

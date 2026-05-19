@@ -48,6 +48,23 @@ async function checkDependencies() {
   return Promise.all(dependencies().map((dependency) => checkDependency(dependency.name, dependency.url)));
 }
 
+function proxyHeaders(headers: Record<string, any>) {
+  const blocked = new Set(["host", "content-length", "connection", "keep-alive", "transfer-encoding", "upgrade", "expect"]);
+  const next: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    const lowerKey = key.toLowerCase();
+    if (blocked.has(lowerKey)) continue;
+    if (Array.isArray(value)) {
+      next[key] = value.join(", ");
+    } else if (value !== undefined && value !== null) {
+      next[key] = String(value);
+    }
+  }
+
+  return next;
+}
+
 function isCampaignWrite(url: string, method: string) {
   if (method === "GET") return false;
   return url.startsWith("/campaigns");
@@ -73,7 +90,7 @@ async function proxy(req: any, reply: any, targetBase: string) {
   try {
     const res = await fetch(url, {
       method: req.method,
-      headers: { ...req.headers, host: undefined },
+      headers: proxyHeaders(req.headers),
       body,
     });
     reply.status(res.status);
@@ -118,6 +135,7 @@ export function createServer() {
       "/members/*",
       "/referrals/*",
       "/feedback",
+      "/feedback-insights/*",
       "/birthday-settings",
       "/birthday-rewards/*",
       "/badges/*",
@@ -164,6 +182,7 @@ export function createServer() {
   app.all("/referrals", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/referrals/*", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/feedback", async (req, reply) => proxy(req, reply, config.memberUrl));
+  app.all("/feedback-insights/*", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/birthday-settings", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/birthday-rewards/*", async (req, reply) => proxy(req, reply, config.memberUrl));
   app.all("/badges/*", async (req, reply) => proxy(req, reply, config.memberUrl));

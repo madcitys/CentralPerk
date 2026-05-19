@@ -1,4 +1,8 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "segment-service";
@@ -56,7 +60,7 @@ export const config = {
   splitMode,
   port: parsePort(),
   schema: readEnv("SCM_SEGMENT_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("SCM_SEGMENT_DATABASE_URL"),
+  databaseUrl: readEnv("SCM_SEGMENT_DATABASE_URL") || readEnv("SCM_SHARED_DATABASE_URL"),
   supabaseUrl: requireHttpUrl("SCM_SEGMENT_SUPABASE_URL"),
   supabaseServiceKey: requireEnv("SCM_SEGMENT_SUPABASE_SERVICE_ROLE_KEY"),
   memberServiceUrl: splitMode ? requireHttpUrl("SCM_MEMBER_SERVICE_URL") : readEnv("SCM_MEMBER_SERVICE_URL") || "http://localhost:3012",
