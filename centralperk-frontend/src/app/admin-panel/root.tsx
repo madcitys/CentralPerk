@@ -195,7 +195,7 @@ export default function AdminRoot() {
               <LogOut className="w-4 h-4" />
               Logout
             </button>
-            <p className="text-xs text-center text-slate-300">© 2026 GREENOVATE</p>
+            <p className="text-xs text-center text-slate-300">(c) 2026 GREENOVATE</p>
           </div>
         </div>
       </div>

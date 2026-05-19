@@ -24,6 +24,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -287,13 +288,13 @@ function classifyTransaction(transaction: LoyaltyTransaction) {
 }
 
 function formatSignedPercent(value: number) {
-  if (!Number.isFinite(value)) return "— (insufficient data)";
+  if (!Number.isFinite(value)) return "--";
   if (value === 0) return "0.0%";
   return `${value > 0 ? "+" : ""}${singleDecimalFormatter.format(value)}%`;
 }
 
 function formatSignedPp(value: number) {
-  if (!Number.isFinite(value)) return "— (insufficient data)";
+  if (!Number.isFinite(value)) return "--";
   if (value === 0) return "0.0 pp";
   return `${value > 0 ? "+" : ""}${singleDecimalFormatter.format(value)} pp`;
 }
@@ -331,11 +332,19 @@ function toneBadgeClass(tone: StatusTone) {
 }
 
 function actionToneClass(tone: ActionCenterItem["tone"]) {
-  if (tone === "amber") return "bg-[#fff4df] text-[#b7791f]";
-  if (tone === "rose") return "bg-[#fff0f3] text-[#cc4b6d]";
-  if (tone === "violet") return "bg-[#f5efff] text-[#7c3aed]";
-  if (tone === "blue") return "bg-[#eef6ff] text-[#2563eb]";
-  return "bg-[#e9fffb] text-[#0f766e]";
+  if (tone === "amber") return "bg-[#fff3dc] text-[#d08813]";
+  if (tone === "rose") return "bg-[#fff0f5] text-[#e23f70]";
+  if (tone === "violet") return "bg-[#f4edff] text-[#8b3dff]";
+  if (tone === "blue") return "bg-[#eef6ff] text-[#1f6dff]";
+  return "bg-[#e8fbfb] text-[#0b8390]";
+}
+
+function actionButtonToneClass(tone: ActionCenterItem["tone"]) {
+  if (tone === "amber") return "hover:border-[#f1c46e] hover:bg-[#fff8ea]";
+  if (tone === "rose") return "hover:border-[#f2abc0] hover:bg-[#fff6f9]";
+  if (tone === "violet") return "hover:border-[#cab0ff] hover:bg-[#faf7ff]";
+  if (tone === "blue") return "hover:border-[#a9c8ff] hover:bg-[#f6faff]";
+  return "hover:border-[#9fd7dd] hover:bg-[#f4ffff]";
 }
 
 function insightToneClass(tone: InsightItem["tone"]) {
@@ -367,7 +376,7 @@ function ComparisonLine(props: {
     // Render a neutral fallback when the comparison is not meaningful.
     return (
       <div className={cn("flex items-center gap-1.5 text-[12px] font-medium text-[#64748b] transition-opacity", emphasized ? "opacity-100" : "opacity-55")}>
-        <span className="inline-block w-3.5">—</span>
+        <span className="inline-block w-3.5">--</span>
         <span className="text-[#64748b]">{formatted}</span>
         <span className="text-[#64748b]">{label}</span>
       </div>
@@ -408,18 +417,18 @@ function SectionCard(props: {
   return (
     <section
       className={cn(
-        "flex h-full min-h-0 flex-col rounded-[16px] border border-[#dde6f2] bg-white p-2.5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]",
+        "flex h-full min-h-0 flex-col rounded-lg border border-[#e3eaf4] bg-white p-4 shadow-[0_8px_22px_rgba(17,38,60,0.045)]",
         className,
       )}
     >
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#eefbfb] text-[#0f766e]">
-            <Icon className="h-5 w-5" />
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7fbfb] text-[#0b7f88]">
+            <Icon className="h-[18px] w-[18px]" />
           </div>
-          <div>
-            <h2 className="text-[1.15rem] font-semibold tracking-tight text-[#10213d]">{title}</h2>
-            <p className="mt-1 text-sm text-[#61728b]">{subtitle}</p>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold leading-tight text-[#18263b]">{title}</h2>
+            <p className="mt-0.5 text-[12px] leading-4 text-[#607087]">{subtitle}</p>
           </div>
         </div>
         {headerRight}
@@ -440,13 +449,17 @@ function DashboardKpiCard(props: {
 }) {
   const { icon: Icon, title, value, monthDelta, quarterDelta, compareMode, deltaKind = "percent" } = props;
   return (
-    <div className="rounded-[16px] border border-[#dde6f2] bg-white p-3 shadow-[0_10px_24px_rgba(16,33,58,0.035)]">
-      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#eefbfb] text-[#0f766e]">
-        <Icon className="h-5 w-5" />
+    <div className="min-h-[112px] rounded-lg border border-[#e3eaf4] bg-white p-4 shadow-[0_8px_20px_rgba(17,38,60,0.04)]">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e7fbfb] text-[#0b7f88]">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[12px] font-bold text-[#24364f]">{title}</p>
+          <p className="mt-1 text-[23px] font-extrabold leading-none tracking-normal text-[#15243a]">{value}</p>
+        </div>
       </div>
-      <p className="text-sm font-medium text-[#5f728d]">{title}</p>
-       <p className="mt-1 text-[1.6rem] font-bold leading-none tracking-tight text-[#10213d]">{value}</p>
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-3 space-y-1">
         <ComparisonLine value={monthDelta} label="vs last month" kind={deltaKind} compareMode={compareMode} modeKey="last_month" />
         <ComparisonLine value={quarterDelta} label="vs last quarter" kind={deltaKind} compareMode={compareMode} modeKey="last_quarter" />
       </div>
@@ -455,29 +468,59 @@ function DashboardKpiCard(props: {
 }
 
 function ProgramHealthChart({ data, compact }: { data: TrendPoint[]; compact?: boolean }) {
+  const lastIndex = Math.max(0, data.length - 1);
+  const renderLastLabel = (fill: string) => (labelProps: unknown) => {
+    const { x, y, value, index } = labelProps as { x?: number; y?: number; value?: number; index?: number };
+    if (index !== lastIndex || typeof x !== "number" || typeof y !== "number") return null;
+    const text = formatCompactValue(Number(value || 0));
+
+    return (
+      <g>
+        <rect x={x + 8} y={y - 12} width={50} height={22} rx={4} fill={fill} />
+        <text x={x + 33} y={y + 3} textAnchor="middle" fontSize={11} fontWeight={700} fill="#ffffff">
+          {text}
+        </text>
+      </g>
+    );
+  };
+
   return (
-    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[180px]" : "min-h-[220px]")}>
-      <div className="flex-1 w-full min-h-0 mt-4">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 18, left: 0, bottom: 2 }}>
-          <CartesianGrid stroke="#e6eef9" strokeDasharray="4 4" vertical={false} />
-          <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-          <Tooltip
-            contentStyle={{
-              borderRadius: 16,
-              borderColor: "#d9e4f5",
-              boxShadow: "0 18px 40px rgba(15,23,42,0.08)",
-            }}
-            formatter={(value: number, name: string) => [
-              integerFormatter.format(value),
-              name === "totalMembers" ? "Total Members" : "Active Members (30d)",
-            ]}
-          />
-          <Line type="monotone" dataKey="totalMembers" stroke="#1698ad" strokeWidth={3} dot={{ r: 3, fill: "#1698ad" }} />
-          <Line type="monotone" dataKey="activeMembers30d" stroke="#74be45" strokeWidth={3} dot={{ r: 3, fill: "#74be45" }} />
-        </LineChart>
-      </ResponsiveContainer>
+    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[210px]" : "min-h-[240px]")}>
+      <div className="mb-1 flex items-center justify-center gap-8 text-[11px] font-semibold text-[#52627a]">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-1.5 w-7 rounded-full bg-[#0b8b95]" />
+          Total Members
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-1.5 w-7 rounded-full bg-[#73b943]" />
+          Active Members (30d)
+        </span>
+      </div>
+      <div className="mt-2 min-h-0 w-full flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 10, right: 66, left: -10, bottom: 2 }}>
+            <CartesianGrid stroke="#e8eef5" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#55657a", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "#d7e0ec" }} />
+            <YAxis tick={{ fill: "#55657a", fontSize: 11 }} tickLine={false} axisLine={false} width={42} />
+            <Tooltip
+              contentStyle={{
+                borderRadius: 8,
+                borderColor: "#d9e4f5",
+                boxShadow: "0 18px 40px rgba(15,23,42,0.08)",
+              }}
+              formatter={(value: number, name: string) => [
+                integerFormatter.format(value),
+                name === "totalMembers" ? "Total Members" : "Active Members (30d)",
+              ]}
+            />
+            <Line type="monotone" dataKey="totalMembers" stroke="#0b8b95" strokeWidth={3} dot={{ r: 3, fill: "#0b8b95", strokeWidth: 0 }}>
+              <LabelList dataKey="totalMembers" content={renderLastLabel("#0b8b95")} />
+            </Line>
+            <Line type="monotone" dataKey="activeMembers30d" stroke="#73b943" strokeWidth={3} dot={{ r: 3, fill: "#73b943", strokeWidth: 0 }}>
+              <LabelList dataKey="activeMembers30d" content={renderLastLabel("#73b943")} />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -499,25 +542,25 @@ function ProgramHealthSummaryRow(props: StatusRow & { compareMode: CompareMode }
   } = props;
 
   return (
-    <div className="rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+    <div className="border-b border-[#edf2f7] px-1 py-3 last:border-b-0">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0f766e] shadow-sm ring-1 ring-[#e6edf8]">
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e7fbfb] text-[#0b7f88]">
             <Icon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#10213d]">{label}</p>
-            <p className="mt-1 text-[1.6rem] font-bold leading-none tracking-tight text-[#10213d]">{value}</p>
+            <p className="text-[13px] font-bold text-[#18263b]">{label}</p>
+            <p className="mt-1 text-[22px] font-extrabold leading-none tracking-normal text-[#15243a]">{value}</p>
           </div>
         </div>
         <div className="text-right">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7a8aa3]">{targetLabel}</p>
+          <p className="text-[11px] font-semibold text-[#52627a]">{targetLabel}</p>
           <div className="mt-2">
             <StatusBadge label={badgeLabel} tone={badgeTone} />
           </div>
         </div>
       </div>
-      <div className="mt-4 space-y-1.5">
+      <div className="mt-3 space-y-1">
         <ComparisonLine
           value={monthDelta}
           label="vs last month"
@@ -541,28 +584,42 @@ function ProgramHealthSummaryRow(props: StatusRow & { compareMode: CompareMode }
 
 function PointsEconomyChart({ data, compact }: { data: EconomyPoint[]; compact?: boolean }) {
   return (
-    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[170px]" : "min-h-[220px]")}>
-      <div className="flex-1 w-full min-h-0 mt-4">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 2 }} barCategoryGap={18}>
-          <CartesianGrid stroke="#e6eef9" strokeDasharray="4 4" vertical={false} />
-          <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fill: "#64748b", fontSize: 12 }} tickLine={false} axisLine={false} />
-          <Tooltip
-            contentStyle={{
-              borderRadius: 16,
-              borderColor: "#d9e4f5",
-              boxShadow: "0 18px 40px rgba(15,23,42,0.08)",
-            }}
-            formatter={(value: number, name: string) => [
-              integerFormatter.format(value),
-              name === "pointsIssued" ? "Points Earned" : "Points Redeemed",
-            ]}
-          />
-          <Bar dataKey="pointsIssued" fill="#1698ad" radius={[8, 8, 0, 0]} />
-          <Bar dataKey="pointsRedeemed" fill="#74be45" radius={[8, 8, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+    <div className={cn("flex h-full w-full flex-1 flex-col", compact ? "min-h-[190px]" : "min-h-[220px]")}>
+      <div className="mb-1 flex items-center justify-center gap-8 text-[11px] font-semibold text-[#52627a]">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-5 rounded-sm bg-[#0b8b95]" />
+          Points Earned
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-5 rounded-sm bg-[#73b943]" />
+          Points Redeemed
+        </span>
+      </div>
+      <div className="mt-2 min-h-0 w-full flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 22, right: 8, left: -10, bottom: 2 }} barCategoryGap={22}>
+            <CartesianGrid stroke="#e8eef5" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#55657a", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "#d7e0ec" }} />
+            <YAxis tick={{ fill: "#55657a", fontSize: 11 }} tickLine={false} axisLine={false} width={38} />
+            <Tooltip
+              contentStyle={{
+                borderRadius: 8,
+                borderColor: "#d9e4f5",
+                boxShadow: "0 18px 40px rgba(15,23,42,0.08)",
+              }}
+              formatter={(value: number, name: string) => [
+                integerFormatter.format(value),
+                name === "pointsIssued" ? "Points Earned" : "Points Redeemed",
+              ]}
+            />
+            <Bar dataKey="pointsIssued" fill="#0b8b95" radius={[3, 3, 0, 0]} barSize={22}>
+              <LabelList dataKey="pointsIssued" position="top" formatter={(value: number) => formatCompactValue(value)} fill="#18263b" fontSize={11} fontWeight={700} />
+            </Bar>
+            <Bar dataKey="pointsRedeemed" fill="#73b943" radius={[3, 3, 0, 0]} barSize={22}>
+              <LabelList dataKey="pointsRedeemed" position="top" formatter={(value: number) => formatCompactValue(value)} fill="#18263b" fontSize={11} fontWeight={700} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -573,7 +630,7 @@ function CampaignPerformanceChart({ data, compact }: { data: CampaignPerformance
     .sort((left, right) => right.redemptionCount - left.redemptionCount)
     .slice(0, 6)
     .map((row) => ({
-      name: row.campaignName.length > 18 ? `${row.campaignName.slice(0, 18)}…` : row.campaignName,
+      name: row.campaignName.length > 18 ? `${row.campaignName.slice(0, 18)}...` : row.campaignName,
       redemptions: row.redemptionCount,
     }));
 
@@ -623,17 +680,17 @@ function PointsSummaryTile(props: {
 }) {
   const { icon: Icon, label, value, monthDelta, quarterDelta, compareMode } = props;
   return (
-    <div className="rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+    <div className="min-h-[132px] border-l border-[#edf2f7] px-4 py-3 first:border-l-0">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0f766e] shadow-sm ring-1 ring-[#e6edf8]">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e7fbfb] text-[#0b7f88]">
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-medium text-[#5f728d]">{label}</p>
-          <p className="mt-1 text-[1.6rem] font-bold leading-none tracking-tight text-[#10213d]">{value}</p>
+          <p className="text-[12px] font-bold text-[#24364f]">{label}</p>
+          <p className="mt-1 text-[23px] font-extrabold leading-none tracking-normal text-[#15243a]">{value}</p>
         </div>
       </div>
-      <div className="mt-4 space-y-1.5">
+      <div className="mt-3 space-y-1">
         <ComparisonLine value={monthDelta} label="vs last month" kind="percent" compareMode={compareMode} modeKey="last_month" />
         <ComparisonLine value={quarterDelta} label="vs last quarter" kind="percent" compareMode={compareMode} modeKey="last_quarter" />
       </div>
@@ -657,33 +714,30 @@ function PerformanceTable<T>(props: {
 }) {
   const { title, subtitle, rows, emptyState, columns, footerHref, footerLabel } = props;
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[#10213d]">{title}</h3>
-          <p className="mt-1 text-[11px] text-[#64748b]">{subtitle}</p>
+          <h3 className="text-[13px] font-bold text-[#18263b]">{title}</h3>
+          <p className="mt-0.5 text-[11px] text-[#64748b]">{subtitle}</p>
         </div>
-        <Link to={footerHref} className="text-[11px] font-semibold text-[#0f766e] transition hover:text-[#0b5d57]">
-          {footerLabel}
-        </Link>
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[#d6e0f2] bg-white px-4 py-10 text-center text-sm text-[#6b7c92]">
+        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#d6e0f2] bg-[#fbfdff] px-4 py-8 text-center text-sm text-[#6b7c92]">
           {emptyState}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#e8eef7] bg-white">
-          <div className="grid grid-cols-[1.55fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-[#edf2fb] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7a8aa3]">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[#eef2f7] bg-white">
+          <div className="grid grid-cols-[1.45fr_0.65fr_0.75fr_0.75fr] gap-2 border-b border-[#edf2f7] px-3 py-2 text-[10px] font-semibold text-[#617087]">
             {columns.map((column) => (
               <div key={column.key} className={column.align === "right" ? "text-right" : ""}>
                 {column.label}
               </div>
             ))}
           </div>
-          <div className="flex-1 divide-y divide-[#edf2fb]">
+          <div className="flex-1 divide-y divide-[#edf2f7]">
             {rows.map((row, index) => (
-              <div key={index} className="grid grid-cols-[1.55fr_0.9fr_0.9fr_0.9fr] gap-3 px-3 py-4 text-sm text-[#10213d]">
+              <div key={index} className="grid grid-cols-[1.45fr_0.65fr_0.75fr_0.75fr] gap-2 px-3 py-2.5 text-[12px] leading-4 text-[#18263b]">
                 {columns.map((column) => (
                   <div key={column.key} className={column.align === "right" ? "text-right" : ""}>
                     {column.render(row)}
@@ -694,8 +748,20 @@ function PerformanceTable<T>(props: {
           </div>
         </div>
       )}
+      <Link to={footerHref} className="mt-3 text-center text-[12px] font-semibold text-[#0b7f88] transition hover:text-[#096d75]">
+        {footerLabel}
+      </Link>
     </div>
   );
+}
+
+function actionCenterIcon(label: string): LucideIcon {
+  if (label.includes("Pending")) return ClipboardCheck;
+  if (label.includes("Failed")) return RefreshCcw;
+  if (label.includes("Expiring")) return CalendarDays;
+  if (label.includes("Rewards")) return Gift;
+  if (label.includes("Inactive")) return Users;
+  return TriangleAlert;
 }
 
 function ActionCenterCard(props: {
@@ -703,16 +769,29 @@ function ActionCenterCard(props: {
   onOpen: (item: ActionCenterItem) => void;
 }) {
   const { item, onOpen } = props;
+  const Icon = actionCenterIcon(item.label);
   return (
-    <div className="flex shrink-0 items-center gap-3 rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] px-3 py-2.5">
-      <div className={cn("inline-flex min-w-11 items-center justify-center rounded-full px-3 py-1 text-sm font-semibold", actionToneClass(item.tone))}>
-        {integerFormatter.format(item.count)}
+    <div className="grid grid-cols-[40px_minmax(0,1fr)_48px_102px] items-center gap-3 border-b border-[#e7edf5] px-1 py-[14px] last:border-b-0 max-sm:grid-cols-[40px_minmax(0,1fr)_48px] max-sm:gap-x-3 max-sm:gap-y-2">
+      <div className={cn("flex h-9 w-9 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
+        <Icon className="h-[18px] w-[18px]" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-[#10213d]">{item.label}</p>
-        <p className="mt-1 text-xs text-[#64748b]">{item.description}</p>
+        <p className="truncate text-[15px] font-medium leading-5 text-[#071936]">{item.label}</p>
       </div>
-      <button type="button" onClick={() => onOpen(item)} className={cn(adminOutlineButtonClass, "h-10 rounded-full px-4")}>
+      <div className="flex justify-center">
+        <span className={cn("inline-flex h-9 min-w-12 items-center justify-center rounded-[10px] px-3 text-[14px] font-medium", actionToneClass(item.tone))}>
+          {integerFormatter.format(item.count)}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={() => onOpen(item)}
+        className={cn(
+          "inline-flex h-[43px] w-[102px] items-center justify-center rounded-[10px] border border-[#c7d9ee] bg-white px-4 text-[14px] font-medium text-[#071936] shadow-none transition",
+          actionButtonToneClass(item.tone),
+          "max-sm:col-start-2 max-sm:w-full",
+        )}
+      >
         {item.actionLabel}
       </button>
     </div>
@@ -722,22 +801,21 @@ function ActionCenterCard(props: {
 function InsightCard({ item }: { item: InsightItem }) {
   const { icon: Icon, title, value, supporting, caption, href, ctaLabel, tone } = item;
   const content = (
-    <div className="flex h-full flex-col rounded-[18px] border border-[#dde6f2] bg-white p-4 shadow-[0_10px_24px_rgba(16,33,58,0.035)] transition hover:border-[#cdd9eb] hover:shadow-[0_12px_28px_rgba(16,33,58,0.05)]">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className={cn("flex h-11 w-11 items-center justify-center rounded-full", insightToneClass(tone))}>
+    <div className="flex h-full min-h-[104px] flex-col rounded-lg border border-[#e3eaf4] bg-white p-4 shadow-[0_8px_20px_rgba(17,38,60,0.04)] transition hover:border-[#cdd9eb]">
+      <div className="mb-2 flex items-start gap-3">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", insightToneClass(tone))}>
           <Icon className="h-5 w-5" />
         </div>
-        {ctaLabel ? (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#35506e]">
-            {ctaLabel}
-            <ChevronRight className="h-3.5 w-3.5" />
-          </span>
-        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-bold text-[#24364f]">{title}</p>
+          <p className="mt-1 line-clamp-2 text-[15px] font-extrabold leading-tight text-[#15243a]">{value}</p>
+        </div>
       </div>
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7a8aa3]">{title}</p>
-      <p className="mt-2 text-[1.55rem] font-bold leading-tight tracking-tight text-[#10213d]">{value}</p>
-      <p className="mt-2 text-sm font-medium text-[#233b5d]">{supporting}</p>
-      <p className="mt-auto pt-4 text-xs leading-5 text-[#64748b]">{caption}</p>
+      <p className="text-[12px] font-semibold leading-4 text-[#233b5d]">{supporting}</p>
+      <div className="mt-auto flex items-end justify-between gap-3 pt-2">
+        <p className="line-clamp-2 text-[11px] leading-4 text-[#64748b]">{caption}</p>
+        {ctaLabel ? <ChevronRight className="h-4 w-4 shrink-0 text-[#52627a]" /> : null}
+      </div>
     </div>
   );
 
@@ -773,7 +851,7 @@ function DateRangeSelector(props: {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex h-11 items-center gap-2 rounded-xl border border-[#d7e1f1] bg-white px-4 text-sm font-medium text-[#233b5d] shadow-sm transition hover:border-[#bfd0e6] hover:bg-[#f9fbff]"
+        className="inline-flex h-10 items-center gap-2 rounded-md border border-[#dfe7f1] bg-white px-3 text-[12px] font-bold text-[#24364f] shadow-[0_4px_12px_rgba(17,38,60,0.04)] transition hover:border-[#bfd0e6] hover:bg-[#f9fbff]"
       >
         <CalendarDays className="h-4 w-4 text-[#0f766e]" />
         <span>{formatHeaderRange(startDate, endDate)}</span>
@@ -788,11 +866,11 @@ function DateRangeSelector(props: {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2">
               <span className="text-sm font-medium text-[#233b5d]">Start date</span>
-              <input type="date" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} className={adminInputClass} />
+              <input type="date" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} className={cn(adminInputClass, "rounded-md")} />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-medium text-[#233b5d]">End date</span>
-              <input type="date" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} className={adminInputClass} />
+              <input type="date" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} className={cn(adminInputClass, "rounded-md")} />
             </label>
           </div>
           <DialogFooter>
@@ -831,7 +909,7 @@ function ComparisonSelector(props: {
         onChange={(event) => onChange(event.target.value as CompareMode)}
         className={cn(
           adminInputClass,
-          "h-11 min-w-[208px] appearance-none rounded-xl border-[#d7e1f1] bg-white pr-10 text-sm font-medium text-[#233b5d] shadow-sm",
+          "h-10 min-w-[210px] appearance-none rounded-md border-[#dfe7f1] bg-white pr-10 text-[12px] font-bold text-[#24364f] shadow-[0_4px_12px_rgba(17,38,60,0.04)]",
         )}
       >
         <option value="both">vs last month / vs last quarter</option>
@@ -1432,7 +1510,7 @@ export default function AdminDashboardPage() {
         records:
           pendingValidations.slice(0, 6).map((voucher) => ({
             primary: voucher.rewardName,
-            secondary: `${voucher.voucherCode} • ${voucher.method === "in-store" ? "In-store pickup" : "Delivery processing"} • ${new Date(voucher.createdAt).toLocaleDateString()}`,
+            secondary: `${voucher.voucherCode} / ${voucher.method === "in-store" ? "In-store pickup" : "Delivery processing"} / ${new Date(voucher.createdAt).toLocaleDateString()}`,
             badge: "Ready",
           })) || emptyActionRecords("No vouchers are waiting for validation."),
       },
@@ -1462,7 +1540,7 @@ export default function AdminDashboardPage() {
         records:
           expiringCampaigns.slice(0, 6).map((campaign) => ({
             primary: campaign.campaignName,
-            secondary: `${campaignStatusLabel(campaign.status)} • ends ${new Date(campaign.endsAt).toLocaleDateString()}`,
+            secondary: `${campaignStatusLabel(campaign.status)} / ends ${new Date(campaign.endsAt).toLocaleDateString()}`,
             badge: "Expiring",
           })) || emptyActionRecords("No campaigns are expiring soon."),
       },
@@ -1477,7 +1555,7 @@ export default function AdminDashboardPage() {
         records:
           lowPerformingRewards.slice(0, 6).map((reward) => ({
             primary: reward.name,
-            secondary: `${integerFormatter.format(reward.redemptions)} redemptions • ${singleDecimalFormatter.format(reward.rate)}% redemption rate`,
+            secondary: `${integerFormatter.format(reward.redemptions)} redemptions / ${singleDecimalFormatter.format(reward.rate)}% redemption rate`,
             badge: "Low traction",
           })) || emptyActionRecords("All visible rewards are performing within the current benchmark band."),
       },
@@ -1492,7 +1570,7 @@ export default function AdminDashboardPage() {
         records:
           inactiveMembers.slice(0, 6).map((member) => ({
             primary: member.memberName,
-            secondary: `${member.memberNumber} • ${member.daysInactive} days inactive • ${member.suggestedOffer}`,
+            secondary: `${member.memberNumber} / ${member.daysInactive} days inactive / ${member.suggestedOffer}`,
             badge: member.riskLevel,
           })) || emptyActionRecords("No inactive member backlog is currently above the 60-day threshold."),
       },
@@ -1631,6 +1709,50 @@ export default function AdminDashboardPage() {
     return [topMemberInsight, topRewardInsight, campaignInsight, unusualRedemptionInsight, latestCriticalInsight];
   }, [dashboardData.rewardPerformanceRows, dashboardData.topMember, dashboardData.unusualRewardAlert, memberById, reengagementActions, topCampaignRows]);
 
+  const kpiCards = useMemo(
+    () => [
+      {
+        icon: Users,
+        title: "Total Members",
+        value: integerFormatter.format(currentSummary.totalMembers),
+        monthDelta: differencePercent(currentSummary.totalMembers, previousMonthSummary.totalMembers),
+        quarterDelta: differencePercent(currentSummary.totalMembers, previousQuarterSummary.totalMembers),
+      },
+      {
+        icon: Users,
+        title: "Active Members (30d)",
+        value: integerFormatter.format(currentSummary.activeMembers30d),
+        monthDelta: differencePercent(currentSummary.activeMembers30d, previousMonthSummary.activeMembers30d),
+        quarterDelta: differencePercent(currentSummary.activeMembers30d, previousQuarterSummary.activeMembers30d),
+      },
+      {
+        icon: Coins,
+        title: "Points Liability",
+        value: formatCompactValue(currentSummary.pointsLiability),
+        monthDelta: differencePercent(currentSummary.pointsLiability, previousMonthSummary.pointsLiability),
+        quarterDelta: differencePercent(currentSummary.pointsLiability, previousQuarterSummary.pointsLiability),
+      },
+      {
+        icon: RefreshCcw,
+        title: "Points Redeemed",
+        value: formatCompactValue(currentSummary.pointsRedeemed),
+        monthDelta: differencePercent(currentSummary.pointsRedeemed, previousMonthSummary.pointsRedeemed),
+        quarterDelta: differencePercent(currentSummary.pointsRedeemed, previousQuarterSummary.pointsRedeemed),
+      },
+      {
+        icon: Percent,
+        title: "Redemption Rate",
+        value: `${singleDecimalFormatter.format(currentSummary.redemptionRate)}%`,
+        monthDelta: differencePoints(currentSummary.redemptionRate, previousMonthSummary.redemptionRate),
+        quarterDelta: differencePoints(currentSummary.redemptionRate, previousQuarterSummary.redemptionRate),
+        deltaKind: "pp" as const,
+      },
+    ],
+    [currentSummary, previousMonthSummary, previousQuarterSummary],
+  );
+
+  const topRewardRows = dashboardData.rewardPerformanceRows.slice(0, 5);
+
   const handleRetry = useCallback(() => {
     void refetch();
     void refreshAuxiliaryData();
@@ -1641,220 +1763,217 @@ export default function AdminDashboardPage() {
   }
 
   return (
-  <div className={cn(adminPageShellClass, "max-w-none w-full px-4 space-y-3 pb-4")}>
-
-    {/* HEADER */}
-    <section className="rounded-[18px] border border-[#eef3f9] bg-white px-4 py-3">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h1 className="text-[1.8rem] font-bold text-[#10213d]">Dashboard Overview</h1>
-          <p className="mt-2 text-sm text-[#5f728d]">
-            Monitor loyalty health, rewards performance, and operational alerts.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <DateRangeSelector
-            startDate={startDate}
-            endDate={endDate}
-            onApply={(nextStart, nextEnd) =>
-              setQueryParams({ startDate: nextStart, endDate: nextEnd })
-            }
-          />
-          <ComparisonSelector
-            value={compareMode}
-            onChange={(value) => setQueryParams({ compare: value })}
-          />
-          {/* Compact layout is enabled by default in this build. */}
-          <Link
-            to="/admin/rewards#rewards-campaigns"
-            className={cn(adminPrimaryButtonClass, "h-11 px-5")}
-          >
-            <Megaphone className="h-4 w-4" />
-            Create Campaign
-          </Link>
-        </div>
-      </div>
-    </section>
-
-    {/* KPI ROW (clean + premium spacing) */}
-    <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-      {/* KEEP YOUR KPI CARDS EXACTLY AS-IS */}
-    </section>
-
-    {/*  MAIN FOCUS ROW */}
-    <section className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-4">
-
-      {/* LEFT: PROGRAM HEALTH */}
-      <SectionCard
-        title="Program Health"
-        subtitle="Membership trend and engagement"
-        icon={HeartPulse}
-        className="p-2.5"
-      >
-        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
-          <div className="flex h-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#10213d]">Program Health Snapshot</h3>
-              <p className="mt-1 text-[11px] text-[#64748b]">Member growth and 30-day activity across the selected range.</p>
-            </div>
-            <ProgramHealthChart data={dashboardData.programHealthTrend} compact />
+    <>
+      <div className={cn(adminPageShellClass, "mx-auto max-w-[1180px] space-y-3 px-3 py-2 pb-5")}>
+        <section className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-[28px] font-extrabold leading-none tracking-normal text-[#132036]">Dashboard Overview</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Monitor loyalty health, rewards performance, and operational alerts.</p>
           </div>
-          <div className="flex h-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#10213d]">Health Indicators</h3>
-              <p className="mt-1 text-[11px] text-[#64748b]">New members, at-risk members, and active-rate performance.</p>
-            </div>
-            <div className="flex-1 flex flex-col justify-between mt-2">
+
+          <div className="flex flex-wrap items-center gap-3">
+            {auxLoading ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-[#dfe7f1] bg-white px-3 text-[12px] font-bold text-[#64748b]">
+                Refreshing data
+              </span>
+            ) : null}
+            <DateRangeSelector
+              startDate={startDate}
+              endDate={endDate}
+              onApply={(nextStart, nextEnd) => setQueryParams({ startDate: nextStart, endDate: nextEnd })}
+            />
+            <ComparisonSelector value={compareMode} onChange={(value) => setQueryParams({ compare: value })} />
+            <Link to="/admin/rewards#rewards-campaigns" className={cn(adminPrimaryButtonClass, "h-10 rounded-md px-4 shadow-[0_8px_18px_rgba(11,127,136,0.18)]")}>
+              <Megaphone className="h-4 w-4" />
+              Create Campaign
+            </Link>
+          </div>
+        </section>
+
+        {error ? <DashboardErrorBanner message={error} onRetry={handleRetry} /> : null}
+        {auxError ? (
+          <div className="rounded-lg border border-[#f6e0b8] bg-[#fffaf0] px-4 py-3 text-[12px] font-semibold text-[#9a6117]">
+            {auxError}
+          </div>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {kpiCards.map((card) => (
+            <DashboardKpiCard key={card.title} {...card} compareMode={compareMode} />
+          ))}
+        </section>
+
+        <section className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">
+          <SectionCard title="Program Health Snapshot" subtitle="Membership trend over time" icon={HeartPulse}>
+            <ProgramHealthChart data={dashboardData.programHealthTrend} compact />
+          </SectionCard>
+
+          <SectionCard title="Member Health Indicators" subtitle="Targets for the selected period" icon={Target} className="pb-2">
+            <div className="flex min-h-0 flex-1 flex-col">
               {statusRows.map((row) => (
                 <ProgramHealthSummaryRow key={row.label} {...row} compareMode={compareMode} />
               ))}
             </div>
-          </div>
-        </div>
-      </SectionCard>
+          </SectionCard>
+        </section>
 
-      {/*  RIGHT: ACTION CENTER (NOW PREMIUM) */}
-      <SectionCard
-        title="Action Center"
-        subtitle="What needs immediate attention"
-        icon={TriangleAlert}
-        className="border-[#dce8ff] bg-[#f8fbff] p-2.5"
-      >
-        <div className="flex-1 flex flex-col justify-between overflow-y-auto min-h-0 mt-4 pr-2">
-          {actionCenterItems.map((item) => (
-            <ActionCenterCard
-              key={item.label}
-              item={item}
-              onOpen={(selected) =>
-                setActionModal({
-                  title: selected.label,
-                  description: selected.description,
-                  actionLabel: selected.actionLabel,
-                  actionHref: selected.actionHref,
-                  rows: selected.records,
-                  emptyText: selected.emptyText,
-                })
-              }
-            />
-          ))}
-        </div>
-      </SectionCard>
-    </section>
-
-    {/*  SECOND ROW (BALANCED ANALYTICS) */}
-    <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-
-      {/* POINTS */}
-      <SectionCard
-        title="Points Economy"
-        subtitle="Earned vs redeemed"
-        icon={Coins}
-        className="p-2.5"
-      >
-        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,1fr)]">
-          <div className="flex h-full w-full flex-col rounded-[18px] border border-[#e8eef7] bg-[#fbfdff] p-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#10213d]">Points Economy Snapshot</h3>
-              <p className="mt-1 text-[11px] text-[#64748b]">Issued versus redeemed points across the reporting window.</p>
-            </div>
+        <SectionCard title="Points Economy" subtitle="Points earned vs. redeemed during selected period" icon={Coins}>
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
             <PointsEconomyChart data={dashboardData.pointsEconomyTrend} compact />
+            <div className="grid rounded-lg border border-[#edf2f7] bg-[#fbfdff] sm:grid-cols-3 xl:grid-cols-3">
+              <PointsSummaryTile
+                icon={ClipboardCheck}
+                label="Points Issued"
+                value={formatCompactValue(currentSummary.pointsIssued)}
+                monthDelta={differencePercent(currentSummary.pointsIssued, previousMonthSummary.pointsIssued)}
+                quarterDelta={differencePercent(currentSummary.pointsIssued, previousQuarterSummary.pointsIssued)}
+                compareMode={compareMode}
+              />
+              <PointsSummaryTile
+                icon={RefreshCcw}
+                label="Points Redeemed"
+                value={formatCompactValue(currentSummary.pointsRedeemed)}
+                monthDelta={differencePercent(currentSummary.pointsRedeemed, previousMonthSummary.pointsRedeemed)}
+                quarterDelta={differencePercent(currentSummary.pointsRedeemed, previousQuarterSummary.pointsRedeemed)}
+                compareMode={compareMode}
+              />
+              <PointsSummaryTile
+                icon={Coins}
+                label="Outstanding Liability"
+                value={formatCompactValue(currentSummary.pointsLiability)}
+                monthDelta={differencePercent(currentSummary.pointsLiability, previousMonthSummary.pointsLiability)}
+                quarterDelta={differencePercent(currentSummary.pointsLiability, previousQuarterSummary.pointsLiability)}
+                compareMode={compareMode}
+              />
+            </div>
           </div>
-          <div className="flex flex-col justify-between h-full gap-3">
-            <PointsSummaryTile
-              icon={ClipboardCheck}
-              label="Points Issued"
-              value={formatCompactValue(currentSummary.pointsIssued)}
-              monthDelta={differencePercent(currentSummary.pointsIssued, previousMonthSummary.pointsIssued)}
-              quarterDelta={differencePercent(currentSummary.pointsIssued, previousQuarterSummary.pointsIssued)}
-              compareMode={compareMode}
-            />
+        </SectionCard>
 
-            <PointsSummaryTile
-              icon={RefreshCcw}
-              label="Points Redeemed"
-              value={formatCompactValue(currentSummary.pointsRedeemed)}
-              monthDelta={differencePercent(currentSummary.pointsRedeemed, previousMonthSummary.pointsRedeemed)}
-              quarterDelta={differencePercent(currentSummary.pointsRedeemed, previousQuarterSummary.pointsRedeemed)}
-              compareMode={compareMode}
-            />
+        <section className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(340px,0.9fr)]">
+          <SectionCard title="A. Campaign & Reward Performance" subtitle="Top 5 active campaigns and rewards" icon={Megaphone}>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <PerformanceTable<PerformanceRow>
+                title="Top 5 Active Campaigns"
+                subtitle="Campaign performance"
+                rows={topCampaignRows}
+                emptyState="No campaign performance data is available for the selected range."
+                columns={[
+                  { key: "name", label: "Campaign", render: (row) => row.name },
+                  {
+                    key: "status",
+                    label: "Status",
+                    align: "right",
+                    render: (row) => (
+                      <span className="inline-flex items-center justify-end gap-1 text-[#0f766e]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#0f8a63]" />
+                        {row.status}
+                      </span>
+                    ),
+                  },
+                  { key: "redemptions", label: "Redemptions", align: "right", render: (row) => integerFormatter.format(row.redemptions) },
+                  { key: "rate", label: "Engagement", align: "right", render: (row) => `${singleDecimalFormatter.format(row.rate)}%` },
+                ]}
+                footerHref="/admin/rewards#rewards-campaigns"
+                footerLabel="View all campaigns"
+              />
 
-            <PointsSummaryTile
-              icon={Coins}
-              label="Liability"
-              value={formatCompactValue(currentSummary.pointsLiability)}
-              monthDelta={differencePercent(currentSummary.pointsLiability, previousMonthSummary.pointsLiability)}
-              quarterDelta={differencePercent(currentSummary.pointsLiability, previousQuarterSummary.pointsLiability)}
-              compareMode={compareMode}
-            />
+              <PerformanceTable<PerformanceRow>
+                title="Top 5 Rewards"
+                subtitle="Reward performance"
+                rows={topRewardRows}
+                emptyState="No reward redemption data is available for the selected range."
+                columns={[
+                  { key: "name", label: "Reward", render: (row) => row.name },
+                  {
+                    key: "status",
+                    label: "Status",
+                    align: "right",
+                    render: (row) => (
+                      <span className="inline-flex items-center justify-end gap-1 text-[#0f766e]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#0f8a63]" />
+                        {row.status}
+                      </span>
+                    ),
+                  },
+                  { key: "redemptions", label: "Redemptions", align: "right", render: (row) => integerFormatter.format(row.redemptions) },
+                  { key: "rate", label: "Redemption", align: "right", render: (row) => `${singleDecimalFormatter.format(row.rate)}%` },
+                ]}
+                footerHref="/admin/rewards"
+                footerLabel="View all rewards"
+              />
+            </div>
+          </SectionCard>
+
+          <SectionCard title="B. Action Center" subtitle="Operational alerts and next actions" icon={TriangleAlert}>
+            <div className="min-h-0 flex-1">
+              {actionCenterItems.map((item) => (
+                <ActionCenterCard
+                  key={item.label}
+                  item={item}
+                  onOpen={(selected) =>
+                    setActionModal({
+                      title: selected.label,
+                      description: selected.description,
+                      actionLabel: selected.actionLabel,
+                      actionHref: selected.actionHref,
+                      rows: selected.records,
+                      emptyText: selected.emptyText,
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </SectionCard>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 fill-[#24364f] text-[#24364f]" />
+            <h2 className="text-[16px] font-extrabold text-[#18263b]">Top Activity Insights</h2>
           </div>
-        </div>
-      </SectionCard>
-
-      {/* PERFORMANCE */}
-      <SectionCard
-        title="Campaign Performance"
-        subtitle="Top campaigns and rewards"
-        icon={Megaphone}
-        className="p-2.5"
-      >
-        <div className="flex h-full min-h-0 flex-col gap-4">
-          <CampaignPerformanceChart data={campaignPerformance} compact />
-          <PerformanceTable<PerformanceRow>
-            title="Top campaigns"
-            subtitle="Current range campaign performance"
-            rows={topCampaignRows}
-            emptyState="No campaign performance data is available for the selected range."
-            columns={[
-              {
-                key: "name",
-                label: "Campaign",
-                render: (row) => row.name,
-              },
-              {
-                key: "redemptions",
-                label: "Redemptions",
-                align: "right",
-                render: (row) => integerFormatter.format(row.redemptions),
-              },
-              {
-                key: "rate",
-                label: "Engagement",
-                align: "right",
-                render: (row) => `${singleDecimalFormatter.format(row.rate)}%`,
-              },
-              {
-                key: "status",
-                label: "Status",
-                align: "right",
-                render: (row) => row.status,
-              },
-            ]}
-            footerHref="/admin/rewards#rewards-campaigns"
-            footerLabel="View campaigns"
-          />
-        </div>
-      </SectionCard>
-    </section>
-
-    {/*  INSIGHTS (FINAL LAYER) */}
-    <section className="pt-2 border-t border-[#eef3f9]">
-      <div className="mb-4">
-        <h2 className="text-[1.15rem] font-semibold text-[#10213d]">
-          Insights
-        </h2>
-        <p className="text-sm text-[#64748b]">
-          Executive-level summaries and signals
-        </p>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {insights.map((item) => (
+              <InsightCard key={item.title} item={item} />
+            ))}
+          </div>
+        </section>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-        {insights.map((item) => (
-          <InsightCard key={item.title} item={item} />
-        ))}
-      </div>
-    </section>
-
-  </div>
-);
+      <Dialog open={Boolean(actionModal)} onOpenChange={(open) => !open && setActionModal(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{actionModal?.title}</DialogTitle>
+            <DialogDescription>{actionModal?.description}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-[#e5edf6] bg-[#fbfdff]">
+            {actionModal?.rows.length ? (
+              <div className="divide-y divide-[#edf2f7]">
+                {actionModal.rows.map((row, index) => (
+                  <div key={`${row.primary}-${index}`} className="flex items-start justify-between gap-3 p-3">
+                    <div>
+                      <p className="text-sm font-bold text-[#18263b]">{row.primary}</p>
+                      <p className="mt-1 text-xs leading-5 text-[#607087]">{row.secondary}</p>
+                    </div>
+                    {row.badge ? <span className="shrink-0 rounded-md bg-white px-2 py-1 text-[11px] font-bold text-[#52627a] ring-1 ring-[#e1e9f3]">{row.badge}</span> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="p-4 text-sm text-[#607087]">{actionModal?.emptyText}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <button type="button" onClick={() => setActionModal(null)} className={cn(adminOutlineButtonClass, "rounded-md")}>
+              Close
+            </button>
+            {actionModal?.actionHref ? (
+              <Link to={actionModal.actionHref} onClick={() => setActionModal(null)} className={cn(adminPrimaryButtonClass, "rounded-md")}>
+                {actionModal.actionLabel}
+              </Link>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
