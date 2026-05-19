@@ -1,4 +1,4 @@
-export const adminPageShellClass = "max-w-[1400px] w-full mx-auto px-6 py-6 space-y-6";
+export const adminPageShellClass = "max-w-[1600px] w-full mx-auto px-5 py-5 space-y-4";
 
 export const adminPageHeroClass =
   "overflow-hidden rounded-[28px] border border-[#eef3f9] bg-white shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
@@ -13,13 +13,13 @@ export const adminPageTitleClass = "mt-4 text-[2.2rem] font-bold tracking-tight 
 export const adminPageDescriptionClass = "mt-2 text-sm leading-6 text-[#4b607f] lg:text-base";
 
 export const adminPanelClass =
-  "rounded-[20px] border border-[#dde6f2] bg-white p-5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
+  "rounded-[16px] border border-[#dde6f2] bg-white p-4 shadow-[0_8px_20px_rgba(16,33,58,0.04)]";
 
 export const adminPanelSoftClass =
-  "rounded-[20px] border border-[#e8eef7] bg-[#f8fbff] p-5 shadow-[0_10px_28px_rgba(16,33,58,0.04)]";
+  "rounded-[16px] border border-[#e8eef7] bg-[#f8fbff] p-4 shadow-[0_8px_20px_rgba(16,33,58,0.04)]";
 
 export const adminMetricPanelClass =
-  "rounded-[20px] border border-[#d4def6] bg-[linear-gradient(135deg,#ffffff_0%,#f4f8ff_100%)] p-5 shadow-[0_10px_28px_rgba(16,33,58,0.06)]";
+  "rounded-[16px] border border-[#d4def6] bg-[linear-gradient(135deg,#ffffff_0%,#f4f8ff_100%)] p-4 shadow-[0_8px_20px_rgba(16,33,58,0.06)]";
 
 export function adminMetricVariantClass(index: number) {
   const variants = [
