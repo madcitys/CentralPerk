@@ -6,9 +6,9 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
-  Crown,
   Gift,
   HeartPulse,
+  Home,
   Info,
   Megaphone,
   Pill,
@@ -108,7 +108,7 @@ function trendLabel(current: number, previous: number, transactionCount: number,
     const change = Math.round(((current - previous) / previous) * 100);
     return `${change >= 0 ? "+" : ""}${change}% vs last month`;
   }
-  if (transactionCount > 0) return `${transactionCount} ${noun}`;
+  if (transactionCount > 0) return `${transactionCount.toLocaleString()} ${noun}`;
   return `No ${noun}`;
 }
 
@@ -142,7 +142,7 @@ export default function Dashboard() {
     if (userTier) return userTier.name;
     const level = [...resolvedTierLevels].sort((a, b) => b.min - a.min).find((tier) => user.points >= tier.min);
     return (level?.name ?? user.tier) as TierName;
-  }, [resolvedTierLevels, user.points]);
+  }, [resolvedTierLevels, user.points, user.tier]);
 
   const currentTierData =
     resolvedTierLevels.find((tier) => tier.name.toLowerCase() === derivedTierName.toLowerCase()) ??
@@ -158,8 +158,8 @@ export default function Dashboard() {
     !nextTierData
       ? 100
       : progressTarget > progressBase
-      ? Math.min(100, Math.max(0, ((progressCurrent - progressBase) / (progressTarget - progressBase)) * 100))
-      : 0;
+        ? Math.min(100, Math.max(0, ((progressCurrent - progressBase) / (progressTarget - progressBase)) * 100))
+        : 0;
 
   const recentTransactions = useMemo(
     () => [...user.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5),
@@ -170,7 +170,10 @@ export default function Dashboard() {
   const previousMonthSummary = useMemo(() => transactionMonthSummary(user.transactions, -1), [user.transactions]);
 
   const availableRewards = useMemo(
-    () => rewards.filter((reward) => reward.available && Number(reward.pointsCost) > 0).sort((a, b) => a.pointsCost - b.pointsCost),
+    () =>
+      rewards
+        .filter((reward) => reward.available && Number(reward.pointsCost) > 0)
+        .sort((a, b) => a.pointsCost - b.pointsCost),
     [rewards],
   );
 
@@ -201,7 +204,7 @@ export default function Dashboard() {
       body:
         activeCampaigns.length > 0
           ? `${activeCampaigns.length.toLocaleString()} live campaign${activeCampaigns.length === 1 ? "" : "s"} matched to your tier.`
-          : "Member service perks stay attached to your current tier.",
+          : "Member service perks stay attached to your tier.",
     },
     {
       icon: HeartPulse,
@@ -209,7 +212,7 @@ export default function Dashboard() {
       body:
         availableRewards.length > 0
           ? `${affordableRewards.length.toLocaleString()} reward${affordableRewards.length === 1 ? "" : "s"} redeemable with your balance.`
-          : "Wellness rewards will appear when the catalog is published.",
+          : "Wellness rewards appear when the catalog is published.",
     },
   ];
 
@@ -250,240 +253,246 @@ export default function Dashboard() {
 
   const activeCampaign = activeCampaigns[0] ?? null;
   const firstName = user.fullName.split(" ").filter(Boolean)[0] ?? user.fullName;
+  const summaryCards = [
+    {
+      icon: Clock,
+      title: "Pending Points",
+      value: `${user.pendingPoints.toLocaleString()} pts`,
+      detail: user.pendingPoints > 0 ? "Processing" : "None Pending",
+      tone: "blue",
+    },
+    {
+      icon: ArrowUpRight,
+      title: "Earned This Month",
+      value: `${user.earnedThisMonth.toLocaleString()} pts`,
+      detail: trendLabel(user.earnedThisMonth, previousMonthSummary.earned, currentMonthSummary.earnCount, "earning transactions"),
+      tone: "teal",
+    },
+    {
+      icon: ArrowDownRight,
+      title: "Redeemed This Month",
+      value: `${user.redeemedThisMonth.toLocaleString()} pts`,
+      detail: trendLabel(user.redeemedThisMonth, previousMonthSummary.redeemed, currentMonthSummary.redeemCount, "redemption transactions"),
+      tone: "red",
+    },
+  ];
+  const quickNavItems = [
+    { label: "Dashboard", href: "/customer", icon: Home },
+    { label: "Earn Points", href: "/customer/earn", icon: Gift },
+    { label: "Activity", href: "/customer/activity", icon: ReceiptText },
+    { label: "Rewards", href: "/customer/rewards", icon: ShoppingBag },
+    { label: "Engagement", href: "/customer/engagement", icon: Sparkles },
+    { label: "Profile", href: "/customer/profile", icon: Settings },
+  ];
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f6f8fb] text-[#081a35]">
-      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-5 lg:px-6">
-        <header className="mb-5 flex items-start justify-between gap-5">
+    <div
+      className="relative min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#f1fbf7_0%,#f7fafc_42%,#edf8f4_100%)] text-[#081a35]"
+      style={{ fontFamily: "'Poppins', sans-serif" }}
+    >
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_10%_8%,rgba(0,140,128,0.12),transparent_30%),radial-gradient(circle_at_82%_18%,rgba(8,126,96,0.10),transparent_28%),linear-gradient(90deg,rgba(0,140,128,0.035)_1px,transparent_1px),linear-gradient(180deg,rgba(0,140,128,0.035)_1px,transparent_1px)] bg-[length:auto,auto,44px_44px,44px_44px]" />
+      <div className="relative z-10 mx-auto max-w-[1180px] px-4 py-5 sm:px-5 lg:px-6">
+        <header className="mb-5 flex flex-col items-start justify-between gap-4 rounded-[16px] border border-[#bfe9e4] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] px-5 py-5 shadow-[0_12px_28px_rgba(0,96,86,0.07)] sm:flex-row sm:items-center">
           <div>
-            <p className="w-fit rounded-full border border-[#9ddbd4] bg-[#eefbf8] px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-[#007f78]">
+            <div className="inline-flex items-center rounded-full border border-[#bfe5e8] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0f766e]">
               Member Command Center
-            </p>
-            <h1 className="mt-3 text-[38px] font-black leading-none tracking-tight text-[#071a35] sm:text-[42px]">Dashboard</h1>
-            <p className="mt-3 text-[15px] font-medium text-[#526275]">
-              Welcome back, {firstName}. Thank you for being a valued Greenovate member.
-            </p>
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#071a35] sm:text-[30px]">Dashboard</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#64748b]">Track your points, tiers, campaigns, and member benefits.</p>
           </div>
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-2.5">
             <button
               type="button"
               onClick={openNotifications}
               aria-label="Notifications"
-              className="relative inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#e4eaf2] bg-white text-[#071a35] shadow-[0_12px_24px_rgba(8,26,53,0.09)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(8,26,53,0.12)]"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d6eee8] bg-white/70 text-[#081a35] shadow-[0_8px_18px_rgba(0,96,86,0.06)] backdrop-blur transition hover:bg-white hover:shadow-sm"
             >
               <Bell className="h-5 w-5" />
               {notificationCount > 0 ? (
-                <span className="absolute right-2.5 top-2.5 h-4 min-w-4 rounded-full bg-[#00a99d] px-1 text-center text-[9px] font-black leading-4 text-white">
-                  {Math.min(notificationCount, 9)}
-                </span>
+                <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-[#f6f8fb] bg-[#ef3448]" />
               ) : null}
             </button>
             <Link
               to="/customer/profile"
               aria-label="Settings"
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#e4eaf2] bg-white text-[#071a35] shadow-[0_12px_24px_rgba(8,26,53,0.09)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(8,26,53,0.12)]"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d6eee8] bg-white/70 text-[#081a35] shadow-[0_8px_18px_rgba(0,96,86,0.06)] backdrop-blur transition hover:bg-white hover:shadow-sm"
             >
               <Settings className="h-5 w-5" />
             </Link>
           </div>
         </header>
 
-        <section className="grid gap-4 min-[1440px]:grid-cols-[0.98fr_1fr_1.25fr]">
-          <Card className="relative min-h-[288px] min-w-0 overflow-hidden rounded-[14px] border border-[#d7e2ef] bg-[radial-gradient(circle_at_88%_92%,rgba(8,105,134,0.34),transparent_32%),linear-gradient(135deg,#051a35_0%,#07396d_100%)] p-6 text-white shadow-[0_18px_34px_rgba(8,26,53,0.16)]">
-            <div className="pointer-events-none absolute -bottom-24 -right-20 h-72 w-72 rounded-full border border-white/5" />
-            <div className="pointer-events-none absolute -bottom-14 -right-12 h-52 w-52 rounded-full border border-white/5" />
-            <div className="grid items-center gap-5 sm:grid-cols-[112px_minmax(0,1fr)]">
-              <div className="relative mx-auto flex h-[112px] w-[112px] items-center justify-center">
-                <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle,#ffefb5_0%,#f7b719_50%,#bb7800_100%)] shadow-[0_0_28px_rgba(247,183,25,0.55)]" />
-                <span className="absolute inset-3 rounded-full border-[7px] border-[#fff0ba]/70" />
-                <span className="absolute inset-[22px] flex items-center justify-center rounded-full bg-[linear-gradient(145deg,#d99500,#fff0b3)] text-[#7b4d00] shadow-inner">
-                  <Crown className="h-10 w-10 fill-current" />
-                </span>
-                <Sparkles className="absolute -right-1 top-2 h-4 w-4 text-[#ffe28a]" />
-                <Sparkles className="absolute left-3 top-0 h-3.5 w-3.5 text-[#ffe28a]" />
-              </div>
-              <div className="min-w-0 text-center sm:text-left">
-                <p className="text-[12px] font-black uppercase tracking-[0.16em] text-[#76ddd4]">Available Points</p>
-                <div className="mt-3 flex flex-wrap items-end justify-center gap-2 sm:justify-start">
-                  <p className="text-[44px] font-black leading-none tracking-tight 2xl:text-[52px]">{user.points.toLocaleString()}</p>
-                  <p className="pb-1 text-[14px] font-black text-[#76ddd4]">points</p>
-                </div>
-                <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#ffd176] px-4 py-1.5 text-[13px] font-black text-[#664000]">
-                  <Crown className="h-4 w-4 fill-current" />
-                  {derivedTierName} Tier
-                </span>
-              </div>
-            </div>
-            <p className="mx-auto mt-6 max-w-[360px] text-center text-[14px] font-semibold leading-6 text-white/92">
-              {nextTierData
-                ? `You are in ${derivedTierName}. Keep earning to unlock ${nextTierData.name} benefits.`
-                : `${derivedTierName} benefits active. Keep earning and redeeming with your current perks.`}
-            </p>
-            <div className="mt-6 flex justify-center">
+        <nav className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6" aria-label="Customer shortcuts">
+          {quickNavItems.map((item) => {
+            const QuickIcon = item.icon;
+            return (
               <Link
-                to="/customer/earn"
-                className="inline-flex h-11 min-w-[210px] items-center justify-center gap-3 rounded-full bg-[linear-gradient(135deg,#00aaa0,#00857e)] px-6 text-[14px] font-black text-white shadow-[0_18px_28px_rgba(0,169,157,0.28)] transition hover:-translate-y-0.5 hover:brightness-105"
+                key={item.href}
+                to={item.href}
+                className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-[8px] border border-[#cfe9e3] bg-[linear-gradient(180deg,#ffffff_0%,#f5fffb_100%)] px-3 text-[12px] font-extrabold text-[#10213a] shadow-[0_8px_18px_rgba(0,96,86,0.055)] transition hover:border-[#8bd3c8] hover:bg-[#eefbf8] hover:text-[#00736f]"
               >
-                <ArrowUpRight className="h-5 w-5" />
-                Earn More Points
+                <QuickIcon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{item.label}</span>
               </Link>
+            );
+          })}
+        </nav>
+
+        <section className="grid gap-4 lg:grid-cols-[0.9fr_1.45fr_1.08fr]">
+          <Card className="relative min-h-[192px] min-w-0 overflow-hidden rounded-[9px] border border-[#d9e3ef] bg-[radial-gradient(circle_at_92%_92%,rgba(0,140,128,0.34),transparent_33%),linear-gradient(135deg,#061d3a_0%,#073b70_100%)] p-5 text-white shadow-[0_14px_28px_rgba(8,26,53,0.16)]">
+            <div className="pointer-events-none absolute -bottom-24 -right-20 h-72 w-72 rounded-full border border-white/6" />
+            <div className="pointer-events-none absolute -bottom-14 -right-12 h-52 w-52 rounded-full border border-white/6" />
+            <div className="relative flex h-full min-h-[152px] flex-col items-center justify-center text-center">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#87e4db]">Member Balance</p>
+              <div className="mt-4 flex flex-wrap items-end justify-center gap-3">
+                <p className="text-[44px] font-black leading-none tracking-normal sm:text-[50px]">{user.points.toLocaleString()}</p>
+                <p className="pb-2 text-[12px] font-extrabold uppercase tracking-[0.08em] text-[#bffaf2]">points</p>
+              </div>
+              <span className="mt-4 inline-flex min-w-[154px] items-center justify-center rounded-full bg-[#d8fff7] px-5 py-2 text-[12px] font-black text-[#005f5a]">
+                {derivedTierName} Tier
+              </span>
+              <p className="mt-4 max-w-[260px] text-[12px] font-semibold leading-5 text-white/90">
+                {nextTierData ? `Keep earning to unlock ${nextTierData.name} benefits.` : `${derivedTierName} benefits active.`}
+              </p>
             </div>
           </Card>
 
-          <Card className="min-h-[288px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-6 shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
-            <div className="flex items-start justify-between">
-              <div className="flex gap-4">
-                <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#e6f7f3] text-[#0a9587]">
-                  <Trophy className="h-6 w-6" />
-                </span>
-                <div>
-                  <p className="text-[16px] font-black uppercase tracking-[0.05em] text-[#071a35]">Tier Progress</p>
-                  <p className="mt-2 text-[14px] font-medium text-[#526275]">
-                    {nextTierData ? (
-                      <>
-                        Next Tier: <span className="font-black text-[#00877e]">{nextTierData.name}</span> at {progressTarget.toLocaleString()} pts
-                      </>
-                    ) : (
-                      <>
-                        Current Tier: <span className="font-black text-[#00877e]">{derivedTierName}</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-              </div>
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#f3f5f8] text-[#9aa4b2] shadow-inner">
-                <Crown className="h-5 w-5" />
-              </span>
+          <Card className="min-h-[192px] min-w-0 rounded-[9px] border border-[#cfe9e3] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] p-4 shadow-[0_12px_26px_rgba(0,96,86,0.08)]">
+            <p className="text-[14px] font-medium text-[#081a35]">Welcome back, {firstName}.</p>
+            <div className="mt-4 grid gap-3 sm:h-[132px] sm:grid-cols-3 sm:divide-x sm:divide-[#dfe6ef]">
+              {summaryCards.map((item) => {
+                const SummaryIcon = item.icon;
+                return (
+                  <div key={item.title} className="flex min-h-[124px] min-w-0 flex-col items-center justify-center px-2 text-center first:pl-0 last:pr-0 sm:min-h-0">
+                    <span
+                      className={cn(
+                        "inline-flex h-10 w-10 items-center justify-center rounded-full",
+                        item.tone === "blue" && "bg-[#e8f3ff] text-[#1967ad] ring-1 ring-[#c5e0ff]",
+                        item.tone === "teal" && "bg-[#def5ef] text-[#008b7f]",
+                        item.tone === "red" && "bg-[#ffe4ea] text-[#e63f52]",
+                      )}
+                    >
+                      <SummaryIcon className="h-5 w-5" />
+                    </span>
+                    <p className="mt-3 text-[10px] font-bold uppercase tracking-normal text-[#081a35]">{item.title}</p>
+                    <p className="mt-1 text-[22px] font-extrabold leading-none tracking-normal text-[#020817]">{item.value}</p>
+                    <p
+                      className={cn(
+                        "mt-2 max-w-[120px] text-[11px] font-semibold leading-4",
+                        item.tone === "blue" && "text-[#526275]",
+                        item.tone === "teal" && "text-[#078f6d]",
+                        item.tone === "red" && "text-[#e63f52]",
+                      )}
+                    >
+                      {item.detail}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
-            <Progress value={tierProgress} className="mt-8 h-3 bg-[#e9eef4]" indicatorClassName="bg-[#07958a]" />
-            <div className="mt-5 flex justify-between gap-4 text-[16px] font-black text-[#071a35]">
-              <span>{progressCurrent.toLocaleString()} pts</span>
-              <span className="text-right">{nextTierData ? `${progressTarget.toLocaleString()} pts` : `${derivedTierName} active`}</span>
-            </div>
-            <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-[14px] font-medium text-[#526275]">
-              <div>
-                Current: <span className="font-black text-[#071a35]">{progressCurrent.toLocaleString()} pts</span>
-              </div>
-              <div className="h-8 w-px bg-[#dce5ef]" />
-              <div>
-                {nextTierData ? "Goal" : "Status"}:{" "}
-                <span className="font-black text-[#071a35]">{nextTierData ? `${progressTarget.toLocaleString()} pts` : "Benefits active"}</span>
-              </div>
-            </div>
-            <div className="mt-5 flex items-center justify-center gap-3 rounded-[10px] bg-[#e8f7f3] px-5 py-3.5 text-[14px] font-black text-[#078176]">
-              <CheckCircle2 className="h-4 w-4" />
-              {nextTierData ? `${remainingProgressPoints.toLocaleString()} pts to ${nextTierData.name}` : "Top tier benefits active"}
-            </div>
-            <p className="mt-5 text-center text-[14px] font-black text-[#0b8f82]">
-              <Sparkles className="mr-2 inline h-4 w-4 fill-current text-[#f3b12b]" />
-              {derivedTierName} benefits active
-            </p>
           </Card>
 
           <div className="grid min-w-0 gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Card className="min-h-[136px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-4 text-center shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
-                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#eaf4ff] text-[#246fb6] ring-1 ring-[#c4e0ff]">
-                  <Clock className="h-6 w-6" />
+            <Card className="min-h-[104px] rounded-[9px] border border-[#cfe9e3] bg-[linear-gradient(135deg,#ffffff_0%,#f5fffb_100%)] p-4 shadow-[0_12px_26px_rgba(0,96,86,0.08)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e5f6f2] text-[#099285]">
+                    <Trophy className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-extrabold uppercase tracking-normal text-[#071a35]">Tier Progress</p>
+                    <p className="mt-1 text-[11px] font-medium text-[#526275]">
+                      {nextTierData ? (
+                        <>
+                          Next: <span className="font-bold text-[#00877e]">{nextTierData.name}</span>
+                        </>
+                      ) : (
+                        <>
+                          Current Tier: <span className="font-bold text-[#00877e]">{derivedTierName}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7f8f5] text-[#0b927e] shadow-inner">
+                  <CheckCircle2 className="h-4 w-4" />
                 </span>
-                <p className="mt-3 text-[12px] font-black leading-4 text-[#071a35]">Pending Points</p>
-                <p className="mt-2 whitespace-nowrap text-[24px] font-black leading-none">{user.pendingPoints.toLocaleString()} pts</p>
-                <p className="mt-3 text-[11px] font-medium leading-4 text-[#526275]">
-                  {user.pendingPoints > 0 ? "Transactions processing" : "No pending transactions"}
-                </p>
-              </Card>
-              <Card className="min-h-[136px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-4 text-center shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
-                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#dff6ef] text-[#008b7f]">
-                  <ArrowUpRight className="h-6 w-6" />
-                </span>
-                <p className="mt-3 text-[12px] font-black leading-4 text-[#071a35]">Earned This Month</p>
-                <p className="mt-2 whitespace-nowrap text-[24px] font-black leading-none">{user.earnedThisMonth.toLocaleString()} pts</p>
-                <p className="mt-3 text-[11px] font-black leading-4 text-[#078f6d]">
-                  {trendLabel(user.earnedThisMonth, previousMonthSummary.earned, currentMonthSummary.earnCount, "earning transactions")}
-                </p>
-              </Card>
-              <Card className="min-h-[136px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-4 text-center shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
-                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#ffe5e9] text-[#e63f52]">
-                  <ArrowDownRight className="h-6 w-6" />
-                </span>
-                <p className="mt-3 text-[12px] font-black leading-4 text-[#071a35]">Redeemed This Month</p>
-                <p className="mt-2 whitespace-nowrap text-[24px] font-black leading-none">{user.redeemedThisMonth.toLocaleString()} pts</p>
-                <p className="mt-3 text-[11px] font-black leading-4 text-[#e63f52]">
-                  {trendLabel(user.redeemedThisMonth, previousMonthSummary.redeemed, currentMonthSummary.redeemCount, "redemption transactions")}
-                </p>
-              </Card>
-            </div>
+              </div>
+              <Progress value={tierProgress} className="mt-4 h-2.5 bg-[#e9eef4]" indicatorClassName="bg-[#07958a]" />
+              <div className="mt-3 flex justify-between gap-3 text-[11px] font-extrabold text-[#071a35]">
+                <span>{progressCurrent.toLocaleString()} pts</span>
+                <span className="text-right">{nextTierData ? `${remainingProgressPoints.toLocaleString()} pts left` : "Benefits Active"}</span>
+              </div>
+            </Card>
 
             <Link
               to="/customer/rewards"
-              className="group flex min-h-[112px] items-center gap-4 overflow-hidden rounded-[14px] border border-[#f1ddba] bg-[#fff7e9] px-5 py-4 text-[#071a35] shadow-[0_14px_28px_rgba(8,26,53,0.07)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_rgba(8,26,53,0.11)]"
+              className="group flex min-h-[72px] items-center gap-3 overflow-hidden rounded-[9px] border border-[#aee1d9] bg-[linear-gradient(135deg,#effcf8_0%,#e1f7f1_100%)] px-4 py-3 text-[#071a35] shadow-[0_12px_24px_rgba(0,96,86,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(0,96,86,0.12)]"
             >
-              <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-[#c98304] shadow-sm">
-                <Gift className="h-8 w-8" />
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#008c80] shadow-sm">
+                <Gift className="h-6 w-6" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-black text-[#bd7d05]">
+                <span className="block text-[11px] font-bold text-[#00736f]">
                   {closestReward && closestRewardNeeded === 0 ? "Closest Reward" : closestReward ? `${closestRewardNeeded.toLocaleString()} pts away` : "Rewards Catalog"}
                 </span>
-                <span className="mt-1 block truncate text-[16px] font-black">
-                  {closestReward ? `${closestReward.name}${closestRewardNeeded === 0 ? " available now" : ""}` : "Open rewards catalog"}
+                <span className="mt-0.5 block truncate text-[13px] font-extrabold">
+                  {closestReward ? closestReward.name : "Open Rewards Catalog"}
                 </span>
-                <span className="mt-2 block text-[13px] font-medium text-[#526275]">
+                <span className="mt-1 block text-[11px] font-medium text-[#526275]">
                   {closestReward
                     ? closestRewardNeeded === 0
                       ? "You have enough points to redeem."
-                      : "Earn a little more to unlock this reward."
-                    : "Published rewards will appear here automatically."}
+                      : "Earn more points to unlock it."
+                    : "Published rewards will appear here."}
                 </span>
               </span>
-              <ChevronRight className="h-7 w-7 shrink-0 text-[#8b6a34] transition group-hover:translate-x-1" />
+              <ChevronRight className="h-5 w-5 shrink-0 text-[#00736f] transition group-hover:translate-x-1" />
             </Link>
           </div>
         </section>
 
-        <section className="mt-5 overflow-hidden rounded-[13px] border border-[#b9dce5] bg-[#f1f9ff] px-6 py-5 shadow-[0_12px_28px_rgba(8,26,53,0.05)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-4">
-              <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#075aaa] text-white">
-                <Info className="h-6 w-6" />
+        <Link
+          to="/customer/rewards"
+          className="mt-4 flex min-h-[66px] items-center justify-between gap-4 rounded-[9px] border border-[#aee1d9] bg-[linear-gradient(135deg,#eefbf8_0%,#f8fffc_100%)] px-5 py-4 text-[#081a35] shadow-[0_10px_22px_rgba(0,96,86,0.06)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(0,96,86,0.1)]"
+        >
+          <span className="flex min-w-0 items-center gap-4">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#008c80] text-white shadow-[0_10px_18px_rgba(0,140,128,0.18)]">
+              <Info className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-extrabold text-[#00736f]">
+                {affordableRewards.length > 0 ? "You can redeem pharmacy vouchers now!" : "Keep earning toward your next pharmacy voucher."}
               </span>
-              <div>
-                <h2 className="text-[20px] font-black text-[#075aaa]">
-                  {affordableRewards.length > 0 ? "You can redeem pharmacy vouchers now!" : "Keep earning toward your next pharmacy voucher."}
-                </h2>
-                <p className="mt-1 text-[16px] font-medium text-[#263a55]">
-                  {affordableRewards.length > 0
-                    ? "Explore pharmacy and wellness rewards available to you."
-                    : closestReward
-                      ? `${closestRewardNeeded.toLocaleString()} more points unlocks ${closestReward.name}.`
-                      : "New pharmacy and wellness rewards will appear when the catalog is published."}
-                </p>
-              </div>
-            </div>
-            <div className="hidden shrink-0 items-center gap-3 pr-3 text-[#09a99f] lg:flex">
-              <ShoppingBag className="h-12 w-12" />
-              <HeartPulse className="h-8 w-8" />
-            </div>
-          </div>
-        </section>
+              <span className="mt-1 block text-[12px] font-medium text-[#263a55]">
+                {affordableRewards.length > 0
+                  ? "Explore pharmacy and wellness rewards available to you."
+                  : closestReward
+                    ? `${closestRewardNeeded.toLocaleString()} more points unlocks ${closestReward.name}.`
+                    : "New pharmacy and wellness rewards will appear when the catalog is published."}
+              </span>
+            </span>
+          </span>
+          <span className="hidden shrink-0 items-center gap-3 text-[#09a99f] sm:flex">
+            <ShoppingBag className="h-8 w-8" />
+            <HeartPulse className="h-6 w-6" />
+          </span>
+        </Link>
 
-        <section className="mt-5 grid gap-4 min-[1440px]:grid-cols-[1.15fr_0.98fr_1fr]">
-          <Card className="min-h-[338px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-0 shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
-            <div className="flex items-center justify-between px-6 pb-4 pt-6">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f0f4f8] text-[#526275]">
-                  <ReceiptText className="h-5 w-5" />
+        <section className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.98fr_1fr]">
+          <Card className="min-h-[342px] min-w-0 overflow-hidden rounded-[9px] border border-[#cfe9e3] bg-[linear-gradient(180deg,#ffffff_0%,#fbfffd_100%)] shadow-[0_12px_26px_rgba(0,96,86,0.08)]">
+            <div className="flex items-center justify-between px-5 pb-3 pt-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f0f4f8] text-[#526275]">
+                  <ReceiptText className="h-4 w-4" />
                 </span>
-                <h2 className="text-[16px] font-black uppercase tracking-[0.06em]">Recent Transactions</h2>
+                <h2 className="truncate text-[13px] font-extrabold uppercase tracking-normal">Recent Transactions</h2>
               </div>
-              <Link
-                to="/customer/activity"
-                className="rounded-lg px-3 py-2 text-[13px] font-bold text-[#075aaa] transition hover:bg-[#eef7ff]"
-              >
+              <Link to="/customer/activity" className="shrink-0 rounded-md px-2 py-1.5 text-[11px] font-bold text-[#075aaa] transition hover:bg-[#eef7ff]">
                 View All
               </Link>
             </div>
-            <div className="grid grid-cols-[56px_minmax(0,1fr)_112px_86px] gap-3 border-y border-[#edf1f5] bg-[#fafbfd] px-6 py-3 text-[12px] font-black text-[#526275]">
+            <div className="grid grid-cols-[44px_minmax(0,1fr)_82px_64px] gap-2 border-y border-[#e0f1ed] bg-[#f3fbf8] px-5 py-2.5 text-[10px] font-bold text-[#526275]">
               <span>Type</span>
               <span>Description</span>
               <span>Date</span>
@@ -499,19 +508,19 @@ export default function Dashboard() {
                   return (
                     <div
                       key={tx.id}
-                      className="grid grid-cols-[56px_minmax(0,1fr)_112px_86px] items-center gap-3 border-b border-[#edf1f5] px-6 py-3.5 text-[13px] last:border-b-0"
+                      className="grid grid-cols-[44px_minmax(0,1fr)_82px_64px] items-center gap-2 border-b border-[#edf1f5] px-5 py-3 text-[11px] last:border-b-0"
                     >
                       <span
                         className={cn(
-                          "inline-flex h-9 w-9 items-center justify-center rounded-full",
+                          "inline-flex h-8 w-8 items-center justify-center rounded-full",
                           isRedeem ? "bg-[#ffe0e6] text-[#e63f52]" : "bg-[#dff6ef] text-[#0b927e]",
                         )}
                       >
-                        <RowIcon className="h-5 w-5" />
+                        <RowIcon className="h-4 w-4" />
                       </span>
-                      <span className="truncate pr-3 font-bold text-[#081a35]">{normalizeTransactionDescription(tx.description)}</span>
+                      <span className="truncate pr-2 font-semibold text-[#081a35]">{normalizeTransactionDescription(tx.description)}</span>
                       <span className="font-medium text-[#65728a]">{formatDate(tx.date)}</span>
-                      <span className={cn("text-right font-black", isRedeem ? "text-[#ef1f2f]" : "text-[#0aa06e]")}>
+                      <span className={cn("text-right font-extrabold", isRedeem ? "text-[#c52634]" : "text-[#0aa06e]")}>
                         {isRedeem ? "-" : "+"}
                         {Math.abs(tx.points).toLocaleString()}
                       </span>
@@ -522,89 +531,87 @@ export default function Dashboard() {
             </div>
           </Card>
 
-          <Card className="min-h-[338px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-6 shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
+          <Card className="min-h-[342px] min-w-0 rounded-[9px] border border-[#cfe9e3] bg-[linear-gradient(180deg,#ffffff_0%,#fbfffd_100%)] p-5 shadow-[0_12px_26px_rgba(0,96,86,0.08)]">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <Megaphone className="h-5 w-5 text-[#071a35]" />
-                <h2 className="text-[16px] font-black uppercase tracking-[0.06em]">Active Campaigns</h2>
+              <div className="flex min-w-0 items-center gap-3">
+                <Megaphone className="h-4 w-4 shrink-0 text-[#071a35]" />
+                <h2 className="truncate text-[13px] font-extrabold uppercase tracking-normal">Active Campaigns</h2>
               </div>
               {activeCampaign ? (
-                <Link to="/customer/earn" className="text-[13px] font-bold text-[#075aaa] transition hover:text-[#00877e]">
+                <Link to="/customer/earn" className="shrink-0 rounded-md px-2 py-1.5 text-[11px] font-bold text-[#075aaa] transition hover:bg-[#eef7ff]">
                   View All
                 </Link>
               ) : null}
             </div>
 
             {activeCampaign ? (
-              <div className="mt-5 rounded-xl border border-[#edf1f5] bg-[#f9fbfc] p-5 text-center">
-                <Badge className="border-0 bg-[#061e3b] text-white hover:bg-[#061e3b]">
+              <div className="mt-7 rounded-[10px] border border-[#d6eee8] bg-[linear-gradient(135deg,#f8fffc_0%,#eefbf8_100%)] p-5 text-center">
+                <Badge className="border-0 bg-[#061e3b] text-[10px] text-white hover:bg-[#061e3b]">
                   {activeCampaign.campaignType === "flash_sale" ? "Flash Campaign" : "Bonus Campaign"}
                 </Badge>
-                <h3 className="mt-4 text-lg font-black text-[#081a35]">{activeCampaign.bannerTitle || activeCampaign.campaignName}</h3>
-                <p className="mt-2 text-[13px] font-medium leading-5 text-[#65728a]">
+                <h3 className="mt-4 text-[16px] font-extrabold text-[#081a35]">{activeCampaign.bannerTitle || activeCampaign.campaignName}</h3>
+                <p className="mt-2 text-[12px] font-medium leading-5 text-[#65728a]">
                   {activeCampaign.bannerMessage || activeCampaign.description}
                 </p>
-                <p className="mt-4 text-[12px] font-black text-[#0b806f]">{formatCampaignCountdown(activeCampaign.endsAt, countdownNow)}</p>
+                <p className="mt-4 text-[11px] font-extrabold text-[#0b806f]">{formatCampaignCountdown(activeCampaign.endsAt, countdownNow)}</p>
                 <Link
                   to="/customer/rewards"
-                  className="mt-6 inline-flex h-11 min-w-[164px] items-center justify-center rounded-lg bg-[linear-gradient(135deg,#008c80,#006d68)] px-5 text-[12px] font-black text-white shadow-[0_12px_22px_rgba(0,140,128,0.18)] transition hover:brightness-105"
+                  className="mt-5 inline-flex h-10 min-w-[138px] items-center justify-center rounded-[7px] bg-[linear-gradient(135deg,#008c80,#006d68)] px-5 text-[11px] font-extrabold text-white shadow-[0_12px_22px_rgba(0,140,128,0.18)] transition hover:brightness-105"
                 >
                   Open Rewards
                 </Link>
               </div>
             ) : (
-              <div className="mt-4 flex min-h-[252px] flex-col items-center rounded-[18px] px-7 py-6 text-center">
-                <div className="flex flex-1 flex-col items-center justify-center">
-                  <div className="relative flex h-[104px] w-[104px] items-center justify-center rounded-full bg-[#edf3fa] text-[#9fb0c5]">
-                    <Megaphone className="h-14 w-14" />
-                  </div>
-                  <p className="mt-5 text-[18px] font-black text-[#081a35]">No live campaigns right now</p>
-                  <p className="mt-2 max-w-[280px] text-[15px] font-medium leading-6 text-[#65728a]">
-                    Check back soon for new ways to earn points and rewards.
-                  </p>
+              <div className="mt-5 flex min-h-[254px] flex-col items-center justify-center rounded-[10px] border border-[#d6eee8] bg-[radial-gradient(circle_at_50%_0%,rgba(0,140,128,0.10),transparent_45%),linear-gradient(135deg,#f8fffc_0%,#eef8f5_100%)] px-6 py-8 text-center">
+                <div className="flex h-[86px] w-[86px] items-center justify-center rounded-full bg-[#e0f8f3] text-[#0aa79a]">
+                  <Megaphone className="h-11 w-11" />
                 </div>
+                <p className="mt-5 text-[16px] font-extrabold text-[#081a35]">No Live Campaigns</p>
+                <p className="mt-2 max-w-[260px] text-[12px] font-medium leading-5 text-[#65728a]">
+                  Check back soon for new ways to earn points.
+                </p>
+                <Link
+                  to="/customer/rewards"
+                  className="mt-5 inline-flex h-10 min-w-[138px] items-center justify-center rounded-[7px] bg-[linear-gradient(135deg,#008c80,#006d68)] px-5 text-[11px] font-extrabold text-white shadow-[0_12px_22px_rgba(0,140,128,0.18)] transition hover:brightness-105"
+                >
+                  Open Rewards
+                </Link>
               </div>
             )}
           </Card>
 
-          <Card className="min-h-[338px] min-w-0 rounded-[14px] border border-[#e3eaf2] bg-white p-6 shadow-[0_14px_28px_rgba(8,26,53,0.08)]">
+          <Card className="min-h-[342px] min-w-0 rounded-[9px] border border-[#cfe9e3] bg-[linear-gradient(180deg,#ffffff_0%,#fbfffd_100%)] p-5 shadow-[0_12px_26px_rgba(0,96,86,0.08)]">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <Crown className="h-5 w-5 fill-current text-[#c88b13]" />
-                <h2 className="text-[16px] font-black uppercase tracking-[0.06em]">Tier Benefits</h2>
+              <div className="flex min-w-0 items-center gap-3">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-[#008c80]" />
+                <h2 className="truncate text-[13px] font-extrabold uppercase tracking-normal">Tier Benefits</h2>
               </div>
-              <Link to="/customer/profile" className="text-[13px] font-bold text-[#075aaa] transition hover:text-[#00877e]">
+              <Link to="/customer/profile" className="shrink-0 rounded-md px-2 py-1.5 text-[11px] font-bold text-[#075aaa] transition hover:bg-[#eef7ff]">
                 View All Benefits
               </Link>
             </div>
-            <div className="mt-4 space-y-3">
+            <div className="mt-5 space-y-3">
               {tierBenefitRows.map((benefit) => {
                 const BenefitIcon = benefit.icon;
                 return (
-                  <div key={benefit.title} className="flex min-h-[64px] items-start gap-4 rounded-[10px] border border-[#f1eadc] bg-[#fffaf2] p-4">
-                    <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fff0ce] text-[#c8860c]">
-                      <BenefitIcon className="h-5 w-5" />
+                  <div key={benefit.title} className="flex min-h-[62px] items-start gap-3 rounded-[8px] border border-[#cbeee9] bg-[#f2fffc] p-3.5">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dff8f3] text-[#008c80]">
+                      <BenefitIcon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[15px] font-black text-[#071a35]">{benefit.title}</span>
-                      <span className="mt-1 block text-[13px] font-medium leading-5 text-[#526275]">{benefit.body}</span>
+                      <span className="block text-[12px] font-extrabold text-[#071a35]">{benefit.title}</span>
+                      <span className="mt-1 block text-[11px] font-medium leading-4 text-[#526275]">{benefit.body}</span>
                     </span>
                   </div>
                 );
               })}
             </div>
-            <p className="mt-5 text-center text-[14px] font-semibold text-[#8b6b2d]">
-              <Sparkles className="mr-2 inline h-4 w-4 fill-current text-[#f2b233]" />
+            <p className="mt-6 text-center text-[12px] font-semibold text-[#00736f]">
+              <CheckCircle2 className="mr-2 inline h-4 w-4 text-[#0b927e]" />
               More {derivedTierName} benefits await you.
             </p>
           </Card>
         </section>
-
-        <div className="mt-8 flex items-center gap-4 text-center text-[11px] font-medium text-[#9aa5b4]">
-          <div className="h-px flex-1 bg-[#e6ebf2]" />
-          <p>Keep engaging to unlock more rewards and exclusive benefits.</p>
-          <div className="h-px flex-1 bg-[#e6ebf2]" />
-        </div>
       </div>
     </div>
   );

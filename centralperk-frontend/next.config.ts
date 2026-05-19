@@ -55,6 +55,7 @@ const publicSupabaseKey =
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: process.cwd(),
+  allowedDevOrigins: ["localhost", "127.0.0.1"],
   env: {
     NEXT_PUBLIC_SUPABASE_URL: publicSupabaseUrl,
     NEXT_PUBLIC_SUPABASE_PROJECT_ID: publicSupabaseProjectId,

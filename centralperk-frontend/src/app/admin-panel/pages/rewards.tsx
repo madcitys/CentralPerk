@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { CalendarClock, Megaphone, PlusCircle, Sparkles, Zap, type LucideIcon } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Badge } from "../../../components/ui/badge";
@@ -40,10 +41,12 @@ import {
 import {
   loadActiveCampaignsViaApi,
   loadPartnerDashboardViaApi,
+  loadRewardsViaApi,
   publishCampaignViaApi,
   saveCampaignViaApi,
   triggerPartnerSettlementViaApi,
 } from "../../lib/api";
+import type { Reward } from "../../types/loyalty";
 
 function toInputDate(value: Date) {
   const year = value.getFullYear();
@@ -63,11 +66,218 @@ const rewardsTabs: { value: RewardsTab; label: string; hash: string }[] = [
   { value: "partners", label: "Partners", hash: "#rewards-partners" },
 ];
 
+type CampaignFormState = {
+  campaignCode: string;
+  campaignName: string;
+  description: string;
+  campaignType: "bonus_points" | "flash_sale" | "multiplier_event";
+  multiplier: string;
+  minimumPurchaseAmount: string;
+  bonusPoints: string;
+  productScope: string;
+  eligibleTiers: string;
+  rewardId: string;
+  flashSaleQuantityLimit: string;
+  startsAt: string;
+  endsAt: string;
+  bannerTitle: string;
+  bannerMessage: string;
+  countdownLabel: string;
+  pushNotificationEnabled: boolean;
+};
+
+type CampaignTemplate = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  build: (context: { firstRewardId: string }) => Partial<CampaignFormState>;
+};
+
+function toInputDateTime(value: Date) {
+  const hours = `${value.getHours()}`.padStart(2, "0");
+  const minutes = `${value.getMinutes()}`.padStart(2, "0");
+  return `${toInputDate(value)}T${hours}:${minutes}`;
+}
+
+function nextSeasonWindow(startMonth: number, startDay: number, endMonth: number, endDay: number) {
+  const now = new Date();
+  let startYear = now.getFullYear();
+  let start = new Date(startYear, startMonth - 1, startDay, 8, 0, 0, 0);
+  if (start.getTime() < now.getTime()) {
+    startYear += 1;
+    start = new Date(startYear, startMonth - 1, startDay, 8, 0, 0, 0);
+  }
+  const endYear = endMonth < startMonth ? startYear + 1 : startYear;
+  const end = new Date(endYear, endMonth - 1, endDay, 23, 59, 0, 0);
+  return { startsAt: toInputDateTime(start), endsAt: toInputDateTime(end), year: startYear };
+}
+
+function nextPaydayWindow() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const candidates = [15, lastDay].map((day) => new Date(year, month, day, 8, 0, 0, 0));
+  const start = candidates.find((candidate) => candidate.getTime() >= now.getTime()) ?? new Date(year, month + 1, 15, 8, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 2);
+  end.setHours(23, 59, 0, 0);
+  return { startsAt: toInputDateTime(start), endsAt: toInputDateTime(end), stamp: `${start.getFullYear()}${`${start.getMonth() + 1}`.padStart(2, "0")}${`${start.getDate()}`.padStart(2, "0")}` };
+}
+
+function nextWeekWindow() {
+  const now = new Date();
+  const start = new Date(now);
+  const daysUntilMonday = (8 - start.getDay()) % 7 || 7;
+  start.setDate(now.getDate() + daysUntilMonday);
+  start.setHours(8, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 0, 0);
+  return { startsAt: toInputDateTime(start), endsAt: toInputDateTime(end), stamp: `${start.getFullYear()}${`${start.getMonth() + 1}`.padStart(2, "0")}${`${start.getDate()}`.padStart(2, "0")}` };
+}
+
+function buildDefaultCampaignForm(): CampaignFormState {
+  return {
+    campaignCode: "",
+    campaignName: "",
+    description: "",
+    campaignType: "bonus_points",
+    multiplier: "2",
+    minimumPurchaseAmount: "50",
+    bonusPoints: "25",
+    productScope: "",
+    eligibleTiers: "Bronze,Silver,Gold",
+    rewardId: "",
+    flashSaleQuantityLimit: "100",
+    startsAt: `${toInputDate(new Date())}T08:00`,
+    endsAt: `${toInputDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))}T23:59`,
+    bannerTitle: "",
+    bannerMessage: "",
+    countdownLabel: "",
+    pushNotificationEnabled: false,
+  };
+}
+
+const campaignTemplates: CampaignTemplate[] = [
+  {
+    id: "new-year",
+    eyebrow: "Occasion",
+    title: "New Year Rewards Boost",
+    description: "Seasonal multiplier campaign for the year-end and New Year earning window.",
+    icon: Sparkles,
+    build: () => {
+      const window = nextSeasonWindow(12, 26, 1, 7);
+      return {
+        campaignCode: `NEWYEAR-${window.year + 1}`,
+        campaignName: "New Year Rewards Boost",
+        description: "Members earn extra points during the New Year rewards window.",
+        campaignType: "multiplier_event",
+        multiplier: "2",
+        minimumPurchaseAmount: "50",
+        bonusPoints: "0",
+        productScope: "pharmacy, wellness, voucher",
+        eligibleTiers: "Bronze,Silver,Gold,Platinum",
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+        bannerTitle: "New Year Rewards Boost",
+        bannerMessage: "Earn extra points on eligible purchases during the New Year celebration.",
+        countdownLabel: "New Year offer",
+        pushNotificationEnabled: true,
+      };
+    },
+  },
+  {
+    id: "payday-flash",
+    eyebrow: "Flash Sale",
+    title: "Payday Flash Sale",
+    description: "Quick flash sale template linked to a catalog reward so it appears in Customer Rewards.",
+    icon: Zap,
+    build: ({ firstRewardId }) => {
+      const window = nextPaydayWindow();
+      return {
+        campaignCode: `PAYDAY-FLASH-${window.stamp}`,
+        campaignName: "Payday Flash Sale",
+        description: "Limited payday reward allocation for fast voucher redemption.",
+        campaignType: "flash_sale",
+        multiplier: "1",
+        minimumPurchaseAmount: "0",
+        bonusPoints: "0",
+        rewardId: firstRewardId,
+        flashSaleQuantityLimit: "100",
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+        bannerTitle: "Payday Flash Sale",
+        bannerMessage: "Redeem selected rewards before the payday flash sale allocation runs out.",
+        countdownLabel: "Payday flash sale",
+        pushNotificationEnabled: true,
+      };
+    },
+  },
+  {
+    id: "wellness-week",
+    eyebrow: "Bonus Points",
+    title: "Wellness Week Bonus",
+    description: "Guided bonus campaign for pharmacy and wellness categories.",
+    icon: CalendarClock,
+    build: () => {
+      const window = nextWeekWindow();
+      return {
+        campaignCode: `WELLNESS-WEEK-${window.stamp}`,
+        campaignName: "Wellness Week Bonus",
+        description: "Members earn bonus points on eligible wellness and pharmacy purchases.",
+        campaignType: "bonus_points",
+        multiplier: "1",
+        minimumPurchaseAmount: "100",
+        bonusPoints: "100",
+        productScope: "pharmacy, wellness",
+        eligibleTiers: "Bronze,Silver,Gold,Platinum",
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+        bannerTitle: "Wellness Week Bonus",
+        bannerMessage: "Earn bonus points while shopping eligible wellness essentials.",
+        countdownLabel: "Wellness week",
+        pushNotificationEnabled: false,
+      };
+    },
+  },
+  {
+    id: "member-appreciation",
+    eyebrow: "Engagement",
+    title: "Member Appreciation",
+    description: "Simple bonus campaign for broad member engagement and retention.",
+    icon: Megaphone,
+    build: () => {
+      const window = nextWeekWindow();
+      return {
+        campaignCode: `MEMBER-THANKS-${window.stamp}`,
+        campaignName: "Member Appreciation Bonus",
+        description: "Members earn a bonus reward for participating in the appreciation campaign.",
+        campaignType: "bonus_points",
+        multiplier: "1",
+        minimumPurchaseAmount: "0",
+        bonusPoints: "50",
+        productScope: "",
+        eligibleTiers: "Bronze,Silver,Gold,Platinum",
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+        bannerTitle: "Member Appreciation Bonus",
+        bannerMessage: "A limited member appreciation campaign is available now.",
+        countdownLabel: "Member appreciation",
+        pushNotificationEnabled: true,
+      };
+    },
+  },
+];
+
 export default function AdminRewardsPage() {
   const { loading, error, metrics, rewardsCatalog, refetch } = useAdminData();
   const [activeTab, setActiveTab] = useState<RewardsTab>("overview");
   const [campaigns, setCampaigns] = useState<PromotionCampaign[]>([]);
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance[]>([]);
+  const [campaignRewardOptions, setCampaignRewardOptions] = useState<Reward[]>([]);
   const [partners, setPartners] = useState<RewardPartner[]>([]);
   const [partnerPerformance, setPartnerPerformance] = useState<RewardPartnerPerformance[]>([]);
   const [partnerDashboardRows, setPartnerDashboardRows] = useState<
@@ -105,25 +315,7 @@ export default function AdminRewardsPage() {
   const [abSuccessMetric, setAbSuccessMetric] = useState("redemption_rate");
   const [variantAName, setVariantAName] = useState("Default banner");
   const [variantBName, setVariantBName] = useState("Urgency banner");
-  const [campaignForm, setCampaignForm] = useState({
-    campaignCode: "",
-    campaignName: "",
-    description: "",
-    campaignType: "bonus_points" as "bonus_points" | "flash_sale" | "multiplier_event",
-    multiplier: "2",
-    minimumPurchaseAmount: "50",
-    bonusPoints: "25",
-    productScope: "",
-    eligibleTiers: "Bronze,Silver,Gold",
-    rewardId: "",
-    flashSaleQuantityLimit: "100",
-    startsAt: `${toInputDate(new Date())}T08:00`,
-    endsAt: `${toInputDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))}T23:59`,
-    bannerTitle: "",
-    bannerMessage: "",
-    countdownLabel: "",
-    pushNotificationEnabled: false,
-  });
+  const [campaignForm, setCampaignForm] = useState<CampaignFormState>(() => buildDefaultCampaignForm());
   const [partnerForm, setPartnerForm] = useState({
     partnerCode: "",
     partnerName: "",
@@ -134,15 +326,17 @@ export default function AdminRewardsPage() {
   });
 
   const reload = async () => {
-    const [campaignRows, performanceRows, partnerRows, partnerPerfRows, partnerDashboardResponse] = await Promise.all([
+    const [campaignRows, performanceRows, rewardCatalogResponse, partnerRows, partnerPerfRows, partnerDashboardResponse] = await Promise.all([
       loadPromotionCampaigns(),
       loadCampaignPerformance(),
+      loadRewardsViaApi().catch(() => ({ ok: true as const, rewards: [] })),
       loadRewardPartners(),
       loadPartnerPerformance(),
       loadPartnerDashboardViaApi().catch(() => ({ ok: true as const, partners: [] })),
     ]);
     setCampaigns(campaignRows);
     setCampaignPerformance(performanceRows);
+    setCampaignRewardOptions(rewardCatalogResponse.rewards);
     setPartners(partnerRows);
     setPartnerPerformance(partnerPerfRows);
     setPartnerDashboardRows(partnerDashboardResponse.partners);
@@ -152,6 +346,7 @@ export default function AdminRewardsPage() {
     reload().catch(() => {
       setCampaigns([]);
       setCampaignPerformance([]);
+      setCampaignRewardOptions([]);
       setPartners([]);
       setPartnerPerformance([]);
       setPartnerDashboardRows([]);
@@ -307,6 +502,73 @@ export default function AdminRewardsPage() {
       ),
     [campaignListRows, campaignStatusFilter]
   );
+  const firstRewardId = useMemo(() => {
+    const firstReward = campaignRewardOptions.find((reward) => reward.available && reward.rewardCatalogId);
+    return firstReward?.rewardCatalogId !== undefined && firstReward?.rewardCatalogId !== null ? String(firstReward.rewardCatalogId) : "";
+  }, [campaignRewardOptions]);
+
+  const buildCampaignPayload = () => ({
+    campaignCode: campaignForm.campaignCode,
+    campaignName: campaignForm.campaignName,
+    description: campaignForm.description,
+    campaignType: campaignForm.campaignType,
+    status: "scheduled",
+    multiplier: Number(campaignForm.multiplier || 1),
+    minimumPurchaseAmount: Number(campaignForm.minimumPurchaseAmount || 0),
+    bonusPoints: Number(campaignForm.bonusPoints || 0),
+    productScope: campaignForm.productScope.split(",").map((v) => v.trim()).filter(Boolean),
+    eligibleTiers: campaignForm.eligibleTiers.split(",").map((v) => v.trim()).filter(Boolean),
+    rewardId: campaignForm.rewardId ? Number(campaignForm.rewardId) : null,
+    flashSaleQuantityLimit: campaignForm.campaignType === "flash_sale" ? Number(campaignForm.flashSaleQuantityLimit || 0) : null,
+    startsAt: new Date(campaignForm.startsAt).toISOString(),
+    endsAt: new Date(campaignForm.endsAt).toISOString(),
+    bannerTitle: campaignForm.bannerTitle || null,
+    bannerMessage: campaignForm.bannerMessage || null,
+    countdownLabel: campaignForm.countdownLabel || null,
+    pushNotificationEnabled: campaignForm.pushNotificationEnabled,
+  });
+
+  const validateCampaignForm = () => {
+    if (!campaignForm.campaignCode.trim() || !campaignForm.campaignName.trim()) {
+      toast.error("Campaign code and name are required.");
+      return false;
+    }
+    if (campaignForm.campaignType === "flash_sale" && !campaignForm.rewardId) {
+      toast.error("Flash sales need a linked reward so they can appear in Customer Rewards.");
+      return false;
+    }
+    return true;
+  };
+
+  const startBlankCampaign = (campaignType: CampaignFormState["campaignType"] = "bonus_points") => {
+    const next = buildDefaultCampaignForm();
+    setCampaignForm({
+      ...next,
+      campaignType,
+      rewardId: campaignType === "flash_sale" ? firstRewardId : "",
+      flashSaleQuantityLimit: campaignType === "flash_sale" ? next.flashSaleQuantityLimit : "0",
+    });
+    setSelectedCampaignId("");
+    setCampaignWizardStep(1);
+    setActiveTab("campaigns");
+  };
+
+  const applyCampaignTemplate = (template: CampaignTemplate) => {
+    const patch = template.build({ firstRewardId });
+    setCampaignForm((prev) => ({
+      ...prev,
+      ...patch,
+      rewardId: patch.campaignType === "flash_sale" ? patch.rewardId || prev.rewardId || firstRewardId : patch.rewardId ?? prev.rewardId,
+    }));
+    setSelectedCampaignId("");
+    setCampaignWizardStep(1);
+    setActiveTab("campaigns");
+    if (patch.campaignType === "flash_sale" && !patch.rewardId && !firstRewardId) {
+      toast.warning("Template applied. Select a reward link before saving the flash sale.");
+      return;
+    }
+    toast.success(`${template.title} template applied.`);
+  };
 
   useEffect(() => {
     if (!selectedCampaignId && campaigns[0]?.id) {
@@ -315,34 +577,12 @@ export default function AdminRewardsPage() {
   }, [campaigns, selectedCampaignId]);
 
   const handleSaveCampaign = async () => {
-    if (!campaignForm.campaignCode.trim() || !campaignForm.campaignName.trim()) {
-      toast.error("Campaign code and name are required.");
-      return;
-    }
+    if (!validateCampaignForm()) return;
     try {
       setSavingCampaign(true);
-      const response = await saveCampaignViaApi({
-        campaignCode: campaignForm.campaignCode,
-        campaignName: campaignForm.campaignName,
-        description: campaignForm.description,
-        campaignType: campaignForm.campaignType,
-        status: "scheduled",
-        multiplier: Number(campaignForm.multiplier || 1),
-        minimumPurchaseAmount: Number(campaignForm.minimumPurchaseAmount || 0),
-        bonusPoints: Number(campaignForm.bonusPoints || 0),
-        productScope: campaignForm.productScope.split(",").map((v) => v.trim()).filter(Boolean),
-        eligibleTiers: campaignForm.eligibleTiers.split(",").map((v) => v.trim()).filter(Boolean),
-        rewardId: campaignForm.rewardId ? Number(campaignForm.rewardId) : null,
-        flashSaleQuantityLimit: campaignForm.campaignType === "flash_sale" ? Number(campaignForm.flashSaleQuantityLimit || 0) : null,
-        startsAt: new Date(campaignForm.startsAt).toISOString(),
-        endsAt: new Date(campaignForm.endsAt).toISOString(),
-        bannerTitle: campaignForm.bannerTitle || null,
-        bannerMessage: campaignForm.bannerMessage || null,
-        countdownLabel: campaignForm.countdownLabel || null,
-        pushNotificationEnabled: campaignForm.pushNotificationEnabled,
-      });
+      const response = await saveCampaignViaApi(buildCampaignPayload());
       setSelectedCampaignId(response.campaign.id);
-      await reload();
+      await Promise.all([reload(), refetch()]);
       toast.success("Campaign saved.");
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : "Unable to save campaign.");
@@ -351,11 +591,29 @@ export default function AdminRewardsPage() {
     }
   };
 
+  const handleSaveAndPublishCampaign = async () => {
+    if (!validateCampaignForm()) return;
+    try {
+      setSavingCampaign(true);
+      const response = await saveCampaignViaApi(buildCampaignPayload());
+      setSelectedCampaignId(response.campaign.id);
+      setPublishingCampaignId(response.campaign.id);
+      await publishCampaignViaApi(response.campaign.id, Boolean(campaignForm.pushNotificationEnabled));
+      await Promise.all([reload(), refetch()]);
+      toast.success("Campaign saved and published.");
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : "Unable to save and publish campaign.");
+    } finally {
+      setSavingCampaign(false);
+      setPublishingCampaignId(null);
+    }
+  };
+
   const handlePublishCampaign = async (campaignId: string, queueNotifications = false) => {
     try {
       setPublishingCampaignId(campaignId);
       await publishCampaignViaApi(campaignId, queueNotifications);
-      await reload();
+      await Promise.all([reload(), refetch()]);
       toast.success("Campaign published.");
     } catch (publishError) {
       toast.error(publishError instanceof Error ? publishError.message : "Unable to publish campaign.");
@@ -412,18 +670,32 @@ export default function AdminRewardsPage() {
         <div className={adminPageHeroInnerClass}>
           <div className={adminEyebrowClass}>Rewards Engine</div>
           <h1 className={adminPageTitleClass}>Campaigns & Promotions</h1>
-          <p className={adminPageDescriptionClass}>Admin workspace for bonus campaigns, flash sales, badges, and partner rewards with the same visual rhythm as analytics.</p>
+          <p className={adminPageDescriptionClass}>
+            Published campaigns, flash sales, partners, and reward links feed the customer rewards catalog through the same service-backed APIs.
+          </p>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as RewardsTab)} className="space-y-6">
-        <div className="overflow-x-auto pb-1">
-        <TabsList className="h-auto min-w-max flex-nowrap justify-start gap-1 rounded-full border border-[#d6e0f7] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] p-1 shadow-[0_10px_24px_rgba(16,33,58,0.04)]">
-          <TabsTrigger value="overview" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Overview</TabsTrigger>
-          <TabsTrigger value="campaigns" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Campaigns</TabsTrigger>
-          <TabsTrigger value="flash" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Flash Sales</TabsTrigger>
-          <TabsTrigger value="partners" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Partners</TabsTrigger>
-        </TabsList>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="h-auto min-w-max flex-nowrap justify-start gap-1 rounded-full border border-[#d6e0f7] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] p-1 shadow-[0_10px_24px_rgba(16,33,58,0.04)]">
+              <TabsTrigger value="overview" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Overview</TabsTrigger>
+              <TabsTrigger value="campaigns" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Campaigns</TabsTrigger>
+              <TabsTrigger value="flash" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Flash Sales</TabsTrigger>
+              <TabsTrigger value="partners" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Partners</TabsTrigger>
+            </TabsList>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" className={adminDarkButtonClass} onClick={() => startBlankCampaign()}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Campaign
+            </Button>
+            <Button type="button" variant="outline" onClick={() => applyCampaignTemplate(campaignTemplates.find((template) => template.id === "payday-flash") ?? campaignTemplates[0])}>
+              <Zap className="mr-2 h-4 w-4" />
+              Flash Sale Template
+            </Button>
+          </div>
         </div>
 
         <TabsContent value="overview" className="space-y-6">
@@ -506,6 +778,44 @@ export default function AdminRewardsPage() {
 
         <TabsContent value="campaigns" className="space-y-6">
           <Card className={adminPanelClass}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Campaign Quick Starts</h2>
+                <p className="mt-1 text-sm leading-5 text-gray-500">
+                  Choose an occasion or flash sale preset, review the form, then save or publish it. Customer pages only show campaigns after they are published through this admin flow.
+                </p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => startBlankCampaign("flash_sale")}>
+                <Zap className="mr-2 h-4 w-4" />
+                Start Flash Sale
+              </Button>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {campaignTemplates.map((template) => {
+                const Icon = template.icon;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => applyCampaignTemplate(template)}
+                    className="group rounded-[24px] border border-[#d6e0f7] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-4 text-left shadow-[0_10px_24px_rgba(16,33,58,0.04)] transition hover:-translate-y-0.5 hover:border-[#0f8b92] hover:shadow-[0_18px_34px_rgba(16,33,58,0.08)]"
+                  >
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f8f6] text-[#0f8b92]">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5f7895]">{template.eyebrow}</p>
+                    <p className="mt-2 text-base font-semibold text-[#10213a]">{template.title}</p>
+                    <p className="mt-2 text-sm leading-5 text-[#5d6c82]">{template.description}</p>
+                    <span className="mt-4 inline-flex items-center text-sm font-semibold text-[#0f8b92] group-hover:text-[#10213a]">
+                      Use Template
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card className={adminPanelClass}>
             <h2 className="text-xl font-semibold text-gray-900">Campaign Creation Wizard</h2>
             <p className="text-sm leading-5 text-gray-500">Create campaigns in three guided steps so the setup flow is lighter and easier to scan.</p>
 
@@ -541,7 +851,24 @@ export default function AdminRewardsPage() {
                   <div><Label className="mb-2 inline-block">Campaign Code</Label><Input value={campaignForm.campaignCode} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignCode: e.target.value }))} /></div>
                   <div><Label className="mb-2 inline-block">Campaign Name</Label><Input value={campaignForm.campaignName} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignName: e.target.value }))} /></div>
                   <div><Label className="mb-2 inline-block">Type</Label><select className={adminSelectClass} value={campaignForm.campaignType} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignType: e.target.value as typeof campaignForm.campaignType }))}><option value="bonus_points">Bonus points</option><option value="multiplier_event">Multiplier event</option><option value="flash_sale">Flash sale</option></select></div>
-                  <div><Label className="mb-2 inline-block">Reward Link</Label><select className={adminSelectClass} value={campaignForm.rewardId} onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}><option value="">No linked reward</option>{rewardsCatalog.map((reward) => <option key={reward.id ?? reward.reward_id} value={String(reward.id ?? "")}>{reward.name}</option>)}</select></div>
+                  <div>
+                    <Label className="mb-2 inline-block">Reward Link</Label>
+                    <select
+                      className={adminSelectClass}
+                      value={campaignForm.rewardId}
+                      onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}
+                    >
+                      <option value="">No linked reward</option>
+                      {campaignRewardOptions.filter((reward) => reward.rewardCatalogId).map((reward) => (
+                        <option key={reward.rewardCatalogId ?? reward.id} value={String(reward.rewardCatalogId ?? "")}>
+                          {reward.name} ({reward.pointsCost.toLocaleString()} pts)
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-xs text-[#607087]">
+                      Flash sale campaigns must link a reward from the customer catalog to appear on the customer Rewards page.
+                    </p>
+                  </div>
                 </div>
                 <div className="mt-4"><Label className="mb-2 inline-block">Description</Label><Textarea rows={3} value={campaignForm.description} onChange={(e) => setCampaignForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -596,6 +923,9 @@ export default function AdminRewardsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button className={adminDarkButtonClass} onClick={handleSaveCampaign} disabled={savingCampaign}>{savingCampaign ? "Saving..." : "Save Campaign"}</Button>
+                <Button type="button" variant="outline" onClick={handleSaveAndPublishCampaign} disabled={savingCampaign || Boolean(publishingCampaignId)}>
+                  {savingCampaign || publishingCampaignId ? "Publishing..." : "Save & Publish"}
+                </Button>
                 {selectedCampaignId ? (
                   <Button
                     type="button"

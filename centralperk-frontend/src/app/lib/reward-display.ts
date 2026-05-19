@@ -1,8 +1,8 @@
 const TEST_REWARD_PATTERN = /\bapi\s*test\s*reward\b/i;
 const SYNTHETIC_COPY_PATTERN = /synthetic reward|contract and load testing/i;
 
-const PHARMACY_FALLBACK_IMAGE =
-  "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=1200&q=80";
+export const PHARMACY_FALLBACK_IMAGE =
+  "/assets/rewards/mercury-med-voucher.svg";
 
 export function isTestRewardName(value?: string | null) {
   return TEST_REWARD_PATTERN.test(String(value || ""));

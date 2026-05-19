@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   ArrowRight,
@@ -22,7 +22,8 @@ import { Card } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import type { AppOutletContext } from "../../types/app-context";
 import type { EarnOpportunity } from "../../types/loyalty";
-import { requestJson } from "../../lib/api";
+import { awardPointsViaApi, requestJson } from "../../lib/api";
+import { normalizeTierLabel } from "../../lib/loyalty-engine";
 import { fetchTierRulesViaService } from "../../lib/points-service-client";
 import { loadSurveyDefinitions } from "../../lib/member-engagement";
 import { getMemberReferralCode, loadReferrals } from "../../lib/member-lifecycle";
@@ -94,8 +95,8 @@ const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "ac
     description: "Invite a friend to PharmaRewards and track their join from your referral hub.",
     points: 250,
     icon: UsersRound,
-    helperText: "Open engagement",
-    actionLabel: "Go to Referrals",
+    helperText: "Test referral earn",
+    actionLabel: "Test Earn",
   },
   {
     id: "review",
@@ -104,8 +105,8 @@ const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "ac
     description: "Submit pharmacy rewards feedback so your experience can improve.",
     points: 75,
     icon: Star,
-    helperText: "Open feedback",
-    actionLabel: "Go to Feedback",
+    helperText: "Test feedback earn",
+    actionLabel: "Test Earn",
   },
   {
     id: "sharing",
@@ -116,6 +117,16 @@ const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "ac
     icon: Share2,
     helperText: "Open sharing",
     actionLabel: "Open Social Hub",
+  },
+  {
+    id: "sample",
+    aliases: ["sample", "test", "demo"],
+    title: "Sample Pharmacy Check-in",
+    description: "Test the earn-points flow with a small sample award that updates your balance.",
+    points: 25,
+    icon: Pill,
+    helperText: "Test action",
+    actionLabel: "Test Earn",
   },
   {
     id: "mobile",
@@ -180,7 +191,7 @@ function EarnHeroArt() {
 }
 
 export default function EarnPoints() {
-  const { user } = useOutletContext<AppOutletContext>();
+  const { user, setUser, refreshUser } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const [apiTasks, setApiTasks] = useState<EarnOpportunity[]>([]);
   const [recentEarned, setRecentEarned] = useState<ReturnType<typeof normalizeEarnedRows>>([]);
@@ -188,6 +199,7 @@ export default function EarnPoints() {
   const [referralCode, setReferralCode] = useState("");
   const [referralCount, setReferralCount] = useState(0);
   const [loadError, setLoadError] = useState(false);
+  const [earningTaskId, setEarningTaskId] = useState<string | null>(null);
   const [tierRules, setTierRules] = useState(defaultTierRules);
 
   useEffect(() => {
@@ -281,9 +293,62 @@ export default function EarnPoints() {
     };
   }, [tierRules, user.earnedThisMonth, user.points, user.tier]);
 
+  const handleTestEarn = useCallback(async (taskId: string, title: string, points: number) => {
+    if (earningTaskId) return;
+    try {
+      setEarningTaskId(taskId);
+      const response = await awardPointsViaApi({
+        memberIdentifier: user.memberId,
+        fallbackEmail: user.email,
+        points,
+        transactionType: "EARN",
+        reason: `Sample earn task: ${title}`,
+      });
+      const pointsAdded = Math.max(0, Number(response.result.pointsAdded || points));
+      const newBalance = Math.max(0, Number(response.result.newBalance || user.points + pointsAdded));
+      setUser((prev) => ({
+        ...prev,
+        points: newBalance,
+        tier: normalizeTierLabel(response.result.newTier || prev.tier),
+        earnedThisMonth: Math.max(0, Number(prev.earnedThisMonth || 0) + pointsAdded),
+        transactions: [
+          {
+            id: `sample-${taskId}-${Date.now()}`,
+            type: "earned",
+            description: `Sample earn task: ${title}`,
+            date: new Date().toISOString(),
+            points: pointsAdded,
+            balance: newBalance,
+            category: "Earn Points",
+          },
+          ...prev.transactions,
+        ],
+      }));
+      await refreshUser();
+      toast.success(`+${numberFormat(pointsAdded)} points added.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sample earn failed.");
+    } finally {
+      setEarningTaskId(null);
+    }
+  }, [earningTaskId, refreshUser, setUser, user.email, user.memberId, user.points]);
+
   const tasks = useMemo<EarnTaskView[]>(() => {
     return earnActionCatalog.map((config) => {
       const points = taskPointsFromApi(apiTasks, config);
+      if (config.id === "sample") {
+        return {
+          ...config,
+          points,
+          status: "available",
+          statusLabel: "Available",
+          helperText: "Adds points from this page",
+          action: () => handleTestEarn(config.id, config.title, points),
+          disabled: Boolean(earningTaskId),
+          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
+        };
+      }
+
       if (config.id === "profile") {
         const completed = Boolean(user.profileComplete);
         return {
@@ -304,10 +369,11 @@ export default function EarnPoints() {
           ...config,
           points,
           status: completed ? "completed" : surveyCount > 0 ? "available" : "locked",
-          statusLabel: completed ? "Completed" : surveyCount > 0 ? "Available" : "No survey",
-          helperText: surveyCount > 0 ? `${surveyCount} survey${surveyCount === 1 ? "" : "s"} ready` : "New surveys appear here",
-          action: () => navigate("/customer/engagement#engagement-surveys"),
-          disabled: false,
+          statusLabel: completed ? "Completed" : "Available",
+          helperText: surveyCount > 0 ? `${surveyCount} survey${surveyCount === 1 ? "" : "s"} ready` : "Sample survey earn",
+          action: () => handleTestEarn(config.id, config.title, points),
+          disabled: Boolean(earningTaskId),
+          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
         };
       }
 
@@ -318,8 +384,9 @@ export default function EarnPoints() {
           status: "available",
           statusLabel: referralCount > 0 ? `${referralCount} tracked` : "Available",
           helperText: referralCode ? `Code ${referralCode}` : "Create your referral code",
-          action: () => navigate("/customer/engagement#engagement-rewards"),
-          disabled: false,
+          action: () => handleTestEarn(config.id, config.title, points),
+          disabled: Boolean(earningTaskId),
+          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
         };
       }
 
@@ -329,8 +396,9 @@ export default function EarnPoints() {
           points,
           status: "available",
           statusLabel: "Available",
-          action: () => navigate("/customer/engagement#engagement-rewards"),
-          disabled: false,
+          action: () => handleTestEarn(config.id, config.title, points),
+          disabled: Boolean(earningTaskId),
+          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
         };
       }
 
@@ -340,8 +408,9 @@ export default function EarnPoints() {
           points,
           status: "available",
           statusLabel: "Available",
-          action: () => navigate("/customer/engagement#engagement-sharing"),
-          disabled: false,
+          action: () => handleTestEarn(config.id, config.title, points),
+          disabled: Boolean(earningTaskId),
+          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
         };
       }
 
@@ -357,6 +426,8 @@ export default function EarnPoints() {
     });
   }, [
     apiTasks,
+    earningTaskId,
+    handleTestEarn,
     navigate,
     profileProgress,
     referralCode,
@@ -368,16 +439,18 @@ export default function EarnPoints() {
   ]);
 
   const bestWays = tasks.slice(0, 3);
+  const recommendedTaskId = !user.profileComplete ? "profile" : surveyCount > 0 ? "survey" : referralCount === 0 ? "referral" : "sharing";
+  const recommendedTask = tasks.find((task) => task.id === recommendedTaskId);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 px-0 pb-4">
-      <section className="grid gap-4 rounded-[24px] border border-[#dce7f3] bg-white p-5 shadow-[0_12px_30px_rgba(15,35,60,0.06)] lg:grid-cols-[1fr_320px]">
+    <div className="mx-auto max-w-[1180px] space-y-5 px-4 py-5 sm:px-5 lg:px-6">
+      <section className="grid gap-4 rounded-[16px] border border-[#bfe9e4] bg-[linear-gradient(135deg,#ffffff_0%,#f4fffb_100%)] p-5 shadow-[0_12px_28px_rgba(0,96,86,0.07)] lg:grid-cols-[1fr_280px]">
         <div className="flex flex-col justify-between gap-5">
           <div>
-            <div className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#007d87]">
+            <div className="inline-flex items-center rounded-full border border-[#bfe5e8] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#007d87]">
               Pharmacy Rewards
             </div>
-            <h1 className="mt-3 text-2xl font-bold text-[#10213a] md:text-[32px]">Earn Points</h1>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-tight text-[#071a35] md:text-[30px]">Earn Points</h1>
             <p className="mt-2 max-w-2xl text-sm text-[#56657a] md:text-[15px]">
               Complete pharmacy rewards actions to grow your balance.
             </p>
@@ -580,14 +653,13 @@ export default function EarnPoints() {
             </p>
             <Button
               className="mt-4 w-full bg-[#10213a] text-white hover:bg-[#173454]"
+              disabled={Boolean(earningTaskId)}
               onClick={() => {
                 if (!user.profileComplete) navigate("/customer/profile");
-                else if (surveyCount > 0) navigate("/customer/engagement#engagement-surveys");
-                else if (referralCount === 0) navigate("/customer/engagement#engagement-rewards");
-                else navigate("/customer/engagement#engagement-sharing");
+                else recommendedTask?.action();
               }}
             >
-              Continue
+              {earningTaskId ? "Adding..." : "Continue"}
             </Button>
           </div>
         </Card>

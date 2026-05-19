@@ -62,6 +62,7 @@ function loadUser(): MemberData {
 
 export default function Root() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [user, setUser] = useState<MemberData>(loadUser);
   const userRef = useRef(user);
@@ -215,10 +216,10 @@ export default function Root() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f4f5f8]">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f2fbf8_0%,#f7fafc_48%,#edf8f4_100%)]">
       <ThemeInitializer />
 
-      <div className="fixed left-0 right-0 top-0 z-40 border-b border-gray-200 bg-white lg:hidden">
+      <div className="fixed left-0 right-0 top-0 z-40 border-b border-[#d6eee8] bg-white/92 shadow-[0_8px_20px_rgba(0,96,86,0.06)] backdrop-blur lg:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg", brandTealSolidClass)}>
@@ -252,10 +253,20 @@ export default function Root() {
         </div>
       </div>
 
+      {!sidebarOpen ? (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="fixed left-3 top-1/2 z-40 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-[#bfe9e4] bg-[linear-gradient(180deg,#ffffff_0%,#effcf8_100%)] text-[#061e3b] shadow-[0_12px_28px_rgba(0,96,86,0.16)] transition hover:border-[#8bd3c8] hover:bg-[#eefbf8] hover:text-[#00736f] lg:inline-flex"
+          aria-label="Open sidebar"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      ) : null}
+
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-30 w-[260px] transform border-r border-white/10 bg-[linear-gradient(180deg,#061e3b_0%,#051a35_54%,#031427_100%)] transition-transform duration-300 ease-in-out",
-          "lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -269,6 +280,14 @@ export default function Root() {
                 <h1 className="text-[21px] font-black leading-none tracking-tight text-white">GREENOVATE</h1>
                 <p className="mt-1.5 text-[12px] font-medium tracking-[0.18em] text-slate-300">PHARMACY</p>
               </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 hover:text-white"
+                aria-label="Close sidebar"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
           </div>
 
@@ -283,7 +302,7 @@ export default function Root() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[15px] font-black text-white">{user.fullName}</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded bg-[#f6b719] px-2 py-0.5 text-[10px] font-black text-white">
+                    <span className="inline-flex items-center rounded bg-[#008c80] px-2.5 py-0.5 text-[10px] font-black text-white">
                       {user.tier}
                     </span>
                     <span className="text-[12px] font-medium text-slate-200">{user.points.toLocaleString()} pts</span>
@@ -321,7 +340,7 @@ export default function Root() {
 
           <div className="space-y-2 border-t border-white/10 p-5">
             <button
-              onClick={handleLogout}
+              onClick={() => setLogoutConfirmOpen(true)}
               className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/18 px-3 text-[14px] font-black text-white transition hover:bg-white/12"
             >
               <LogOut className="h-4 w-4" />
@@ -335,7 +354,7 @@ export default function Root() {
 
       {notifOpen ? <div className="fixed right-5 top-16 z-50 hidden lg:block">{notificationPanel}</div> : null}
 
-      <div className="pt-16 lg:pl-[260px] lg:pt-0">
+      <div className={cn("pt-16 transition-[padding] duration-300 ease-in-out lg:pt-0", sidebarOpen ? "lg:pl-[260px]" : "lg:pl-0")}>
         <Outlet
           context={
             {
@@ -350,6 +369,34 @@ export default function Root() {
           }
         />
       </div>
+
+      {logoutConfirmOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-[#dce7f0] bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-black text-[#061e3b]">Log out?</h2>
+            <p className="mt-2 text-sm font-medium text-[#64748b]">End your GREENOVATE customer session now?</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(false)}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-[#d6e3ee] bg-white text-sm font-black text-[#10213a] transition hover:bg-[#f8fafc]"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLogoutConfirmOpen(false);
+                  handleLogout().catch(() => undefined);
+                }}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#008c80] text-sm font-black text-white transition hover:bg-[#00736f]"
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Toaster position="top-right" richColors />
     </div>
