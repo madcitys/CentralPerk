@@ -783,7 +783,7 @@ function CustomerRewards({
       voucherCode: code,
       orderId: `ORDER-${code}`,
       qrValue: code,
-      qrTargetUrl: `http://localhost:3000/voucher/${id}?code=${encodeURIComponent(code)}`,
+      qrTargetUrl: `http://localhost:3010/voucher/${id}?code=${encodeURIComponent(code)}`,
       createdAt: new Date().toISOString(),
       partnerLabel: null,
       deliveryPartner: method === "online" ? "Delivery" : null,

@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 
 const BASE_URL =
-  process.env.CAMPAIGN_SERVICE_URL ||
+  process.env.SCM_CAMPAIGN_SERVICE_URL ||
   config.campaignServiceUrl;
 
 function fullUrl(path: string) {

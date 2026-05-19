@@ -1,4 +1,8 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "gateway";
@@ -12,11 +16,11 @@ function fail(message: string): never {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4000;
+  const raw = readEnv("SCM_GATEWAY_PORT");
+  if (!raw) return 3011;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fail("Invalid port in environment variable: PORT");
+    fail("Invalid port in environment variable: SCM_GATEWAY_PORT");
   }
   return port;
 }
@@ -40,13 +44,13 @@ export const config = {
   serviceName,
   dbMode: "none",
   port: parsePort(),
-  host: readEnv("HOST") || "0.0.0.0",
-  gatewayUrl: requireHttpUrl("GATEWAY_URL"),
-  memberUrl: requireHttpUrl("MEMBER_SERVICE_URL"),
-  segmentUrl: requireHttpUrl("SEGMENT_SERVICE_URL"),
-  campaignUrl: requireHttpUrl("CAMPAIGN_SERVICE_URL"),
-  notificationUrl: requireHttpUrl("NOTIFICATION_SERVICE_URL"),
-  rewardUrl: requireHttpUrl("REWARD_SERVICE_URL"),
-  pointsUrl: requireHttpUrl("POINTS_SERVICE_URL"),
-  adminRole: (readEnv("ADMIN_ROLE") || "admin").toLowerCase(),
+  host: readEnv("SCM_GATEWAY_HOST") || "0.0.0.0",
+  gatewayUrl: requireHttpUrl("SCM_GATEWAY_URL"),
+  memberUrl: requireHttpUrl("SCM_MEMBER_SERVICE_URL"),
+  segmentUrl: requireHttpUrl("SCM_SEGMENT_SERVICE_URL"),
+  campaignUrl: requireHttpUrl("SCM_CAMPAIGN_SERVICE_URL"),
+  notificationUrl: requireHttpUrl("SCM_NOTIFICATION_SERVICE_URL"),
+  rewardUrl: requireHttpUrl("SCM_REWARD_SERVICE_URL"),
+  pointsUrl: requireHttpUrl("SCM_POINTS_SERVICE_URL"),
+  adminRole: (readEnv("SCM_GATEWAY_ADMIN_ROLE") || "admin").toLowerCase(),
 };

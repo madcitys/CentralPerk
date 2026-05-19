@@ -32,9 +32,9 @@ jobs:
         run: npm ci
 
       - name: Seed test DB
-        if: ${{ secrets.SUPABASE_DB_URL != '' }}
+        if: ${{ secrets.SCM_TEST_SUPABASE_DB_URL != '' }}
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SCM_TEST_SUPABASE_DB_URL: ${{ secrets.SCM_TEST_SUPABASE_DB_URL }}
         run: npm run db:test:seed
 
       - name: Run Pact consumer tests
@@ -57,7 +57,7 @@ jobs:
           path: LOYALTY_SYSTEM-main/CentralPerk/tests/contract/pacts
 
       - name: Teardown test DB
-        if: ${{ always() && secrets.SUPABASE_DB_URL != '' }}
+        if: ${{ always() && secrets.SCM_TEST_SUPABASE_DB_URL != '' }}
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SCM_TEST_SUPABASE_DB_URL: ${{ secrets.SCM_TEST_SUPABASE_DB_URL }}
         run: npm run db:test:teardown

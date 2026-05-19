@@ -22,11 +22,11 @@ export function createServiceServerSupabaseClient(serviceUrl: string, serviceRol
 }
 
 export function createServerSupabaseClient() {
-  const serverKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
+  const serverKey = process.env.SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
 
   if (!supabaseUrl || !serverKey) {
     throw new Error(
-      "Missing server Supabase configuration. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the project .env or .env.local."
+      "Missing server Supabase configuration. Set SCM_FRONTEND_SUPABASE_URL and SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY in the project .env or .env.local."
     );
   }
 
@@ -36,7 +36,7 @@ export function createServerSupabaseClient() {
 export function createServerPublicSupabaseClient() {
   if (!supabaseUrl || !publicAnonKey) {
     throw new Error(
-      "Missing public Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY in the project .env or .env.local."
+      "Missing public Supabase configuration. Set NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL and NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY in the project .env or .env.local."
     );
   }
 
@@ -45,48 +45,48 @@ export function createServerPublicSupabaseClient() {
 
 export function createMemberServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.MEMBER_SUPABASE_URL?.trim() || process.env.SUPABASE_URL?.trim() || "",
-    process.env.MEMBER_SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_MEMBER_SUPABASE_URL?.trim() || process.env.SCM_FRONTEND_SUPABASE_URL?.trim() || "",
+    process.env.SCM_MEMBER_SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "member",
   );
 }
 
 export function createSegmentServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.SEGMENT_SUPABASE_URL?.trim() || "",
-    process.env.SEGMENT_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_SEGMENT_SUPABASE_URL?.trim() || "",
+    process.env.SCM_SEGMENT_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "segment",
   );
 }
 
 export function createPointsServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.POINTS_SUPABASE_URL?.trim() || "",
-    process.env.POINTS_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_POINTS_SUPABASE_URL?.trim() || "",
+    process.env.SCM_POINTS_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "points",
   );
 }
 
 export function createCampaignServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.CAMPAIGN_SUPABASE_URL?.trim() || "",
-    process.env.CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_CAMPAIGN_SUPABASE_URL?.trim() || "",
+    process.env.SCM_CAMPAIGN_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "campaign",
   );
 }
 
 export function createNotificationServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.NOTIFICATION_SUPABASE_URL?.trim() || "",
-    process.env.NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_NOTIFICATION_SUPABASE_URL?.trim() || "",
+    process.env.SCM_NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "notification",
   );
 }
 
 export function createRewardServerSupabaseClient() {
   return createServiceServerSupabaseClient(
-    process.env.REWARD_SUPABASE_URL?.trim() || "",
-    process.env.REWARD_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
+    process.env.SCM_REWARD_SUPABASE_URL?.trim() || "",
+    process.env.SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY?.trim() || "",
     "reward",
   );
 }

@@ -2,14 +2,14 @@ function resolveBaseUrl() {
   if (typeof window !== "undefined") return "/api";
 
   const baseUrl =
-    process.env.GATEWAY_URL ||
-    process.env.NEXT_PUBLIC_GATEWAY_URL ||
-    process.env.CAMPAIGN_SERVICE_URL ||
-    process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL;
+    process.env.SCM_GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_SCM_GATEWAY_URL ||
+    process.env.SCM_CAMPAIGN_SERVICE_URL ||
+    process.env.NEXT_PUBLIC_SCM_CAMPAIGN_SERVICE_URL;
 
   if (!baseUrl) {
     throw new Error(
-      "Missing campaign service configuration. Set GATEWAY_URL, NEXT_PUBLIC_GATEWAY_URL, CAMPAIGN_SERVICE_URL, or NEXT_PUBLIC_CAMPAIGN_SERVICE_URL."
+      "Missing campaign service configuration. Set SCM_GATEWAY_URL, NEXT_PUBLIC_SCM_GATEWAY_URL, SCM_CAMPAIGN_SERVICE_URL, or NEXT_PUBLIC_SCM_CAMPAIGN_SERVICE_URL."
     );
   }
 

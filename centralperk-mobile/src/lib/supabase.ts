@@ -9,14 +9,14 @@ const extra = (Constants.expoConfig?.extra || {}) as {
 };
 
 const supabaseUrl =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.EXPO_PUBLIC_SCM_MOBILE_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL ||
   extra.supabaseUrl;
 const supabaseAnonKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.EXPO_PUBLIC_SCM_MOBILE_SUPABASE_ANON_KEY ||
+  process.env.EXPO_PUBLIC_SCM_MOBILE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_PUBLISHABLE_KEY ||
   extra.supabaseAnonKey;
 
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
@@ -33,5 +33,5 @@ export const supabase = hasSupabaseConfig
   : null;
 
 export function missingConfigMessage() {
-  return "Missing mobile Supabase env. Add EXPO_PUBLIC_SUPABASE_URL/EXPO_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY in centralperk-mobile/.env.";
+  return "Missing mobile Supabase env. Add EXPO_PUBLIC_SCM_MOBILE_SUPABASE_URL/EXPO_PUBLIC_SCM_MOBILE_SUPABASE_ANON_KEY or NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_URL/NEXT_PUBLIC_SCM_FRONTEND_SUPABASE_ANON_KEY in centralperk-mobile/.env.";
 }

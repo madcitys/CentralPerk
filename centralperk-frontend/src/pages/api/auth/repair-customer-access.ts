@@ -14,9 +14,9 @@ const repairSchema = z.object({
 
 function appBaseUrl() {
   return (
-    process.env.APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    "http://localhost:3000"
+    process.env.SCM_FRONTEND_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_APP_URL?.trim() ||
+    "http://localhost:3010"
   ).replace(/\/+$/, "");
 }
 
@@ -33,7 +33,7 @@ export default createApiHandler({
     const publicClient = createServerPublicSupabaseClient();
 
     const memberResponse = await fetch(
-      `${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members/resolve?identifier=${encodeURIComponent(
+      `${serviceBaseUrl("SCM_MEMBER_SERVICE_URL", "http://127.0.0.1:3012")}/members/resolve?identifier=${encodeURIComponent(
         normalizedEmail,
       )}`,
       { headers: { accept: "application/json" } },

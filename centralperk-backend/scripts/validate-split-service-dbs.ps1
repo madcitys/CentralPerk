@@ -13,12 +13,12 @@ function Get-Text([string] $path) {
 }
 
 $services = @(
-  @{ Name = "member-service"; Prefix = "MEMBER" },
-  @{ Name = "segment-service"; Prefix = "SEGMENT" },
-  @{ Name = "campaign-service"; Prefix = "CAMPAIGN" },
-  @{ Name = "notification-service"; Prefix = "NOTIFICATION" },
-  @{ Name = "reward-service"; Prefix = "REWARD" },
-  @{ Name = "points-engine"; Prefix = "POINTS" }
+  @{ Name = "member-service"; EnvPrefix = "SCM_MEMBER" },
+  @{ Name = "segment-service"; EnvPrefix = "SCM_SEGMENT" },
+  @{ Name = "campaign-service"; EnvPrefix = "SCM_CAMPAIGN" },
+  @{ Name = "notification-service"; EnvPrefix = "SCM_NOTIFICATION" },
+  @{ Name = "reward-service"; EnvPrefix = "SCM_REWARD" },
+  @{ Name = "points-engine"; EnvPrefix = "SCM_POINTS" }
 )
 
 foreach ($service in $services) {
@@ -38,14 +38,14 @@ foreach ($service in $services) {
   $configPath = Join-Path $serviceDir "src\config.ts"
   if (Test-Path -LiteralPath $configPath) {
     $configText = Get-Text $configPath
-    foreach ($suffix in @("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "DATABASE_URL", "DB_SCHEMA")) {
-      $envName = "$($service.Prefix)_$suffix"
+    foreach ($suffix in @("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "DATABASE_URL", "DB_SCHEMA", "USE_SPLIT_SERVICE_DATABASES")) {
+      $envName = "$($service.EnvPrefix)_$suffix"
       if ($configText -notmatch [regex]::Escape($envName)) {
         Add-Failure "$($service.Name) config does not reference $envName"
       }
     }
-    if ($configText -notmatch "USE_SPLIT_SERVICE_DATABASES") {
-      Add-Failure "$($service.Name) config does not check USE_SPLIT_SERVICE_DATABASES"
+    if ($configText -notmatch [regex]::Escape("SCM_SHARED_DATABASE_URL")) {
+      Add-Failure "$($service.Name) config does not include the shared DB fallback SCM_SHARED_DATABASE_URL"
     }
     if ($configText -notmatch "Missing required environment variable") {
       Add-Failure "$($service.Name) config does not fail fast with exact missing env names"
@@ -67,7 +67,7 @@ if (Test-Path -LiteralPath $gatewayDir) {
     ForEach-Object {
       $relative = $_.FullName.Substring($backendRoot.Path.Length + 1)
       $text = Get-Content -LiteralPath $_.FullName -Raw
-      if ($text -match "(DATABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_URL)") {
+      if ($text -match "(SCM_SHARED_DATABASE_URL|SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY|SCM_FRONTEND_SUPABASE_URL)") {
         Add-Failure "Gateway should not reference database or Supabase secret envs: $relative"
       }
     }
@@ -83,7 +83,7 @@ Get-ChildItem -LiteralPath $backendRoot -Recurse -File |
   ForEach-Object {
     $relative = $_.FullName.Substring($backendRoot.Path.Length + 1)
     $text = Get-Content -LiteralPath $_.FullName -Raw
-    if ($text -match "process\.env\.(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|DATABASE_URL)") {
+    if ($text -match "process\.env\.(SCM_FRONTEND_SUPABASE_URL|SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|SCM_SHARED_DATABASE_URL)") {
       Add-Failure "Unsafe shared DB env access outside config file: $relative"
     }
     if (
@@ -110,7 +110,7 @@ if (Test-Path -LiteralPath $frontendRoot) {
     ForEach-Object {
       $relative = $_.FullName.Substring($workspaceRoot.Path.Length + 1)
       $text = Get-Content -LiteralPath $_.FullName -Raw
-      if ($text -match "(SERVICE_ROLE|SUPABASE_SECRET_KEY|SUPABASE_SERVICE_ROLE_KEY|DATABASE_URL|MEMBER_DATABASE_URL|SEGMENT_DATABASE_URL|CAMPAIGN_DATABASE_URL|NOTIFICATION_DATABASE_URL|REWARD_DATABASE_URL|POINTS_DATABASE_URL)") {
+      if ($text -match "(SERVICE_ROLE|SUPABASE_SECRET_KEY|SCM_FRONTEND_SUPABASE_SERVICE_ROLE_KEY|SCM_SHARED_DATABASE_URL|SCM_MEMBER_DATABASE_URL|SCM_SEGMENT_DATABASE_URL|SCM_CAMPAIGN_DATABASE_URL|SCM_NOTIFICATION_DATABASE_URL|SCM_REWARD_DATABASE_URL|SCM_POINTS_DATABASE_URL)") {
         Add-Failure "Frontend/client-side secret reference found in $relative"
       }
     }

@@ -22,8 +22,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   req.headers["idempotency-key"] = String(body.eventId || req.headers["idempotency-key"] || "");
 
   return proxyToService(req, res, {
-    baseUrlEnv: "POINTS_SERVICE_URL",
-    fallbackBaseUrl: "http://127.0.0.1:4001",
+    baseUrlEnv: "SCM_POINTS_SERVICE_URL",
+    fallbackBaseUrl: "http://127.0.0.1:3017",
     targetPath: "/points/award",
     methods: ["POST"] as const,
   });

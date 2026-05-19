@@ -12,16 +12,16 @@ if (!sqlPathArg) {
   throw new Error("Usage: node tests/db/run-sql.mjs <sql-file>");
 }
 
-if (!process.env.SUPABASE_DB_URL) {
-  throw new Error("SUPABASE_DB_URL is required to run test DB SQL.");
+if (!process.env.SCM_TEST_SUPABASE_DB_URL) {
+  throw new Error("SCM_TEST_SUPABASE_DB_URL is required to run test DB SQL.");
 }
 
 const sqlFilePath = path.resolve(process.cwd(), sqlPathArg);
 const sql = await fs.readFile(sqlFilePath, "utf8");
 
 const client = new Client({
-  connectionString: process.env.SUPABASE_DB_URL,
-  ssl: process.env.SUPABASE_DB_SSL === "disable" ? false : { rejectUnauthorized: false },
+  connectionString: process.env.SCM_TEST_SUPABASE_DB_URL,
+  ssl: process.env.SCM_TEST_SUPABASE_DB_SSL === "disable" ? false : { rejectUnauthorized: false },
 });
 
 await client.connect();

@@ -27,8 +27,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const [segmentsPayload, rewardsPayload] = await Promise.all([
-      fetchService("/segments/assignments", "SEGMENT_SERVICE_URL", "http://127.0.0.1:4004"),
-      fetchService("/rewards", "REWARD_SERVICE_URL", "http://127.0.0.1:4006"),
+      fetchService("/segments/assignments", "SCM_SEGMENT_SERVICE_URL", "http://127.0.0.1:3013"),
+      fetchService("/rewards", "SCM_REWARD_SERVICE_URL", "http://127.0.0.1:3016"),
     ]);
 
     return res.status(200).json({

@@ -26,8 +26,8 @@ async function run() {
   const mockPoints = await startMockPoints();
   const mockCampaign = await startMockCampaign();
 
-  process.env.POINTS_ENGINE_URL = "http://127.0.0.1:5101";
-  process.env.CAMPAIGN_SERVICE_URL = "http://127.0.0.1:5102";
+  process.env.SCM_POINTS_SERVICE_URL = "http://127.0.0.1:5101";
+  process.env.SCM_CAMPAIGN_SERVICE_URL = "http://127.0.0.1:5102";
 
   const { createServer } = await import("../server.js");
   const gw = createServer();

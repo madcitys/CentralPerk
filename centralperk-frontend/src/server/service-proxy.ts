@@ -17,13 +17,13 @@ function readEnv(name: string) {
 
 export function gatewayBaseUrl() {
   const gatewayUrl =
-    readEnv("GATEWAY_URL") ||
-    readEnv("NEXT_PUBLIC_GATEWAY_URL") ||
-    readEnv("NEXT_PUBLIC_API_BASE_URL");
+    readEnv("SCM_GATEWAY_URL") ||
+    readEnv("NEXT_PUBLIC_SCM_GATEWAY_URL") ||
+    readEnv("NEXT_PUBLIC_SCM_FRONTEND_API_BASE_URL");
 
   if (!gatewayUrl) {
     throw new Error(
-      "Missing gateway configuration. Set GATEWAY_URL or NEXT_PUBLIC_GATEWAY_URL in the project .env or .env.local."
+      "Missing gateway configuration. Set SCM_GATEWAY_URL or NEXT_PUBLIC_SCM_GATEWAY_URL in the project .env or .env.local."
     );
   }
 

@@ -4,13 +4,13 @@ This folder contains the service-owned backend runtimes for the GREENOVATE / Cen
 
 Services:
 
-- `gateway` on port `4000`
-- `points-engine` on port `4001`
-- `campaign-service` on port `4002`
-- `member-service` on port `4003`
-- `segment-service` on port `4004`
-- `notification-service` on port `4005`
-- `reward-service` on port `4006`
+- `gateway` on port `3011`
+- `points-engine` on port `3017`
+- `campaign-service` on port `3014`
+- `member-service` on port `3012`
+- `segment-service` on port `3013`
+- `notification-service` on port `3015`
+- `reward-service` on port `3016`
 
 Install and build from this folder:
 

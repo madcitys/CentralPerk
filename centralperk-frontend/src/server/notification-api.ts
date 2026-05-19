@@ -18,7 +18,7 @@ const audienceSchema = z
 const markReadSchema = z.object({}).strict();
 
 async function requestNotificationService<T>(path: string, init?: RequestInit) {
-  const response = await fetch(`${serviceBaseUrl("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:4005")}${path}`, {
+  const response = await fetch(`${serviceBaseUrl("SCM_NOTIFICATION_SERVICE_URL", "http://127.0.0.1:3015")}${path}`, {
     ...init,
     headers: {
       accept: "application/json",

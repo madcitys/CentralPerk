@@ -1,8 +1,12 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "points-engine";
-const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+const splitMode = process.env.SCM_POINTS_USE_SPLIT_SERVICE_DATABASES === "true";
 
 function readEnv(name: string) {
   return process.env[name]?.trim() || "";
@@ -47,11 +51,11 @@ function requirePostgresUrl(name: string) {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4001;
+  const raw = readEnv("SCM_POINTS_PORT");
+  if (!raw) return 3017;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fail("Invalid port in environment variable: PORT");
+    fail("Invalid port in environment variable: SCM_POINTS_PORT");
   }
   return port;
 }
@@ -61,12 +65,12 @@ export const config = {
   dbMode: splitMode ? "split" : "shared",
   splitMode,
   port: parsePort(),
-  schema: readEnv("POINTS_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("POINTS_DATABASE_URL") || readEnv("DATABASE_URL"),
-  supabaseUrl: requireHttpUrl("POINTS_SUPABASE_URL"),
-  supabaseServiceKey: requireEnv("POINTS_SUPABASE_SERVICE_ROLE_KEY"),
-  memberServiceUrl: splitMode ? requireHttpUrl("MEMBER_SERVICE_URL") : readEnv("MEMBER_SERVICE_URL") || "http://localhost:4003",
-  campaignServiceUrl: readEnv("CAMPAIGN_SERVICE_URL") || "http://localhost:4002",
+  schema: readEnv("SCM_POINTS_DB_SCHEMA") || "public",
+  databaseUrl: readEnv("SCM_POINTS_DATABASE_URL") || readEnv("SCM_SHARED_DATABASE_URL"),
+  supabaseUrl: requireHttpUrl("SCM_POINTS_SUPABASE_URL"),
+  supabaseServiceKey: requireEnv("SCM_POINTS_SUPABASE_SERVICE_ROLE_KEY"),
+  memberServiceUrl: splitMode ? requireHttpUrl("SCM_MEMBER_SERVICE_URL") : readEnv("SCM_MEMBER_SERVICE_URL") || "http://localhost:3012",
+  campaignServiceUrl: readEnv("SCM_CAMPAIGN_SERVICE_URL") || "http://localhost:3014",
 };
 
 export type ServiceConfig = typeof config;

@@ -1,7 +1,7 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 
-const baseUrl = __ENV.K6_BASE_URL || "http://localhost:3000";
+const baseUrl = __ENV.SCM_FRONTEND_BASE_URL || "http://localhost:3010";
 const authToken = __ENV.K6_AUTH_TOKEN || "";
 const memberIdentifier = __ENV.K6_MEMBER_IDENTIFIER || "MEM-000001";
 const fallbackEmail = __ENV.K6_MEMBER_EMAIL || "john@example.com";

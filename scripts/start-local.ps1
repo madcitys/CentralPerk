@@ -69,10 +69,10 @@ function Wait-HttpOk([string] $url, [int] $timeoutSeconds = 45) {
 }
 
 function Test-FrontendAssets {
-  $html = (Invoke-WebRequest -Uri "http://127.0.0.1:3000/login" -UseBasicParsing -TimeoutSec 10).Content
+  $html = (Invoke-WebRequest -Uri "http://127.0.0.1:3010/login" -UseBasicParsing -TimeoutSec 10).Content
   $assets = ($html | Select-String -Pattern '/_next/static/[^"'']+' -AllMatches).Matches.Value | Sort-Object -Unique
   foreach ($asset in $assets) {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000$asset" -UseBasicParsing -TimeoutSec 10
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:3010$asset" -UseBasicParsing -TimeoutSec 10
     if ($response.StatusCode -ne 200) {
       throw "Frontend asset failed: $asset -> $($response.StatusCode)"
     }
@@ -94,18 +94,18 @@ Start-ServiceProcess "notification-service" "centralperk-backend/notification-se
 Start-ServiceProcess "reward-service" "centralperk-backend/reward-service/dist/server.js"
 Start-ServiceProcess "points-engine" "centralperk-backend/points-engine/dist/server.js"
 
-Wait-HttpOk "http://127.0.0.1:4003/health/db"
-Wait-HttpOk "http://127.0.0.1:4004/health/db"
-Wait-HttpOk "http://127.0.0.1:4002/health/db"
-Wait-HttpOk "http://127.0.0.1:4005/health/db"
-Wait-HttpOk "http://127.0.0.1:4006/health/db"
-Wait-HttpOk "http://127.0.0.1:4001/health/db"
+Wait-HttpOk "http://127.0.0.1:3012/health/db"
+Wait-HttpOk "http://127.0.0.1:3013/health/db"
+Wait-HttpOk "http://127.0.0.1:3014/health/db"
+Wait-HttpOk "http://127.0.0.1:3015/health/db"
+Wait-HttpOk "http://127.0.0.1:3016/health/db"
+Wait-HttpOk "http://127.0.0.1:3017/health/db"
 
 Start-ServiceProcess "gateway" "centralperk-backend/gateway/dist/server.js"
-Wait-HttpOk "http://127.0.0.1:4000/health"
+Wait-HttpOk "http://127.0.0.1:3011/health"
 
 Start-Frontend
-Wait-HttpOk "http://127.0.0.1:3000/api/health"
+Wait-HttpOk "http://127.0.0.1:3010/api/health"
 Test-FrontendAssets
 
 Write-Host "CentralPerk local stack is running."

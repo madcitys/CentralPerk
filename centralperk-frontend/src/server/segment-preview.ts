@@ -87,7 +87,7 @@ function matchesCondition(member: RawMemberRow, condition: SegmentPreviewConditi
 }
 
 async function loadMembers() {
-  const response = await fetch(`${serviceBaseUrl("MEMBER_SERVICE_URL", "http://127.0.0.1:4003")}/members?limit=5000`, {
+  const response = await fetch(`${serviceBaseUrl("SCM_MEMBER_SERVICE_URL", "http://127.0.0.1:3012")}/members?limit=5000`, {
     headers: { accept: "application/json" },
   });
   const payload = await response.json().catch(() => ({}));

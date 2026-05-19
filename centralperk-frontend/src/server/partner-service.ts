@@ -51,7 +51,7 @@ function messageFromPayload(payload: unknown, fallback: string) {
 }
 
 async function rewardServiceJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${serviceBaseUrl("REWARD_SERVICE_URL", "http://127.0.0.1:4006")}${path}`, {
+  const response = await fetch(`${serviceBaseUrl("SCM_REWARD_SERVICE_URL", "http://127.0.0.1:3016")}${path}`, {
     ...init,
     headers: {
       accept: "application/json",

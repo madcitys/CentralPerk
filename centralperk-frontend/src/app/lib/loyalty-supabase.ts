@@ -120,10 +120,10 @@ function shouldFallbackFromServiceError(error: unknown): boolean {
 
 function usesStrictMicroservices(): boolean {
   return (
-    process.env.USE_SPLIT_SERVICE_DATABASES === "true" ||
-    process.env.NEXT_PUBLIC_USE_SPLIT_SERVICE_DATABASES === "true" ||
-    process.env.USE_REMOTE_LOYALTY_API === "true" ||
-    process.env.NEXT_PUBLIC_USE_REMOTE_LOYALTY_API === "true"
+    process.env.SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_USE_SPLIT_SERVICE_DATABASES === "true" ||
+    process.env.SCM_FRONTEND_USE_REMOTE_LOYALTY_API === "true" ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_USE_REMOTE_LOYALTY_API === "true"
   );
 }
 

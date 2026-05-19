@@ -1,8 +1,12 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "reward-service";
-const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+const splitMode = process.env.SCM_REWARD_USE_SPLIT_SERVICE_DATABASES === "true";
 
 function readEnv(name: string) {
   return process.env[name]?.trim() || "";
@@ -44,10 +48,10 @@ function requirePostgresUrl(name: string) {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4006;
+  const raw = readEnv("SCM_REWARD_PORT");
+  if (!raw) return 3016;
   const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) fail("Invalid port in environment variable: PORT");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) fail("Invalid port in environment variable: SCM_REWARD_PORT");
   return port;
 }
 
@@ -56,9 +60,9 @@ export const config = {
   dbMode: splitMode ? "split" : "shared",
   splitMode,
   port: parsePort(),
-  schema: readEnv("REWARD_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("REWARD_DATABASE_URL") || readEnv("DATABASE_URL"),
-  supabaseUrl: requireHttpUrl("REWARD_SUPABASE_URL"),
-  supabaseServiceKey: requireEnv("REWARD_SUPABASE_SERVICE_ROLE_KEY"),
-  pointsServiceUrl: splitMode ? requireHttpUrl("POINTS_SERVICE_URL") : readEnv("POINTS_SERVICE_URL") || readEnv("POINTS_ENGINE_URL") || "http://localhost:4001",
+  schema: readEnv("SCM_REWARD_DB_SCHEMA") || "public",
+  databaseUrl: readEnv("SCM_REWARD_DATABASE_URL") || readEnv("SCM_SHARED_DATABASE_URL"),
+  supabaseUrl: requireHttpUrl("SCM_REWARD_SUPABASE_URL"),
+  supabaseServiceKey: requireEnv("SCM_REWARD_SUPABASE_SERVICE_ROLE_KEY"),
+  pointsServiceUrl: splitMode ? requireHttpUrl("SCM_POINTS_SERVICE_URL") : readEnv("SCM_POINTS_SERVICE_URL") || "http://localhost:3017",
 };

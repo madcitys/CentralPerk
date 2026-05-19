@@ -1,8 +1,12 @@
 import dotenv from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 dotenv.config();
 
 const serviceName = "notification-service";
-const splitMode = process.env.USE_SPLIT_SERVICE_DATABASES === "true";
+const splitMode = process.env.SCM_NOTIFICATION_USE_SPLIT_SERVICE_DATABASES === "true";
 
 function readEnv(name: string) {
   return process.env[name]?.trim() || "";
@@ -43,10 +47,10 @@ function requirePostgresUrl(name: string) {
 }
 
 function parsePort() {
-  const raw = readEnv("PORT");
-  if (!raw) return 4005;
+  const raw = readEnv("SCM_NOTIFICATION_PORT");
+  if (!raw) return 3015;
   const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) fail("Invalid port in environment variable: PORT");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) fail("Invalid port in environment variable: SCM_NOTIFICATION_PORT");
   return port;
 }
 
@@ -55,8 +59,8 @@ export const config = {
   dbMode: splitMode ? "split" : "shared",
   splitMode,
   port: parsePort(),
-  schema: readEnv("NOTIFICATION_DB_SCHEMA") || "public",
-  databaseUrl: readEnv("NOTIFICATION_DATABASE_URL") || readEnv("DATABASE_URL"),
-  supabaseUrl: requireHttpUrl("NOTIFICATION_SUPABASE_URL"),
-  supabaseServiceKey: requireEnv("NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY"),
+  schema: readEnv("SCM_NOTIFICATION_DB_SCHEMA") || "public",
+  databaseUrl: readEnv("SCM_NOTIFICATION_DATABASE_URL") || readEnv("SCM_SHARED_DATABASE_URL"),
+  supabaseUrl: requireHttpUrl("SCM_NOTIFICATION_SUPABASE_URL"),
+  supabaseServiceKey: requireEnv("SCM_NOTIFICATION_SUPABASE_SERVICE_ROLE_KEY"),
 };

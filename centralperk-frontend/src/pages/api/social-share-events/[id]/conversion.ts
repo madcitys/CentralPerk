@@ -7,8 +7,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!id) return res.status(400).json({ ok: false, error: { message: "Share event ID is required." } });
 
   return proxyToService(req, res, {
-    baseUrlEnv: "MEMBER_SERVICE_URL",
-    fallbackBaseUrl: "http://localhost:4003",
+    baseUrlEnv: "SCM_MEMBER_SERVICE_URL",
+    fallbackBaseUrl: "http://localhost:3012",
     targetPath: `/social-share-events/${encodeURIComponent(id)}/conversion`,
     methods: ["POST"] as const,
   });

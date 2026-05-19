@@ -12,15 +12,15 @@ const extra = (Constants.expoConfig?.extra || {}) as {
 };
 
 const apiBaseUrl = String(
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.EXPO_PUBLIC_SCM_MOBILE_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_SCM_FRONTEND_API_BASE_URL ||
     extra.apiBaseUrl ||
     "",
 ).replace(/\/+$/, "");
 const demoAuthEnabled =
-  extra.enableDemoAuth !== false && process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH !== "false";
+  extra.enableDemoAuth !== false && process.env.NEXT_PUBLIC_SCM_FRONTEND_ENABLE_DEMO_AUTH !== "false";
 const profileLoginEnabled =
-  extra.allowProfileLogin !== false && process.env.EXPO_PUBLIC_ALLOW_PROFILE_LOGIN !== "false";
+  extra.allowProfileLogin !== false && process.env.EXPO_PUBLIC_SCM_MOBILE_ALLOW_PROFILE_LOGIN !== "false";
 
 export async function apiGet<T>(path: string): Promise<T> {
   if (!apiBaseUrl) throw new Error("Mobile API base URL is not configured.");
