@@ -17,6 +17,7 @@ import type {
 import {
   fetchActiveEarningRules,
   fetchTierRules,
+  loadReengagementActions,
   processAllMemberExpiredPoints,
   type EarningRule,
 } from "../../lib/loyalty-supabase";
@@ -111,6 +112,8 @@ export function useAdminData() {
       const [
         membersRes,
         pointsLedgerRes,
+        rewardsRes,
+        reengagementActionsRes,
         rules,
         earningRulesRes,
       ] = await Promise.all([
@@ -119,6 +122,11 @@ export function useAdminData() {
           error: membersError,
         })),
         loadPointsLedgerViaApi(5000).catch((ledgerError) => ({ ok: false as const, error: ledgerError })),
+        requestJson<{ ok: true; rewards: RewardCatalogRow[] }>("/api/rewards").catch((rewardsError) => ({
+          ok: false as const,
+          error: rewardsError,
+        })),
+        loadReengagementActions().catch((actionsError) => ({ ok: false as const, error: actionsError })),
         fetchTierRules(),
         fetchActiveEarningRules(),
       ]);
@@ -194,9 +202,9 @@ export function useAdminData() {
       setTransactions(transactionRows);
       setTierHistory([]);
       setPointsLots([]);
-      setRewardsCatalog([]);
+      setRewardsCatalog(rewardsRes.ok ? rewardsRes.rewards || [] : []);
       setLoginActivity([]);
-      setReengagementActions([]);
+      setReengagementActions(Array.isArray(reengagementActionsRes) ? (reengagementActionsRes as ReengagementAction[]) : []);
       setTierRules(rules);
       setEarningRules(earningRulesRes);
 

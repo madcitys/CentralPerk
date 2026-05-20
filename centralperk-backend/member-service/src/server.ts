@@ -139,6 +139,19 @@ const surveyResponseSchema = z.object({
   bonusPoints: z.number().int().min(0).max(1_000_000).optional(),
 });
 
+const challengeInputSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(1000).default(""),
+  type: z.enum(["purchase-count", "points-earned", "survey-completion"]).default("points-earned"),
+  targetValue: z.number().int().min(0).max(1_000_000).default(1),
+  startAt: z.string().trim().min(1).max(80),
+  endAt: z.string().trim().min(1).max(80),
+  rewardPoints: z.number().int().min(0).max(1_000_000).default(0),
+  rewardBadge: z.string().trim().max(120).default("Challenge Winner"),
+  competitive: z.boolean().optional(),
+  segment: z.string().trim().max(80).default("All Members"),
+});
+
 const engagementSettingsSchema = z.object({
   showName: z.boolean().optional(),
   showReferralCode: z.boolean().optional(),
@@ -629,12 +642,14 @@ function processFeedbackInsights(feedbackRows: any[]) {
       documents[index].category ??
       "feedback";
 
-    similarFeedbackGroups.push({
+    if (groupIndexes.length > 1) {
+      similarFeedbackGroups.push({
       topic: topic.charAt(0).toUpperCase() + topic.slice(1),
       count: groupIndexes.length,
       averageSimilarity: Number((similarityPairs ? similarityTotal / similarityPairs : 1).toFixed(4)),
       feedbackIds: groupIndexes.map((groupIndex) => documents[groupIndex].id),
-    });
+      });
+    }
   }
 
   const topTopics = similarFeedbackGroups
@@ -1286,7 +1301,23 @@ export function createServer() {
 
     if (error) {
       if (tableMissing(error, "feedback_insights")) {
-        return { ok: true, insights: null };
+        const { data: rawFeedback, error: feedbackError } = await supabase
+          .from("member_feedback")
+          .select("id,category,rating,comment")
+          .order("created_at", { ascending: false })
+          .limit(5000);
+        if (feedbackError) {
+          if (tableMissing(feedbackError, "member_feedback")) return { ok: true, insights: null };
+          throw feedbackError;
+        }
+        return {
+          ok: true,
+          insights: {
+            ...processFeedbackInsights(rawFeedback || []),
+            createdAt: new Date().toISOString(),
+          },
+          warning: "feedback_insights_table_missing",
+        };
       }
       throw error;
     }
@@ -1415,6 +1446,55 @@ export function createServer() {
           segment: normalizeSegment(row.target_segment),
         };
       }),
+    };
+  });
+
+  app.post("/engagement/challenges", async (request, reply) => {
+    const body = challengeInputSchema.parse(request.body || {});
+    const challengeCode = `CH-${Date.now()}`;
+    const { data, error } = await supabase
+      .from("challenges")
+      .insert({
+        challenge_code: challengeCode,
+        challenge_name: body.title.trim(),
+        challenge_type: normalizeChallengeType(body.type),
+        description: body.description.trim(),
+        target_value: body.targetValue,
+        reward_points: body.rewardPoints,
+        badge_name: body.rewardBadge || "Challenge Winner",
+        target_segment: normalizeSegment(body.segment),
+        start_date: body.startAt,
+        end_date: body.endAt,
+        is_active: true,
+      })
+      .select("id,challenge_code,challenge_name,challenge_type,description,target_value,reward_points,badge_name,target_segment,start_date,end_date,is_active")
+      .single();
+
+    if (error) {
+      if (tableMissing(error, "challenges")) {
+        reply.code(503).send({ ok: false, error: "challenges_table_missing" });
+        return;
+      }
+      throw error;
+    }
+
+    const type = normalizeChallengeType(data.challenge_type);
+    return {
+      ok: true,
+      challenge: {
+        id: String(data.id),
+        title: String(data.challenge_name || data.challenge_code || "Challenge"),
+        description: String(data.description || ""),
+        type,
+        targetValue: Math.max(0, Number(data.target_value || 0)),
+        unitLabel: challengeUnitLabel(type),
+        startAt: String(data.start_date || ""),
+        endAt: String(data.end_date || ""),
+        rewardPoints: Math.max(0, Number(data.reward_points || 0)),
+        rewardBadge: String(data.badge_name || "Challenge Winner"),
+        competitive: body.competitive ?? type === "purchase-count",
+        segment: normalizeSegment(data.target_segment),
+      },
     };
   });
 

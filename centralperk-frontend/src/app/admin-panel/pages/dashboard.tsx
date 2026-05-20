@@ -7,16 +7,21 @@ import {
   CalendarDays,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   Coins,
   Gift,
   HeartPulse,
   Megaphone,
+  MessageSquareText,
   Percent,
   RefreshCcw,
+  Send,
   ShieldAlert,
+  Share2,
   Sparkles,
   Target,
   TriangleAlert,
+  Trophy,
   Users,
   UserPlus,
 } from "lucide-react";
@@ -44,7 +49,18 @@ import {
 } from "../../../components/ui/dialog";
 import { cn } from "../../../components/ui/utils";
 import { useAdminData } from "../hooks/use-admin-data";
-import { buildInactiveMemberInsights } from "../../lib/member-engagement";
+import {
+  buildInactiveMemberInsights,
+  loadChallengeDefinitions,
+  loadNotificationCampaigns,
+  loadSocialShareEvents,
+  loadSurveyDefinitions,
+  type ChallengeDefinition,
+  type NotificationCampaign,
+  type ShareEvent,
+  type SurveyDefinition,
+} from "../../lib/member-engagement";
+import { loadAllReferrals, loadFeedback, type FeedbackRecord, type ReferralRecord } from "../../lib/member-lifecycle";
 import { loadVouchersViaApi, loadPartnerDashboardViaApi } from "../../lib/api";
 import {
   loadCampaignPerformance,
@@ -170,6 +186,15 @@ type InsightItem = {
   ctaLabel?: string;
   icon: LucideIcon;
   tone: "teal" | "amber" | "rose" | "violet" | "blue";
+};
+
+type SystemSignalItem = {
+  label: string;
+  value: number | string;
+  supporting: string;
+  href: string;
+  icon: LucideIcon;
+  tone: "teal" | "amber" | "rose" | "violet" | "blue" | "green";
 };
 
 type AdminDashboardOutletContext = {
@@ -359,6 +384,15 @@ function insightToneClass(tone: InsightItem["tone"]) {
   if (tone === "violet") return "bg-[#f3efff] text-[#7c3aed]";
   if (tone === "blue") return "bg-[#eef6ff] text-[#2563eb]";
   return "bg-[#e9fffb] text-[#0f766e]";
+}
+
+function systemSignalToneClass(tone: SystemSignalItem["tone"]) {
+  if (tone === "amber") return "border-[#f5d6a1] bg-[#fffaf0] text-[#9a6117]";
+  if (tone === "rose") return "border-[#f0c6cf] bg-[#fff5f7] text-[#9b2438]";
+  if (tone === "violet") return "border-[#d9cdfb] bg-[#f8f5ff] text-[#5b3fb6]";
+  if (tone === "blue") return "border-[#c7daf8] bg-[#f5f9ff] text-[#1d4ed8]";
+  if (tone === "green") return "border-[#bee7cf] bg-[#f4fff8] text-[#15803d]";
+  return "border-[#c2e8e2] bg-[#f4fffb] text-[#0f766e]";
 }
 
 function emptyActionRecords(message: string): ActionRecord[] {
@@ -762,6 +796,12 @@ function PerformanceTable<T>(props: {
 }
 
 function actionCenterIcon(label: string): LucideIcon {
+  if (label.includes("Feedback")) return MessageSquareText;
+  if (label.includes("Referral")) return Users;
+  if (label.includes("Survey")) return ClipboardList;
+  if (label.includes("Challenge")) return Trophy;
+  if (label.includes("Push")) return Send;
+  if (label.includes("Share")) return Share2;
   if (label.includes("Pending")) return ClipboardCheck;
   if (label.includes("Failed")) return RefreshCcw;
   if (label.includes("Expiring")) return CalendarDays;
@@ -830,6 +870,26 @@ function InsightCard({ item }: { item: InsightItem }) {
   return (
     <Link to={href} className="block h-full">
       {content}
+    </Link>
+  );
+}
+
+function SystemSignalCard({ item }: { item: SystemSignalItem }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      to={item.href}
+      className="flex min-h-[104px] min-w-0 flex-col rounded-lg border border-[#e3eaf4] bg-white p-4 shadow-[0_8px_20px_rgba(17,38,60,0.04)] transition hover:border-[#cdd9eb]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border", systemSignalToneClass(item.tone))}>
+          <Icon className="h-[18px] w-[18px]" />
+        </div>
+        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[#7a8aa0]" />
+      </div>
+      <p className="mt-3 text-[12px] font-bold text-[#52627a]">{item.label}</p>
+      <p className="mt-1 text-2xl font-extrabold leading-none text-[#071936]">{typeof item.value === "number" ? integerFormatter.format(item.value) : item.value}</p>
+      <p className="mt-2 line-clamp-2 text-[11px] font-semibold leading-4 text-[#64748b]">{item.supporting}</p>
     </Link>
   );
 }
@@ -1011,6 +1071,12 @@ export default function AdminDashboardPage() {
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance[]>([]);
   const [vouchers, setVouchers] = useState<RedemptionVoucher[]>([]);
   const [partnerDashboard, setPartnerDashboard] = useState<PartnerDashboardRow[]>([]);
+  const [notificationCampaigns, setNotificationCampaigns] = useState<NotificationCampaign[]>([]);
+  const [surveys, setSurveys] = useState<SurveyDefinition[]>([]);
+  const [challenges, setChallenges] = useState<ChallengeDefinition[]>([]);
+  const [referrals, setReferrals] = useState<ReferralRecord[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackRecord[]>([]);
+  const [shareEvents, setShareEvents] = useState<ShareEvent[]>([]);
   const [auxLoading, setAuxLoading] = useState(true);
   const [auxError, setAuxError] = useState<string | null>(null);
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
@@ -1026,9 +1092,26 @@ export default function AdminDashboardPage() {
       loadCampaignPerformance(),
       loadVouchersViaApi({}),
       loadPartnerDashboardViaApi(),
+      loadNotificationCampaigns(),
+      loadSurveyDefinitions(),
+      loadChallengeDefinitions(),
+      loadAllReferrals(),
+      loadFeedback(),
+      loadSocialShareEvents(),
     ]);
 
-    const [campaignsResult, performanceResult, vouchersResult, partnerResult] = results;
+    const [
+      campaignsResult,
+      performanceResult,
+      vouchersResult,
+      partnerResult,
+      notificationCampaignsResult,
+      surveysResult,
+      challengesResult,
+      referralsResult,
+      feedbackResult,
+      shareEventsResult,
+    ] = results;
     const failedEndpoints: string[] = [];
 
     if (campaignsResult.status === "fulfilled") {
@@ -1063,6 +1146,54 @@ export default function AdminDashboardPage() {
       failedEndpoints.push("/api/partners/dashboard");
     }
 
+    if (notificationCampaignsResult.status === "fulfilled") {
+      setNotificationCampaigns(notificationCampaignsResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/notification-campaigns failed", notificationCampaignsResult.reason);
+      setNotificationCampaigns([]);
+      failedEndpoints.push("/api/notification-campaigns");
+    }
+
+    if (surveysResult.status === "fulfilled") {
+      setSurveys(surveysResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/engagement/surveys failed", surveysResult.reason);
+      setSurveys([]);
+      failedEndpoints.push("/api/engagement/surveys");
+    }
+
+    if (challengesResult.status === "fulfilled") {
+      setChallenges(challengesResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/engagement/challenges failed", challengesResult.reason);
+      setChallenges([]);
+      failedEndpoints.push("/api/engagement/challenges");
+    }
+
+    if (referralsResult.status === "fulfilled") {
+      setReferrals(referralsResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/members/referrals failed", referralsResult.reason);
+      setReferrals([]);
+      failedEndpoints.push("/api/members/referrals");
+    }
+
+    if (feedbackResult.status === "fulfilled") {
+      setFeedback(feedbackResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/members/feedback failed", feedbackResult.reason);
+      setFeedback([]);
+      failedEndpoints.push("/api/members/feedback");
+    }
+
+    if (shareEventsResult.status === "fulfilled") {
+      setShareEvents(shareEventsResult.value || []);
+    } else {
+      console.error("[dashboard] GET /api/social-share-events failed", shareEventsResult.reason);
+      setShareEvents([]);
+      failedEndpoints.push("/api/social-share-events");
+    }
+
     if (failedEndpoints.length > 0) {
       setAuxError(`Some dashboard panels are partially unavailable: ${failedEndpoints.join(", ")}`);
     }
@@ -1073,6 +1204,19 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     void refreshAuxiliaryData();
   }, [refreshAuxiliaryData]);
+
+  useEffect(() => {
+    const refreshEverything = () => {
+      void refetch();
+      void refreshAuxiliaryData();
+    };
+    const interval = window.setInterval(refreshEverything, 30_000);
+    window.addEventListener("focus", refreshEverything);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshEverything);
+    };
+  }, [refetch, refreshAuxiliaryData]);
 
   // no-op: compact mode fixed to true for this build
 
@@ -1459,6 +1603,101 @@ export default function AdminDashboardPage() {
     [partnerDashboard],
   );
 
+  const liveSurveys = useMemo(() => surveys.filter((survey) => survey.status === "live"), [surveys]);
+  const activeChallenges = useMemo(
+    () => challenges.filter((challenge) => (parseTimestamp(challenge.endAt) ?? 0) >= Date.now()),
+    [challenges],
+  );
+  const scheduledPushCampaigns = useMemo(
+    () => notificationCampaigns.filter((campaign) => campaign.status === "scheduled" || campaign.status === "live"),
+    [notificationCampaigns],
+  );
+  const referralConversions = useMemo(() => referrals.filter((referral) => referral.status === "joined").length, [referrals]);
+  const pendingReferralInvites = useMemo(() => referrals.filter((referral) => referral.status !== "joined"), [referrals]);
+  const surveyResponseCount = useMemo(
+    () => surveys.reduce((sum, survey) => sum + Math.max(0, survey.responses?.length || 0), 0),
+    [surveys],
+  );
+  const shareConversionCount = useMemo(
+    () => shareEvents.reduce((sum, event) => sum + Math.max(0, Number(event.conversions || 0)), 0),
+    [shareEvents],
+  );
+  const averageFeedbackRating = useMemo(
+    () => (feedback.length ? feedback.reduce((sum, item) => sum + Number(item.rating || 0), 0) / feedback.length : 0),
+    [feedback],
+  );
+  const lowRatingFeedback = useMemo(() => feedback.filter((item) => Number(item.rating || 0) <= 3), [feedback]);
+
+  const systemSignals = useMemo<SystemSignalItem[]>(
+    () => [
+      {
+        label: "Push Campaigns",
+        value: scheduledPushCampaigns.length,
+        supporting: `${notificationCampaigns.length} total campaigns synced from notification service`,
+        href: "/admin/engagement",
+        icon: Send,
+        tone: "blue",
+      },
+      {
+        label: "Referral Pipeline",
+        value: referrals.length,
+        supporting: `${referralConversions} conversions / ${pendingReferralInvites.length} pending invites`,
+        href: "/admin/engagement",
+        icon: Users,
+        tone: "teal",
+      },
+      {
+        label: "Member Feedback",
+        value: feedback.length,
+        supporting: `${averageFeedbackRating ? averageFeedbackRating.toFixed(1) : "0.0"} avg rating / ${lowRatingFeedback.length} need attention`,
+        href: "/admin/engagement",
+        icon: MessageSquareText,
+        tone: lowRatingFeedback.length > 0 ? "rose" : "violet",
+      },
+      {
+        label: "Live Surveys",
+        value: liveSurveys.length,
+        supporting: `${surveyResponseCount} submitted responses across ${surveys.length} surveys`,
+        href: "/admin/engagement",
+        icon: ClipboardList,
+        tone: "violet",
+      },
+      {
+        label: "Active Challenges",
+        value: activeChallenges.length,
+        supporting: `${challenges.length} published challenges available to customers`,
+        href: "/admin/engagement",
+        icon: Trophy,
+        tone: "green",
+      },
+      {
+        label: "Social Shares",
+        value: shareEvents.length,
+        supporting: `${shareConversionCount} referral conversions attributed to share events`,
+        href: "/admin/engagement",
+        icon: Share2,
+        tone: "amber",
+      },
+    ],
+    [
+      activeChallenges.length,
+      averageFeedbackRating,
+      challenges.length,
+      feedback.length,
+      liveSurveys.length,
+      lowRatingFeedback.length,
+      notificationCampaigns.length,
+      pendingReferralInvites.length,
+      referralConversions,
+      referrals.length,
+      scheduledPushCampaigns.length,
+      shareConversionCount,
+      shareEvents.length,
+      surveyResponseCount,
+      surveys.length,
+    ],
+  );
+
   const actionCenterItems = useMemo<ActionCenterItem[]>(() => {
     const now = Date.now();
     const pendingValidations = vouchers
@@ -1504,8 +1743,93 @@ export default function AdminDashboardPage() {
       }));
 
     const systemWarnings = [...contactWarnings, ...partnerWarnings, ...missingPerformanceWarnings];
+    const recentFeedbackRecords = feedback
+      .slice(0, 6)
+      .map((item) => ({
+        primary: item.memberName || item.memberId || "Member feedback",
+        secondary: `${item.rating}/5 ${item.category} / ${item.comment}`,
+        badge: Number(item.rating) <= 3 ? "Needs review" : "Feedback",
+      }));
+    const pendingReferralRecords = pendingReferralInvites
+      .slice(0, 6)
+      .map((referral) => ({
+        primary: referral.referrerCode || referral.referrerMemberId || "Referral invite",
+        secondary: `${referral.refereeEmail} / created ${new Date(referral.createdAt).toLocaleDateString()}`,
+        badge: "Pending",
+      }));
+    const surveyRecords = liveSurveys
+      .slice(0, 6)
+      .map((survey) => ({
+        primary: survey.title,
+        secondary: `${survey.responses?.length || 0} responses / ${survey.bonusPoints} bonus points / ${survey.segment}`,
+        badge: "Live",
+      }));
+    const challengeRecords = activeChallenges
+      .slice(0, 6)
+      .map((challenge) => ({
+        primary: challenge.title,
+        secondary: `${challenge.rewardPoints} reward points / ends ${new Date(challenge.endAt).toLocaleDateString()}`,
+        badge: "Active",
+      }));
+    const pushRecords = scheduledPushCampaigns
+      .slice(0, 6)
+      .map((campaign) => ({
+        primary: campaign.name,
+        secondary: `${campaign.segment} / ${campaign.status} / ${new Date(campaign.scheduledFor).toLocaleDateString()}`,
+        badge: campaign.status,
+      }));
 
     return [
+      {
+        label: "Customer Feedback",
+        count: feedback.length,
+        actionLabel: "Review",
+        actionHref: "/admin/engagement",
+        tone: "violet",
+        description: "Feedback submitted from the customer engagement page.",
+        emptyText: "No member feedback has been submitted yet.",
+        records: recentFeedbackRecords.length > 0 ? recentFeedbackRecords : emptyActionRecords("No member feedback has been submitted yet."),
+      },
+      {
+        label: "Referral Pipeline",
+        count: pendingReferralInvites.length,
+        actionLabel: "Track",
+        actionHref: "/admin/engagement",
+        tone: "teal",
+        description: "Pending referral invites waiting for conversion.",
+        emptyText: "No pending referral invites are waiting right now.",
+        records: pendingReferralRecords.length > 0 ? pendingReferralRecords : emptyActionRecords("No pending referral invites are waiting right now."),
+      },
+      {
+        label: "Live Surveys",
+        count: liveSurveys.length,
+        actionLabel: "Open",
+        actionHref: "/admin/engagement",
+        tone: "blue",
+        description: "Published surveys visible to customer survey and earn-points flows.",
+        emptyText: "No live surveys are currently published.",
+        records: surveyRecords.length > 0 ? surveyRecords : emptyActionRecords("No live surveys are currently published."),
+      },
+      {
+        label: "Active Challenges",
+        count: activeChallenges.length,
+        actionLabel: "Open",
+        actionHref: "/admin/engagement",
+        tone: "amber",
+        description: "Published challenges visible to customers.",
+        emptyText: "No active customer challenges are currently published.",
+        records: challengeRecords.length > 0 ? challengeRecords : emptyActionRecords("No active customer challenges are currently published."),
+      },
+      {
+        label: "Scheduled Push",
+        count: scheduledPushCampaigns.length,
+        actionLabel: "Manage",
+        actionHref: "/admin/engagement",
+        tone: "blue",
+        description: "Notification campaigns scheduled or live in the notification service.",
+        emptyText: "No push campaigns are scheduled or live.",
+        records: pushRecords.length > 0 ? pushRecords : emptyActionRecords("No push campaigns are scheduled or live."),
+      },
       {
         label: "Pending Validations",
         count: pendingValidations.length,
@@ -1515,11 +1839,11 @@ export default function AdminDashboardPage() {
         description: "Reward vouchers waiting for manual or counter validation.",
         emptyText: "No vouchers are waiting for validation.",
         records:
-          pendingValidations.slice(0, 6).map((voucher) => ({
+          pendingValidations.length > 0 ? pendingValidations.slice(0, 6).map((voucher) => ({
             primary: voucher.rewardName,
             secondary: `${voucher.voucherCode} / ${voucher.method === "in-store" ? "In-store pickup" : "Delivery processing"} / ${new Date(voucher.createdAt).toLocaleDateString()}`,
             badge: "Ready",
-          })) || emptyActionRecords("No vouchers are waiting for validation."),
+          })) : emptyActionRecords("No vouchers are waiting for validation."),
       },
       {
         label: "Failed Redemptions",
@@ -1530,11 +1854,11 @@ export default function AdminDashboardPage() {
         description: "Processing vouchers that have remained unresolved for more than 3 days.",
         emptyText: "No overdue redemption issues were detected.",
         records:
-          failedRedemptions.slice(0, 6).map((voucher) => ({
+          failedRedemptions.length > 0 ? failedRedemptions.slice(0, 6).map((voucher) => ({
             primary: voucher.rewardName,
             secondary: `${voucher.voucherCode} has been processing since ${new Date(voucher.createdAt).toLocaleDateString()}.`,
             badge: "Overdue",
-          })) || emptyActionRecords("No overdue redemption issues were detected."),
+          })) : emptyActionRecords("No overdue redemption issues were detected."),
       },
       {
         label: "Expiring Campaigns",
@@ -1545,11 +1869,11 @@ export default function AdminDashboardPage() {
         description: "Campaigns that end within the next 14 days and may need extension or replacement.",
         emptyText: "No campaigns are expiring soon.",
         records:
-          expiringCampaigns.slice(0, 6).map((campaign) => ({
+          expiringCampaigns.length > 0 ? expiringCampaigns.slice(0, 6).map((campaign) => ({
             primary: campaign.campaignName,
             secondary: `${campaignStatusLabel(campaign.status)} / ends ${new Date(campaign.endsAt).toLocaleDateString()}`,
             badge: "Expiring",
-          })) || emptyActionRecords("No campaigns are expiring soon."),
+          })) : emptyActionRecords("No campaigns are expiring soon."),
       },
       {
         label: "Low Performing Rewards",
@@ -1560,11 +1884,11 @@ export default function AdminDashboardPage() {
         description: "Active rewards underperforming relative to the current period redemption baseline.",
         emptyText: "All visible rewards are performing within the current benchmark band.",
         records:
-          lowPerformingRewards.slice(0, 6).map((reward) => ({
+          lowPerformingRewards.length > 0 ? lowPerformingRewards.slice(0, 6).map((reward) => ({
             primary: reward.name,
             secondary: `${integerFormatter.format(reward.redemptions)} redemptions / ${singleDecimalFormatter.format(reward.rate)}% redemption rate`,
             badge: "Low traction",
-          })) || emptyActionRecords("All visible rewards are performing within the current benchmark band."),
+          })) : emptyActionRecords("All visible rewards are performing within the current benchmark band."),
       },
       {
         label: "Inactive Members (60+ days)",
@@ -1575,11 +1899,11 @@ export default function AdminDashboardPage() {
         description: "Members who have been dormant long enough to qualify for a win-back action.",
         emptyText: "No inactive member backlog is currently above the 60-day threshold.",
         records:
-          inactiveMembers.slice(0, 6).map((member) => ({
+          inactiveMembers.length > 0 ? inactiveMembers.slice(0, 6).map((member) => ({
             primary: member.memberName,
             secondary: `${member.memberNumber} / ${member.daysInactive} days inactive / ${member.suggestedOffer}`,
             badge: member.riskLevel,
-          })) || emptyActionRecords("No inactive member backlog is currently above the 60-day threshold."),
+          })) : emptyActionRecords("No inactive member backlog is currently above the 60-day threshold."),
       },
       {
         label: "System Warnings",
@@ -1592,7 +1916,20 @@ export default function AdminDashboardPage() {
         records: systemWarnings.length > 0 ? systemWarnings.slice(0, 6) : emptyActionRecords("No active dashboard warnings were detected from the currently available records."),
       },
     ];
-  }, [campaigns, dashboardData.rewardPerformanceRows, inactiveMembers, memberRecords, partnerWarnings, performanceByCampaignId, vouchers]);
+  }, [
+    activeChallenges,
+    campaigns,
+    dashboardData.rewardPerformanceRows,
+    feedback,
+    inactiveMembers,
+    liveSurveys,
+    memberRecords,
+    partnerWarnings,
+    pendingReferralInvites,
+    performanceByCampaignId,
+    scheduledPushCampaigns,
+    vouchers,
+  ]);
 
   const insights = useMemo<InsightItem[]>(() => {
     const topMemberInsight: InsightItem = dashboardData.topMember
@@ -1836,6 +2173,28 @@ export default function AdminDashboardPage() {
           {kpiCards.map((card) => (
             <DashboardKpiCard key={card.title} {...card} compareMode={compareMode} />
           ))}
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-[16px] font-extrabold text-[#18263b]">System Activity Sync</h2>
+              <p className="text-[12px] font-semibold text-[#64748b]">Customer and admin workflow events reflected from live APIs.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-[#dfe7f1] bg-white px-3 text-[12px] font-bold text-[#24364f] transition hover:bg-[#f8fbff]"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            {systemSignals.map((item) => (
+              <SystemSignalCard key={item.label} item={item} />
+            ))}
+          </div>
         </section>
 
         <section className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">

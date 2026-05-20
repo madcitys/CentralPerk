@@ -12,29 +12,30 @@ import { loadNotificationsViaApi, markNotificationReadViaApi } from "../lib/api"
 import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth, touchStoredCustomerSession } from "../auth/auth";
 import { brandTealSolidClass } from "../lib/ui-color-tokens";
+import { DEMO_MEMBER_ID, DEMO_POINTS, DEMO_TIER, withDemoMemberData } from "../lib/demo-loyalty-data";
 
 const USER_STORAGE_KEY = "points-dashboard-user-v1";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const DEFAULT_MEMBER: MemberData = {
-  memberId: "",
-  fullName: "Member",
-  email: "",
-  phone: "",
+  memberId: DEMO_MEMBER_ID,
+  fullName: "Sarah Johnson",
+  email: "sarah.johnson@example.com",
+  phone: "+639763227122",
   birthdate: "",
   profileImage:
     "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80",
-  tier: "Bronze",
-  memberSince: "",
+  tier: DEMO_TIER,
+  memberSince: "2024-08-15",
   status: "Active",
-  points: 0,
+  points: DEMO_POINTS,
   pendingPoints: 0,
-  lifetimePoints: 0,
+  lifetimePoints: 184900,
   expiringPoints: 0,
   daysUntilExpiry: 0,
-  earnedThisMonth: 0,
-  redeemedThisMonth: 0,
-  profileComplete: false,
+  earnedThisMonth: 13271,
+  redeemedThisMonth: 12930,
+  profileComplete: true,
   hasDownloadedApp: false,
   surveysCompleted: 0,
   transactions: [],
@@ -53,10 +54,10 @@ function deriveCompletedTaskIds(user: MemberData): string[] {
 function loadUser(): MemberData {
   try {
     const raw = localStorage.getItem(USER_STORAGE_KEY);
-    if (!raw) return DEFAULT_MEMBER;
-    return { ...DEFAULT_MEMBER, ...JSON.parse(raw) } as MemberData;
+    if (!raw) return withDemoMemberData(DEFAULT_MEMBER);
+    return withDemoMemberData({ ...DEFAULT_MEMBER, ...JSON.parse(raw) } as MemberData);
   } catch {
-    return DEFAULT_MEMBER;
+    return withDemoMemberData(DEFAULT_MEMBER);
   }
 }
 
@@ -88,7 +89,7 @@ export default function Root() {
     try {
       const snapshot = await loadMemberSnapshot(userRef.current);
       if (!snapshot) return;
-      setUser((prev) => ({ ...prev, ...snapshot }));
+      setUser((prev) => withDemoMemberData({ ...prev, ...snapshot }));
     } catch {
     }
   }, []);

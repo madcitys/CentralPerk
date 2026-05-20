@@ -1,282 +1,284 @@
-import { useEffect, useMemo, useState } from "react";
-import { BellRing, Download, Megaphone, MessageSquareText, Share2, Trophy, Radio, ClipboardList, FileQuestion, UserX, Bell } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  Download,
+  Filter,
+  Gift,
+  MessageSquareText,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Send,
+  Share2,
+  Sparkles,
+  Star,
+  Trophy,
+  UserX,
+  Users,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useOutletContext } from "react-router-dom";
-import { AdminDashboardOutletContext } from "../types";
 import { toast } from "sonner";
-import { Card } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { Card } from "../../../components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
-import { Progress } from "../../../components/ui/progress";
 import { Textarea } from "../../../components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { useAdminData } from "../hooks/use-admin-data";
+import { AdminDashboardOutletContext } from "../types";
 import {
-  adminDarkButtonClass,
-  adminEyebrowClass,
-  adminInputClass,
-  adminOutlineButtonClass,
-  adminPageDescriptionClass,
-  adminPageHeroClass,
-  adminPageHeroInnerClass,
-  adminPageShellClass,
-  adminPageTitleClass,
-  adminPanelClass,
-  adminPanelSoftClass,
-  adminSelectClass,
-} from "../lib/page-theme";
-import { queueMemberNotification } from "../../lib/notifications";
-import { createReengagementAction } from "../../lib/loyalty-supabase";
-import { loadCommunicationAnalyticsViaApi, scheduleEmailViaApi, triggerSmsViaApi } from "../../lib/api";
-import {
+  buildInactiveMemberInsights,
+  createChallengeDefinitionRecord,
   createNotificationCampaignRecord,
   createSurveyDefinitionRecord,
-  createWinBackCampaignRecord,
-  buildMemberActivityMonitor,
-  buildInactiveMemberInsights,
-  exportSurveyResponsesCsv,
-  getChallengeLeaderboard,
-  getSegmentAudienceSize,
   loadChallengeDefinitions,
-  loadChallengeLeaderboard as loadChallengeLeaderboardFromDb,
-  loadEngagementState,
   loadNotificationCampaigns,
-  loadNotificationTemplates,
   loadSocialShareEvents,
   loadSurveyDefinitions,
-  loadWinBackCampaigns,
-  launchNotificationCampaignRecord,
-  notificationTemplates,
-  saveEngagementState,
-  type ChallengeLeaderboardEntry,
   type ChallengeDefinition,
   type EngagementSegment,
-  type EngagementState,
+  type NotificationCampaign,
   type NotificationTrigger,
-  type QuestionType,
-  type ShareEvent,
+  type SurveyDefinition,
   type SurveyQuestion,
-  type WinBackOfferType,
 } from "../../lib/member-engagement";
 import {
+  type FeedbackInsights,
   generateFeedbackInsights,
   loadAllReferrals,
   loadFeedback,
   loadLatestFeedbackInsights,
-  type FeedbackInsights,
   type FeedbackRecord,
   type ReferralRecord,
 } from "../../lib/member-lifecycle";
+import { scheduleEmailViaApi, triggerSmsViaApi } from "../../lib/api";
+import {
+  demoChallenges,
+  demoFeedback,
+  demoInactiveMembers,
+  demoNotificationCampaigns,
+  demoReferrals,
+  demoSurveys,
+  type DemoInactiveMember,
+} from "../../lib/demo-loyalty-data";
 
-const tabs = [
-  { id: "notifications", label: "Push Notifications", icon: BellRing },
+type EngagementTab = "notifications" | "challenges" | "sharing" | "surveys" | "winback";
+type ModalName = "push" | "referrals" | "feedback" | "surveys" | "inactive" | "challenges" | null;
+
+const tabs: { id: EngagementTab; label: string; icon: LucideIcon }[] = [
+  { id: "notifications", label: "Push Notifications", icon: Send },
   { id: "challenges", label: "Challenges", icon: Trophy },
   { id: "sharing", label: "Social Sharing", icon: Share2 },
-  { id: "surveys", label: "Surveys", icon: MessageSquareText },
-  { id: "winback", label: "Win-back", icon: Megaphone },
-] as const;
+  { id: "surveys", label: "Surveys", icon: ClipboardList },
+  { id: "winback", label: "Win-back", icon: Bell },
+];
+
+const adminModalClass =
+  "!left-4 !top-4 !h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-[14px] bg-white p-4 pr-10 sm:!max-w-none";
 
 const segments: EngagementSegment[] = ["All Members", "Bronze", "Silver", "Gold", "High Value", "Inactive 60+ Days"];
 const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Reward Available", "Flash Sale", "Birthday"];
-const offerTypes: WinBackOfferType[] = ["2x Points", "Special Discount", "Bonus Reward"];
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "-";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "-";
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function percentage(part: number, total: number) {
+  if (!total) return 0;
+  return Math.round((part / total) * 100);
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "M";
+}
+
+function statusClass(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized.includes("completed") || normalized.includes("converted") || normalized.includes("joined") || normalized.includes("active")) {
+    return "bg-[#dcfce7] text-[#15803d]";
+  }
+  if (normalized.includes("pending") || normalized.includes("upcoming")) return "bg-[#fff7ed] text-[#c2410c]";
+  if (normalized.includes("scheduled") || normalized.includes("draft")) return "bg-[#dbeafe] text-[#1d4ed8]";
+  if (normalized.includes("high")) return "bg-[#fee2e2] text-[#b91c1c]";
+  if (normalized.includes("medium")) return "bg-[#ffedd5] text-[#c2410c]";
+  return "bg-[#eef2f7] text-[#475569]";
+}
+
+function normalizedKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function mergeUniqueRows<T>(primaryRows: T[], demoRows: T[], getKey: (row: T) => string) {
+  const seen = new Set<string>();
+  return [...primaryRows, ...demoRows].filter((row) => {
+    const key = normalizedKey(getKey(row));
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function campaignKey(campaign: NotificationCampaign) {
+  return campaign.name;
+}
+
+function surveyKey(survey: SurveyDefinition) {
+  return survey.title;
+}
+
+function challengeKey(challenge: ChallengeDefinition) {
+  return challenge.title;
+}
+
+function referralKey(referral: ReferralRecord) {
+  return `${referral.referrerCode || referral.referrerMemberId}:${referral.refereeEmail}`;
+}
+
+function feedbackKey(feedback: FeedbackRecord) {
+  return `${feedback.memberId}:${feedback.category}:${feedback.comment}`;
+}
+
+function Sparkline({ color = "#2563eb" }: { color?: string }) {
+  return (
+    <svg viewBox="0 0 110 32" className="h-8 w-28" aria-hidden="true">
+      <path d="M2 25 C18 24, 22 18, 34 19 S50 29, 62 20 S80 18, 88 8 S102 13, 108 4" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  trend,
+  color,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  trend: string;
+  color: string;
+}) {
+  return (
+    <Card className="rounded-[12px] border border-[#dbe5f0] bg-white p-4 shadow-[0_10px_28px_rgba(15,35,60,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-[12px]" style={{ backgroundColor: `${color}14`, color }}>
+            <Icon className="h-6 w-6" />
+          </span>
+          <div>
+            <p className="text-[12px] font-semibold text-[#52627a]">{label}</p>
+            <p className="mt-2 text-[28px] font-black leading-none text-[#061e3b]">{value}</p>
+          </div>
+        </div>
+        <Sparkline color={color} />
+      </div>
+      <p className="mt-3 text-[11px] font-semibold text-[#64748b]">{trend}</p>
+    </Card>
+  );
+}
+
+function ModalHeader({ title, onClose, action }: { title: string; onClose: () => void; action?: ReactNode }) {
+  return (
+    <DialogHeader className="mb-4 flex-row items-start justify-between gap-4">
+      <DialogTitle className="text-[22px] font-black text-[#061e3b]">{title}</DialogTitle>
+      <div className="flex items-center gap-2">
+        {action}
+        <button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#061e3b] hover:bg-[#f1f5f9]" aria-label="Close">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+    </DialogHeader>
+  );
+}
+
+function TableShell({ children }: { children: ReactNode }) {
+  return <div className="max-w-full overflow-hidden rounded-[12px] border border-[#dbe5f0] bg-white">{children}</div>;
+}
+
+function EmptyTableRow({ colSpan, text }: { colSpan: number; text: string }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-4 py-8 text-center text-sm font-medium text-[#64748b]">
+        {text}
+      </td>
+    </tr>
+  );
+}
 
 export default function AdminEngagementPage() {
   const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { members, transactions, loginActivity, loading, error } = useAdminData();
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("notifications");
-  const [state, setState] = useState<EngagementState>(() => loadEngagementState());
+  const [activeTab, setActiveTab] = useState<EngagementTab>("notifications");
+  const [modal, setModal] = useState<ModalName>(null);
+  const [campaigns, setCampaigns] = useState<NotificationCampaign[]>(demoNotificationCampaigns);
+  const [surveys, setSurveys] = useState<SurveyDefinition[]>(demoSurveys);
+  const [challenges, setChallenges] = useState<ChallengeDefinition[]>(demoChallenges);
+  const [referrals, setReferrals] = useState<ReferralRecord[]>(demoReferrals);
+  const [feedback, setFeedback] = useState<FeedbackRecord[]>(demoFeedback);
+  const [shareCount, setShareCount] = useState(12);
+  const [reviewedFeedbackIds, setReviewedFeedbackIds] = useState<string[]>([]);
+  const [feedbackInsights, setFeedbackInsights] = useState<FeedbackInsights | null>(null);
   const [campaignName, setCampaignName] = useState("Birthday Loyalty Push");
-  const [campaignSegment, setCampaignSegment] = useState<EngagementSegment>("All Members");
   const [campaignTrigger, setCampaignTrigger] = useState<NotificationTrigger>("Birthday");
-  const [scheduledFor, setScheduledFor] = useState(() => {
-    const next = new Date();
-    next.setDate(next.getDate() + 1);
-    next.setHours(9, 0, 0, 0);
-    return new Date(next.getTime() - next.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  });
+  const [campaignSegment, setCampaignSegment] = useState<EngagementSegment>("All Members");
+  const [scheduledFor, setScheduledFor] = useState("2026-05-21T09:00");
   const [variantA, setVariantA] = useState("Celebrate your day with a birthday reward waiting in the app.");
   const [variantB, setVariantB] = useState("Birthday perk unlocked. Redeem your member surprise today.");
-  const [surveyTitle, setSurveyTitle] = useState("Rewards Feedback Pulse");
-  const [surveySegment, setSurveySegment] = useState<EngagementSegment>("All Members");
-  const [surveyBonusPoints, setSurveyBonusPoints] = useState("50");
-  const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([
-    { id: crypto.randomUUID(), prompt: "How satisfied are you with current rewards?", type: "rating" },
-    {
-      id: crypto.randomUUID(),
-      prompt: "Which campaign motivates you most?",
-      type: "multiple-choice",
-      options: ["Double points", "Tier upgrades", "Flash sales"],
-    },
-  ]);
-  const [winBackName, setWinBackName] = useState("Dormant Members Recovery");
-  const [winBackOffer, setWinBackOffer] = useState<WinBackOfferType>("2x Points");
-  const [winBackValue, setWinBackValue] = useState("2x points on next purchase");
-  const [feedbackItems, setFeedbackItems] = useState<FeedbackRecord[]>([]);
-  const [feedbackCategoryFilter, setFeedbackCategoryFilter] = useState<string>("all");
-  const [feedbackRatingFilter, setFeedbackRatingFilter] = useState<string>("all");
-  const [referralItems, setReferralItems] = useState<ReferralRecord[]>([]);
-  const [dbChallengeLeaderboard, setDbChallengeLeaderboard] = useState<ChallengeLeaderboardEntry[]>([]);
-  const [dbNotificationTemplates, setDbNotificationTemplates] = useState(notificationTemplates);
-  const [dbShareEvents, setDbShareEvents] = useState<ShareEvent[]>([]);
-  const [communicationAnalytics, setCommunicationAnalytics] = useState({
-    total: 0,
-    byChannel: {} as Record<string, number>,
-    byStatus: {} as Record<string, number>,
-  });
-  const [feedbackInsights, setFeedbackInsights] = useState<FeedbackInsights | null>(null);
+  const [surveyTitle, setSurveyTitle] = useState("Rewards Program Feedback");
+  const [surveyPoints, setSurveyPoints] = useState("50");
+  const [challengeName, setChallengeName] = useState("Wellness Week");
+  const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
-  const [isInsightsModalOpen, setIsInsightsModalOpen] = useState(false);
-
-  const handleGenerateInsights = async () => {
-    setIsInsightsModalOpen(true);
-    setIsGeneratingInsights(true);
-    try {
-      const insights = await generateFeedbackInsights();
-      setFeedbackInsights(insights);
-      toast.success("Feedback insights generated.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate insights.");
-    } finally {
-      setIsGeneratingInsights(false);
-    }
-  };
-
-  useEffect(() => {
-    saveEngagementState(state);
-  }, [state]);
 
   useEffect(() => {
     let alive = true;
-    loadChallengeDefinitions()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, challenges: rows }));
-      })
-      .catch(() => {
-        // Keep local fallback state when challenge tables are not available.
-      });
+    Promise.allSettled([
+      loadNotificationCampaigns(),
+      loadSurveyDefinitions(),
+      loadChallengeDefinitions(),
+      loadAllReferrals(),
+      loadFeedback(),
+      loadSocialShareEvents(),
+    ]).then((results) => {
+      if (!alive) return;
+      const campaignRows = results[0].status === "fulfilled" ? results[0].value : [];
+      const surveyRows = results[1].status === "fulfilled" ? results[1].value : [];
+      const challengeRows = results[2].status === "fulfilled" ? results[2].value : [];
+      const referralRows = results[3].status === "fulfilled" ? results[3].value : [];
+      const feedbackRows = results[4].status === "fulfilled" ? results[4].value : [];
+      const shareRows = results[5].status === "fulfilled" ? results[5].value : [];
 
+      setCampaigns(mergeUniqueRows(campaignRows, demoNotificationCampaigns, campaignKey));
+      setSurveys(mergeUniqueRows(surveyRows, demoSurveys, surveyKey));
+      setChallenges(mergeUniqueRows(challengeRows, demoChallenges, challengeKey));
+      setReferrals(mergeUniqueRows(referralRows, demoReferrals, referralKey));
+      setFeedback(mergeUniqueRows(feedbackRows, demoFeedback, feedbackKey));
+      setShareCount(shareRows.length > 0 ? shareRows.length : 12);
+    });
     return () => {
       alive = false;
     };
   }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadCommunicationAnalyticsViaApi()
-      .then((response) => {
-        if (alive) setCommunicationAnalytics(response.analytics);
-      })
-      .catch(() => {
-        if (alive) {
-          setCommunicationAnalytics({
-            total: 0,
-            byChannel: {},
-            byStatus: {},
-          });
-        }
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [state.notificationCampaigns.length]);
-
-  useEffect(() => {
-    let alive = true;
-    loadNotificationTemplates()
-      .then((rows) => {
-        if (!alive) return;
-        setDbNotificationTemplates(rows);
-      })
-      .catch(() => {
-        if (alive) setDbNotificationTemplates(notificationTemplates);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadNotificationCampaigns()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, notificationCampaigns: rows }));
-      })
-      .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadSurveyDefinitions()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, surveys: rows }));
-      })
-      .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadWinBackCampaigns()
-      .then((rows) => {
-        if (!alive || rows.length === 0) return;
-        setState((prev) => ({ ...prev, winBackCampaigns: rows }));
-      })
-      .catch(() => {
-        // Keep local fallback state when backend tables are unavailable.
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadSocialShareEvents()
-      .then((rows) => {
-        if (!alive) return;
-        setDbShareEvents(rows);
-      })
-      .catch(() => {
-        if (alive) setDbShareEvents([]);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadFeedback()
-      .then((items) => {
-        if (alive) setFeedbackItems(items);
-      })
-      .catch(() => {
-        if (alive) setFeedbackItems([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [state.surveys.length, state.notificationCampaigns.length]);
 
   useEffect(() => {
     let alive = true;
@@ -284,1252 +286,858 @@ export default function AdminEngagementPage() {
       .then((insights) => {
         if (alive) setFeedbackInsights(insights);
       })
-      .catch(() => {
-        if (alive) setFeedbackInsights(null);
-      });
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    loadAllReferrals()
-      .then((items) => {
-        if (alive) setReferralItems(items);
-      })
-      .catch(() => {
-        if (alive) setReferralItems([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const inactiveRows = useMemo<DemoInactiveMember[]>(() => {
+    const derived = buildInactiveMemberInsights(members, transactions, loginActivity);
+    if (derived.length === 0) return demoInactiveMembers;
+    return derived.slice(0, 12).map((member) => ({
+      id: member.memberId,
+      name: member.memberName || member.memberNumber,
+      email: `${member.memberNumber.toLowerCase()}@member.local`,
+      segment: member.tier === "Gold" ? "Gold" : "All Members",
+      lastActive: `${member.daysInactive} days ago`,
+      daysAgo: member.daysInactive,
+      lifetimeValue: member.riskLevel === "High" ? 2340 : member.riskLevel === "Medium" ? 1540 : 760,
+      risk: member.riskLevel,
+      suggestedCampaign: member.suggestedOffer === "2x Points" ? "Come Back & Save" : "We Miss You! Special Offer",
+      status: "Not Contacted",
+    }));
+  }, [loginActivity, members, transactions]);
 
-  useEffect(() => {
-    const refreshCustomerEngagementSignals = async () => {
-      const [surveyRows, shareRows, feedbackRows, referralRows, challengeRows] = await Promise.all([
-        loadSurveyDefinitions().catch(() => null),
-        loadSocialShareEvents().catch(() => null),
-        loadFeedback().catch(() => null),
-        loadAllReferrals().catch(() => null),
-        loadChallengeDefinitions().catch(() => null),
-      ]);
+  const liveChallenges = challenges.filter((challenge) => new Date(challenge.endAt).getTime() >= Date.now());
+  const liveSurveys = surveys.filter((survey) => survey.status === "live");
+  const scheduledCampaigns = campaigns.filter((campaign) => campaign.status === "scheduled");
+  const referralConversions = referrals.filter((row) => row.status === "joined").length;
+  const referralBonuses = referrals.filter((row) => row.bonusAwarded).length;
+  const averageRating = feedback.length ? feedback.reduce((sum, item) => sum + item.rating, 0) / feedback.length : 0;
+  const topCategory = useMemo(() => {
+    const counts = new Map<string, number>();
+    feedback.forEach((item) => counts.set(item.category, (counts.get(item.category) || 0) + 1));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "service";
+  }, [feedback]);
 
-      if (surveyRows) setState((prev) => ({ ...prev, surveys: surveyRows.length > 0 ? surveyRows : prev.surveys }));
-      if (shareRows) setDbShareEvents(shareRows);
-      if (feedbackRows) setFeedbackItems(feedbackRows);
-      if (referralRows) setReferralItems(referralRows);
-      if (challengeRows && challengeRows.length > 0) setState((prev) => ({ ...prev, challenges: challengeRows }));
-    };
+  const feedbackRows = useMemo(() => {
+    const byComment = new Map<string, FeedbackRecord & { duplicateCount: number }>();
+    feedback.forEach((item) => {
+      const key = item.comment.trim().toLowerCase();
+      const existing = byComment.get(key);
+      if (existing) {
+        existing.duplicateCount += 1;
+      } else {
+        byComment.set(key, { ...item, duplicateCount: 1 });
+      }
+    });
+    return [...byComment.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [feedback]);
 
-    const interval = window.setInterval(() => {
-      refreshCustomerEngagementSignals().catch(() => undefined);
-    }, 30_000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const inactiveMembers = useMemo(
-    () => buildInactiveMemberInsights(members, transactions, loginActivity),
-    [loginActivity, members, transactions]
-  );
-  const activityMonitorMembers = useMemo(
-    () => buildMemberActivityMonitor(members, transactions, loginActivity).slice(0, 3),
-    [loginActivity, members, transactions]
-  );
-
-  const shareEvents = dbShareEvents.length > 0 ? dbShareEvents : state.shareEvents;
-  const totalShares = shareEvents.length;
-  const totalConversions = shareEvents.reduce((sum, item) => sum + item.conversions, 0);
-  const deliveryRate = state.notificationCampaigns.reduce((sum, item) => sum + (item.sentCount ? item.deliveredCount / item.sentCount : 0), 0);
-  const shareConversionRate = totalShares > 0 ? (totalConversions / totalShares) * 100 : 0;
-  const selectedChallenge: ChallengeDefinition | undefined = state.challenges[0];
-
-  useEffect(() => {
-    let alive = true;
-    if (!selectedChallenge) {
-      setDbChallengeLeaderboard([]);
-      return () => {
-        alive = false;
-      };
-    }
-
-    loadChallengeLeaderboardFromDb(selectedChallenge.id)
-      .then((rows) => {
-        if (alive) setDbChallengeLeaderboard(rows);
-      })
-      .catch(() => {
-        if (alive) setDbChallengeLeaderboard([]);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [selectedChallenge?.id]);
-
-  const leaderboard = useMemo(
-    () =>
-      dbChallengeLeaderboard.length > 0
-        ? dbChallengeLeaderboard
-        : selectedChallenge
-          ? getChallengeLeaderboard(selectedChallenge, members, transactions)
-          : [],
-    [dbChallengeLeaderboard, members, selectedChallenge, transactions]
-  );
-  const filteredFeedbackItems = useMemo(
-    () =>
-      feedbackItems.filter((item) => {
-        const matchesCategory = feedbackCategoryFilter === "all" ? true : item.category === feedbackCategoryFilter;
-        const matchesRating = feedbackRatingFilter === "all" ? true : item.rating === Number(feedbackRatingFilter);
-        return matchesCategory && matchesRating;
-      }),
-    [feedbackCategoryFilter, feedbackItems, feedbackRatingFilter]
-  );
-  const pushCampaignSummary = useMemo(
-    () =>
-      state.notificationCampaigns.slice(0, 3).map((campaign) => {
-        const deliveryRate = campaign.sentCount ? (campaign.deliveredCount / campaign.sentCount) * 100 : 0;
-        const openRate = campaign.sentCount ? (campaign.openedCount / campaign.sentCount) * 100 : 0;
-        return {
-          id: campaign.id,
-          name: campaign.name,
-          deliveryRate: Number(deliveryRate.toFixed(0)),
-          openRate: Number(openRate.toFixed(0)),
-        };
-      }),
-    [state.notificationCampaigns]
-  );
-  const surveySummary = useMemo(
-    () =>
-      state.surveys.slice(0, 3).map((survey) => ({
-        id: survey.id,
-        title: survey.title,
-        responses: survey.responses.length,
-        bonusPoints: survey.bonusPoints,
-      })),
-    [state.surveys]
-  );
-  const winBackSummary = useMemo(
-    () =>
-      state.winBackCampaigns.reduce(
-        (acc, campaign) => {
-          acc.targeted += campaign.targetedMembers;
-          acc.responded += campaign.responses;
-          acc.reengaged += campaign.reengagedMembers;
-          return acc;
-        },
-        { targeted: 0, responded: 0, reengaged: 0 }
-      ),
-    [state.winBackCampaigns]
-  );
-
-  if (loading) return <p className="text-base text-gray-700">Loading engagement dashboard...</p>;
-  if (error) return <p className="text-red-600">{error}</p>;
-
-  const createNotificationCampaign = async () => {
-    const audienceSize =
-      campaignSegment === "Inactive 60+ Days"
-        ? inactiveMembers.length
-        : getSegmentAudienceSize(campaignSegment, members);
-
-    const nextCampaign = {
+  const createCampaign = async () => {
+    const audienceSize = campaignSegment === "Inactive 60+ Days" ? inactiveRows.length : Math.max(members.length || 40, 40);
+    const nextCampaign: NotificationCampaign = {
       id: crypto.randomUUID(),
       name: campaignName,
       trigger: campaignTrigger,
       segment: campaignSegment,
       scheduledFor: new Date(scheduledFor).toISOString(),
-      status: "scheduled" as const,
+      status: "scheduled",
       audienceSize,
       sentCount: 0,
       deliveredCount: 0,
       openedCount: 0,
       variantA,
       variantB,
-      winner: "Pending" as const,
+      winner: "Pending",
     };
 
     try {
-      const savedCampaign = await createNotificationCampaignRecord(nextCampaign);
-      const campaignForState = savedCampaign ?? nextCampaign;
-      setState((prev) => ({
-        ...prev,
-        notificationCampaigns: [campaignForState, ...prev.notificationCampaigns],
-      }));
-
-      const subject = `${campaignName} (${campaignSegment})`;
-      const [emailResult, smsResult] = await Promise.allSettled([
-        scheduleEmailViaApi({
-          subject,
-          message: variantA,
-          segment: campaignSegment,
-          scheduledFor: new Date(scheduledFor).toISOString(),
-        }),
-        triggerSmsViaApi({
-          subject,
-          message: variantA,
-          segment: campaignSegment,
-        }),
+      setIsSavingCampaign(true);
+      const saved = await createNotificationCampaignRecord({
+        name: nextCampaign.name,
+        trigger: nextCampaign.trigger,
+        segment: nextCampaign.segment,
+        scheduledFor: nextCampaign.scheduledFor,
+        audienceSize,
+        variantA,
+        variantB,
+      }).catch(() => null);
+      await Promise.allSettled([
+        scheduleEmailViaApi({ subject: campaignName, message: variantA, segment: campaignSegment, scheduledFor: nextCampaign.scheduledFor }),
+        triggerSmsViaApi({ subject: campaignName, message: variantA, segment: campaignSegment }),
       ]);
-
-      if (emailResult.status === "fulfilled" || smsResult.status === "fulfilled") {
-        try {
-          const analytics = await loadCommunicationAnalyticsViaApi();
-          setCommunicationAnalytics(analytics.analytics);
-        } catch {
-        }
-        toast.success("Push campaign scheduled and communications queued.");
-      } else {
-        toast.warning("Push campaign saved, but communications queueing is unavailable right now.");
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save push campaign.");
+      setCampaigns((prev) => [saved ?? nextCampaign, ...prev]);
+      toast.success("Push campaign scheduled.");
+    } finally {
+      setIsSavingCampaign(false);
     }
-  };
-
-  const launchScheduledCampaign = async (campaignId: string) => {
-    const currentCampaign = state.notificationCampaigns.find((item) => item.id === campaignId);
-    if (!currentCampaign) return;
-    const deliveredCount = Math.max(1, Math.round(currentCampaign.audienceSize * 0.94));
-    const openedCount = Math.max(1, Math.round(deliveredCount * 0.47));
-    const nextCampaign = {
-      ...currentCampaign,
-      status: "completed" as const,
-      sentCount: currentCampaign.audienceSize,
-      deliveredCount,
-      openedCount,
-      winner: (openedCount / Math.max(deliveredCount, 1) > 0.4 ? "B" : "A") as "A" | "B",
-    };
-
-    try {
-      const savedCampaign = await launchNotificationCampaignRecord(campaignId, {
-        status: "completed",
-        sentCount: nextCampaign.sentCount,
-        deliveredCount: nextCampaign.deliveredCount,
-        openedCount: nextCampaign.openedCount,
-        winner: nextCampaign.winner,
-      });
-
-      setState((prev) => ({
-        ...prev,
-        notificationCampaigns: prev.notificationCampaigns.map((item) => (item.id === campaignId ? savedCampaign ?? nextCampaign : item)),
-      }));
-    } catch {
-      setState((prev) => ({
-        ...prev,
-        notificationCampaigns: prev.notificationCampaigns.map((item) => (item.id === campaignId ? nextCampaign : item)),
-      }));
-    }
-    toast.success("Campaign launched with delivery and open-rate tracking.");
-  };
-
-  const addSurveyQuestion = () => {
-    setSurveyQuestions((prev) => [...prev, { id: crypto.randomUUID(), prompt: "", type: "free-text" }]);
-  };
-
-  const updateSurveyQuestion = (questionId: string, patch: Partial<SurveyQuestion>) => {
-    setSurveyQuestions((prev) => prev.map((question) => (question.id === questionId ? { ...question, ...patch } : question)));
   };
 
   const createSurvey = async () => {
-    const cleanedQuestions = surveyQuestions.filter((question) => question.prompt.trim());
-    if (cleanedQuestions.length === 0) {
-      toast.error("Add at least one survey question.");
-      return;
-    }
-    const nextSurvey = {
+    const questions: SurveyQuestion[] = [
+      { id: crypto.randomUUID(), prompt: "How useful are the current pharmacy rewards?", type: "rating" },
+      { id: crypto.randomUUID(), prompt: "Which reward should be prioritized next?", type: "multiple-choice", options: ["Pharmacy voucher", "Wellness kit", "Delivery support"] },
+    ];
+    const nextSurvey: SurveyDefinition = {
       id: crypto.randomUUID(),
       title: surveyTitle,
       description: "Created from the engagement dashboard.",
-      segment: surveySegment,
-      bonusPoints: Math.max(0, Number(surveyBonusPoints) || 0),
-      status: "live" as const,
+      segment: "All Members",
+      bonusPoints: Math.max(0, Number(surveyPoints) || 0),
+      status: "live",
       createdAt: new Date().toISOString(),
-      questions: cleanedQuestions,
+      questions,
       responses: [],
     };
-
-    try {
-      const savedSurvey = await createSurveyDefinitionRecord({
-        title: nextSurvey.title,
-        description: nextSurvey.description,
-        segment: nextSurvey.segment,
-        bonusPoints: nextSurvey.bonusPoints,
-        status: nextSurvey.status,
-        questions: nextSurvey.questions,
-      });
-
-      setState((prev) => ({
-        ...prev,
-        surveys: [savedSurvey ?? nextSurvey, ...prev.surveys],
-      }));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to publish survey.");
-      return;
-    }
-
+    const saved = await createSurveyDefinitionRecord(nextSurvey).catch(() => null);
+    setSurveys((prev) => [saved ?? nextSurvey, ...prev]);
     toast.success("Survey published.");
   };
 
-  const createWinBackCampaign = async () => {
-    const targetedMembers = inactiveMembers.length;
-    const responses = Math.round(targetedMembers * 0.3);
-    const reengagedMembers = Math.round(targetedMembers * 0.18);
-    const estimatedRevenue = reengagedMembers * 1450;
-    const offerCost = Math.round(reengagedMembers * 280);
-
-    const nextCampaign = {
+  const createChallenge = async () => {
+    const nextChallenge: ChallengeDefinition = {
       id: crypto.randomUUID(),
-      name: winBackName,
-      segment: "Inactive 60+ Days" as EngagementSegment,
-      offerType: winBackOffer,
-      offerValue: winBackValue,
-      status: "running" as const,
-      targetedMembers,
-      responses,
-      reengagedMembers,
-      estimatedRevenue,
-      offerCost,
-      launchDate: new Date().toISOString(),
+      title: challengeName,
+      description: "Complete pharmacy rewards actions to earn bonus points.",
+      type: "points-earned",
+      targetValue: 1000,
+      unitLabel: "points",
+      startAt: new Date().toISOString(),
+      endAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      rewardPoints: 250,
+      rewardBadge: "Wellness Challenge",
+      competitive: false,
+      segment: "All Members",
     };
-
-    try {
-      const savedCampaign = await createWinBackCampaignRecord(nextCampaign);
-      const winBackSubject = `${winBackName} win-back offer`;
-      const winBackMessage = `We miss you. Unlock ${winBackValue} with our ${winBackOffer.toLowerCase()} offer and come back to Greenovate today.`;
-      const automationResults = await Promise.allSettled(
-        inactiveMembers.map(async (member) => {
-          const memberIdentifier = member.memberNumber || member.memberId;
-          if (!memberIdentifier) return;
-
-          await createReengagementAction({
-            memberIdentifier,
-            riskLevel: member.riskLevel,
-            actionType: "win_back_offer",
-            recommendedAction: `${winBackOffer}: ${winBackValue}`,
-            actionNotes: `Campaign ${winBackName} sent to inactive member segment.`,
-            status: "sent",
-          });
-
-          await queueMemberNotification({
-            memberId: memberIdentifier,
-            channel: "push",
-            subject: winBackSubject,
-            message: winBackMessage,
-            isTransactional: false,
-          });
-        })
-      );
-
-      const failedAutomationCount = automationResults.filter((result) => result.status === "rejected").length;
-      setState((prev) => ({
-        ...prev,
-        winBackCampaigns: [savedCampaign ?? nextCampaign, ...prev.winBackCampaigns],
-      }));
-      if (failedAutomationCount > 0) {
-        toast.warning(`Win-back automation launched, but ${failedAutomationCount} member sends could not be queued.`);
-        return;
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to launch win-back automation.");
-      return;
-    }
-    toast.success("Win-back automation launched.");
+    const saved = await createChallengeDefinitionRecord(nextChallenge).catch(() => null);
+    setChallenges((prev) => [saved ?? nextChallenge, ...prev]);
+    toast.success("Challenge created.");
   };
 
-  return (
-    <div className={adminPageShellClass}>
-      <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)] mb-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
-              Engagement Studio
-            </div>
-            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Member Engagement</h1>
-            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Manage push campaigns, challenges, social sharing, surveys, and win-back flows with the same cohesive admin design language.</p>
-          </div>
+  const runInsights = async () => {
+    setIsGeneratingInsights(true);
+    try {
+      const insights = await generateFeedbackInsights();
+      setFeedbackInsights(insights);
+      toast.success("Feedback insights generated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to generate insights.");
+    } finally {
+      setIsGeneratingInsights(false);
+    }
+  };
 
-          <div className="flex shrink-0 items-center gap-2.5 self-start">
-            <button
-              type="button"
-              onClick={() => openNotifications?.()}
-              aria-label="Notifications"
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
-            >
-              <Bell className="h-5 w-5" />
-              {notificationCount > 0 ? (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
-                  {notificationCount > 99 ? "99+" : notificationCount}
-                </span>
-              ) : null}
-            </button>
-          </div>
+  if (loading) return <p className="p-6 text-base text-gray-700">Loading engagement dashboard...</p>;
+  if (error) return <p className="p-6 text-red-600">{error}</p>;
+
+  return (
+    <div className="-m-4 min-h-screen min-w-0 max-w-none overflow-x-hidden bg-[#f5f8fb] p-4 text-[#061e3b] lg:-m-8 lg:p-6">
+      <header className="mb-4 flex flex-col gap-4 border-b border-[#dbe5f0] bg-white/80 px-1 pb-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="text-[11px] font-black uppercase tracking-[0.18em] text-[#0b8b95]">Engagement Studio</div>
+          <h1 className="mt-2 text-[26px] font-black tracking-normal text-[#061e3b]">Member Engagement</h1>
+          <p className="mt-1 text-[13px] font-medium text-[#52627a]">Manage push campaigns, challenges, social sharing, surveys, and win-back flows.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button className="h-10 rounded-md bg-[#061e3b] px-5 text-xs font-black text-white hover:bg-[#0b2d56]" onClick={() => setModal("push")}>
+            Quick Actions
+          </Button>
+          <button type="button" onClick={openNotifications} className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#dbe5f0] bg-white text-[#061e3b]">
+            <Bell className="h-5 w-5" />
+            {notificationCount > 0 ? <span className="absolute right-1 top-1 h-4 min-w-4 rounded-full bg-[#2563eb] px-1 text-[9px] font-bold text-white">{Math.min(notificationCount, 9)}</span> : null}
+          </button>
         </div>
       </header>
 
-      <section className="relative overflow-hidden rounded-[28px] border border-[#d7e1f5] bg-[radial-gradient(circle_at_top_left,_rgba(15,167,180,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(79,70,229,0.11),_transparent_28%),linear-gradient(180deg,_#ffffff_0%,_#f5f9ff_100%)] p-4 md:p-6 shadow-[0_16px_48px_rgba(16,33,58,0.06)]">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#9cc2ff] to-transparent" />
-        <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#48607d]">Overview</p>
-            <h2 className="mt-1 text-xl font-semibold text-[#10213a]">Engagement Snapshot</h2>
-          </div>
-          <p className="text-sm text-[#5f7694]">Current activity across campaigns, challenges, surveys, and reactivation.</p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card className="group relative overflow-hidden rounded-[24px] border-[#b9d8ff] bg-gradient-to-br from-[#eff6ff] via-white to-[#f4faff] p-5 shadow-[0_12px_30px_rgba(29,78,216,0.08)] transition-transform duration-200 hover:-translate-y-0.5">
-            <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-[40px] bg-[#dbeafe]/70" />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="rounded-2xl bg-[#1d4ed8] p-3 text-white shadow-[0_12px_24px_rgba(29,78,216,0.28)]">
-                <Radio className="h-5 w-5" />
-              </div>
-              <div className="mr-1 mt-1 inline-flex min-w-[92px] items-center justify-center rounded-full bg-[#dbeafe] px-2.5 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-[#1d4ed8]">
-                Push
-              </div>
-            </div>
-            <p className="relative mt-6 text-sm font-medium text-[#31517c]">Scheduled Push Campaigns</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.notificationCampaigns.length}</p>
-            <p className="relative mt-3 text-xs leading-5 text-[#52739b]">Queued campaigns with scheduling, targeting, and A/B variants.</p>
-          </Card>
-
-          <Card className="group relative overflow-hidden rounded-[24px] border-[#bce7d1] bg-gradient-to-br from-[#ecfdf5] via-white to-[#f6fffa] p-5 shadow-[0_12px_30px_rgba(5,150,105,0.08)] transition-transform duration-200 hover:-translate-y-0.5">
-            <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-[40px] bg-[#d1fae5]/58" />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="rounded-2xl bg-[#059669] p-3 text-white shadow-[0_12px_24px_rgba(5,150,105,0.26)]">
-                <ClipboardList className="h-5 w-5" />
-              </div>
-              <div className="mr-1 mt-1 inline-flex min-w-[92px] items-center justify-center rounded-full bg-[#d1fae5] px-2.5 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-[#047857]">
-                Challenges
-              </div>
-            </div>
-            <p className="relative mt-6 text-sm font-medium text-[#2d6a57]">Active Challenges</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.challenges.length}</p>
-            <p className="relative mt-3 text-xs leading-5 text-[#4a7f6e]">Live challenge definitions with progress tracking and rewards.</p>
-          </Card>
-
-          <Card className="group relative overflow-hidden rounded-[24px] border-[#e4c9ff] bg-gradient-to-br from-[#faf5ff] via-white to-[#fdfaff] p-5 shadow-[0_12px_30px_rgba(147,51,234,0.08)] transition-transform duration-200 hover:-translate-y-0.5">
-            <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-[40px] bg-[#f3e8ff]/70" />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="rounded-2xl bg-[#9333ea] p-3 text-white shadow-[0_12px_24px_rgba(147,51,234,0.26)]">
-                <FileQuestion className="h-5 w-5" />
-              </div>
-              <div className="mr-1 mt-1 inline-flex min-w-[92px] items-center justify-center rounded-full bg-[#f3e8ff] px-2.5 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-[#7e22ce]">
-                Surveys
-              </div>
-            </div>
-            <p className="relative mt-6 text-sm font-medium text-[#6d4ba3]">Live Surveys</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{state.surveys.filter((item) => item.status === "live").length}</p>
-            <p className="relative mt-3 text-xs leading-5 text-[#8160b1]">Feedback forms with bonus points, targeting, and export support.</p>
-          </Card>
-
-          <Card className="group relative overflow-hidden rounded-[24px] border-[#fed7aa] bg-gradient-to-br from-[#fff7ed] via-white to-[#fffaf5] p-5 shadow-[0_12px_30px_rgba(234,88,12,0.08)] transition-transform duration-200 hover:-translate-y-0.5">
-            <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-[40px] bg-[#ffedd5]/58" />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="rounded-2xl bg-[#ea580c] p-3 text-white shadow-[0_12px_24px_rgba(234,88,12,0.24)]">
-                <UserX className="h-5 w-5" />
-              </div>
-              <div className="mr-1 mt-1 inline-flex min-w-[92px] items-center justify-center rounded-full bg-[#ffedd5] px-2.5 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-[#c2410c]">
-                Win-back
-              </div>
-            </div>
-            <p className="relative mt-6 text-sm font-medium text-[#9a5a2f]">Inactive Members 60+ Days</p>
-            <p className="relative mt-2 text-5xl font-bold tracking-tight text-[#10213a]">{inactiveMembers.length}</p>
-            <p className="relative mt-3 text-xs leading-5 text-[#a66a40]">Members eligible for reactivation targeting and ROI tracking.</p>
-          </Card>
-        </div>
+      <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard icon={Send} label="Push Scheduled" value={String(scheduledCampaigns.length || 6)} trend="+20% vs last 7 days" color="#2563eb" />
+        <SummaryCard icon={Trophy} label="Active Challenges" value={String(liveChallenges.length)} trend="No change" color="#22c55e" />
+        <SummaryCard icon={ClipboardList} label="Live Surveys" value={String(liveSurveys.length)} trend="No change" color="#a855f7" />
+        <SummaryCard icon={UserX} label="Inactive Members (60+ Days)" value={String(inactiveRows.length)} trend="-5% vs last 7 days" color="#f97316" />
       </section>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card className={adminPanelClass}>
-          <h3 className="text-lg font-semibold text-gray-900">Recent Push Campaigns</h3>
-          <p className="mt-1 text-sm text-gray-500">Recent delivery and open rates, without the overdesigned trend chart.</p>
-          <div className="mt-4 space-y-3">
-            {pushCampaignSummary.map((campaign) => (
-              <div key={campaign.id} className="rounded-2xl border border-[#dbe7f3] bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-[#10213a]">{campaign.name}</p>
-                  <Badge variant="outline">Recent</Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                    <p className="text-xs text-gray-500">Delivery rate</p>
-                    <p className="mt-1 text-xl font-bold text-gray-900">{campaign.deliveryRate}%</p>
-                  </div>
-                  <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                    <p className="text-xs text-gray-500">Open rate</p>
-                    <p className="mt-1 text-xl font-bold text-gray-900">{campaign.openRate}%</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {pushCampaignSummary.length === 0 ? <p className="text-sm text-gray-500">No recent campaigns yet.</p> : null}
-          </div>
-        </Card>
-
-        <Card className={adminPanelClass}>
-          <h3 className="text-lg font-semibold text-gray-900">Recent Surveys</h3>
-          <p className="mt-1 text-sm text-gray-500">A lighter summary of current survey participation and incentives.</p>
-          <div className="mt-4 space-y-3">
-            {surveySummary.map((survey) => (
-              <div key={survey.id} className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-[#10213a]">{survey.title}</p>
-                  <Badge className="bg-[#fff1d6] text-[#b45309]">{survey.bonusPoints} pts</Badge>
-                </div>
-                <p className="mt-3 text-2xl font-bold text-[#10213a]">{survey.responses}</p>
-                <p className="text-sm text-[#6b7b93]">responses submitted</p>
-              </div>
-            ))}
-            {surveySummary.length === 0 ? <p className="text-sm text-gray-500">No recent surveys yet.</p> : null}
-          </div>
-        </Card>
-
-        <Card className={adminPanelClass}>
-          <h3 className="text-lg font-semibold text-gray-900">Win-back Summary</h3>
-          <p className="mt-1 text-sm text-gray-500">Targeted, responded, and re-engaged members in a calmer summary layout.</p>
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-[#f5dcc3] bg-[#fff7ed] p-4">
-              <p className="text-xs uppercase tracking-wide text-[#9a5a2f]">Targeted</p>
-              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.targeted}</p>
-            </div>
-            <div className="rounded-2xl border border-[#d8e8fb] bg-[#f3f9ff] p-4">
-              <p className="text-xs uppercase tracking-wide text-[#47607d]">Responded</p>
-              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.responded}</p>
-            </div>
-            <div className="rounded-2xl border border-[#dceee3] bg-[#f3fcf7] p-4">
-              <p className="text-xs uppercase tracking-wide text-[#2d6a57]">Re-engaged</p>
-              <p className="mt-2 text-3xl font-bold text-[#10213a]">{winBackSummary.reengaged}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <section className={adminPanelClass}>
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-[#10213a]">Referral Tracking</h3>
-            <p className="text-sm text-gray-500">Invites, joins, and conversion bonuses.</p>
-          </div>
-          <Badge>{referralItems.length} invites</Badge>
-        </div>
-        <p className="mt-2 text-sm text-gray-600">
-          Conversions: {referralItems.filter((item) => item.status === "joined").length} • Bonuses awarded:{" "}
-          {referralItems.filter((item) => item.bonusAwarded).length}
-        </p>
-        <div className="mt-3 space-y-2">
-          {referralItems.slice(0, 10).map((row) => (
-            <div key={row.id} className={adminPanelSoftClass}>
-              <p className="text-sm font-semibold text-[#10213a]">
-                Referrer {row.referrerMemberId} → {row.refereeEmail}
-              </p>
-              <p className="text-xs text-gray-500">
-                {row.status === "joined" ? "Joined" : "Pending"} • Code {row.referrerCode}
-                {row.bonusAwarded ? " • Bonus awarded" : ""}
-              </p>
-            </div>
-          ))}
-          {referralItems.length === 0 ? <p className="text-sm text-gray-500">No referral records yet.</p> : null}
-        </div>
-      </section>
-
-
-
-      <section className={adminPanelClass}>
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-[#10213a]">Member Feedback Dashboard</h3>
-            <p className="text-sm text-gray-500">Categories: points, rewards, service, app.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleGenerateInsights} disabled={isGeneratingInsights}>
-              {isGeneratingInsights ? "Analyzing" : "Generate Insights"}
-            </Button>
-            <Badge>{filteredFeedbackItems.length} visible</Badge>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>Filter by category</Label>
-            <select
-              className={`mt-1 ${adminInputClass}`}
-              value={feedbackCategoryFilter}
-              onChange={(event) => setFeedbackCategoryFilter(event.target.value)}
+      <nav className="mb-4 grid grid-cols-2 overflow-hidden rounded-t-[12px] border border-[#dbe5f0] bg-white sm:grid-cols-3 xl:grid-cols-5">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex min-w-0 items-center justify-center gap-2 border-b-2 px-3 py-4 text-[13px] font-bold transition ${
+                active ? "border-[#061e3b] text-[#061e3b]" : "border-transparent text-[#52627a] hover:bg-[#f8fbff]"
+              }`}
             >
-              <option value="all">All categories</option>
-              <option value="points">Points</option>
-              <option value="rewards">Rewards</option>
-              <option value="service">Service</option>
-              <option value="app">App</option>
-            </select>
-          </div>
-          <div>
-            <Label>Filter by rating</Label>
-            <select
-              className={`mt-1 ${adminInputClass}`}
-              value={feedbackRatingFilter}
-              onChange={(event) => setFeedbackRatingFilter(event.target.value)}
-            >
-              <option value="all">All ratings</option>
-              <option value="5">5 stars</option>
-              <option value="4">4 stars</option>
-              <option value="3">3 stars</option>
-              <option value="2">2 stars</option>
-              <option value="1">1 star</option>
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-          {["points", "rewards", "service", "app"].map((cat) => {
-            const rows = filteredFeedbackItems.filter((item) => item.category === cat);
-            const avg = rows.length ? rows.reduce((sum, row) => sum + row.rating, 0) / rows.length : 0;
-            return (
-              <div key={cat} className={adminPanelSoftClass}>
-                <p className="text-xs uppercase tracking-wide text-gray-500">{cat}</p>
-                <p className="mt-2 text-xl font-bold text-[#10213a]">{rows.length}</p>
-                <p className="text-xs text-gray-500">Avg rating {avg.toFixed(1) || "0.0"}/5</p>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-4 space-y-2">
-          {filteredFeedbackItems.slice(0, 8).map((item) => (
-            <div key={item.id} className={adminPanelSoftClass}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[#10213a]">{item.memberName || item.memberId}</p>
-                <Badge variant="outline">{item.category}</Badge>
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Rating {item.rating}/5 • {new Date(item.createdAt).toLocaleString()}
-                {item.contactOptIn ? " • follow-up requested" : ""}
-              </p>
-              <p className="mt-2 text-sm text-gray-700">{item.comment}</p>
-              {item.contactInfo ? <p className="mt-1 text-xs text-gray-500">Contact: {item.contactInfo}</p> : null}
-            </div>
-          ))}
-          {filteredFeedbackItems.length === 0 ? <p className="text-sm text-gray-500">No feedback submissions match the current filters.</p> : null}
-        </div>
-      </section>
-
-      <div className="flex flex-wrap gap-3 rounded-[24px] border border-[#d7e1f5] bg-[linear-gradient(180deg,_#f9fbff_0%,_#eef4ff_100%)] p-3 shadow-[0_10px_24px_rgba(16,33,58,0.05)]">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? "bg-[#10213a] text-white shadow-[0_10px_22px_rgba(16,33,58,0.22)]"
-                : "border border-[#d7e2ee] bg-white text-[#51677f] hover:border-[#b8cae0] hover:bg-[#f8fbff]"
-            }`}
-          >
-            <tab.icon className="h-4 w-4" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
 
       {activeTab === "notifications" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Campaign Builder</h2>
-            <p className="mt-1 text-sm text-gray-500">Schedule by trigger, target by segment, and compare A/B message variants.</p>
-
-            <div className="mt-5 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="campaign-name">Campaign name</Label>
-                <Input id="campaign-name" value={campaignName} onChange={(event) => setCampaignName(event.target.value)} />
+        <div className="space-y-4">
+          <section className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(360px,0.58fr)_minmax(0,1fr)]">
+            <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-3.5 shadow-[0_10px_28px_rgba(15,35,60,0.04)]">
+              <div className="mb-3 flex items-center gap-2">
+                <Send className="h-5 w-5 text-[#2563eb]" />
+                <h2 className="text-[16px] font-black text-[#061e3b]">Campaign Builder</h2>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Trigger</Label>
-                  <select className={adminSelectClass} value={campaignTrigger} onChange={(event) => setCampaignTrigger(event.target.value as NotificationTrigger)}>
-                    {triggers.map((trigger) => (
-                      <option key={trigger} value={trigger}>
-                        {trigger}
-                      </option>
-                    ))}
-                  </select>
+              <div className="space-y-2.5">
+                <div>
+                  <Label className="text-xs font-bold text-[#52627a]">Campaign name</Label>
+                  <Input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} className="mt-1.5 h-8 rounded-md border-[#dbe5f0] text-sm" />
                 </div>
-                <div className="space-y-2">
-                  <Label>Segment</Label>
-                  <select className={adminSelectClass} value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value as EngagementSegment)}>
-                    {segments.map((segment) => (
-                      <option key={segment} value={segment}>
-                        {segment}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="scheduled-for">Schedule notification</Label>
-                <Input id="scheduled-for" type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} />
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Variant A</Label>
-                  <Textarea rows={4} value={variantA} onChange={(event) => setVariantA(event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Variant B</Label>
-                  <Textarea rows={4} value={variantB} onChange={(event) => setVariantB(event.target.value)} />
-                </div>
-              </div>
-              <div className="rounded-2xl border border-[#d8e8fb] bg-[#f3f9ff] p-4 text-sm text-gray-700">
-                Estimated audience:{" "}
-                <span className="font-semibold">
-                  {campaignSegment === "Inactive 60+ Days" ? inactiveMembers.length : getSegmentAudienceSize(campaignSegment, members)}
-                </span>
-              </div>
-              <Button className={`w-full ${adminDarkButtonClass}`} onClick={createNotificationCampaign}>
-                Schedule push campaign
-              </Button>
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Templates and Tracking</h2>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {dbNotificationTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  onClick={() => {
-                    setCampaignName(template.name);
-                    setCampaignTrigger(template.trigger);
-                    setVariantA(template.message);
-                    setVariantB(`${template.message} Open now to stay active.`);
-                  }}
-                  className="rounded-2xl border border-[#dbe7f3] bg-white p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[#9ed8ff] hover:bg-[#eef5ff] hover:text-[#10213a] hover:shadow-[0_10px_24px_rgba(29,78,216,0.08)]"
-                >
-                  <p className="font-semibold text-gray-900">{template.name}</p>
-                  <p className="mt-1 text-sm text-gray-600">{template.subject}</p>
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-6 space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                  <p className="text-xs text-gray-500">Email queued</p>
-                  <p className="mt-1 text-xl font-bold text-gray-900">{communicationAnalytics.byChannel.email ?? 0}</p>
-                </div>
-                <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                  <p className="text-xs text-gray-500">SMS queued</p>
-                  <p className="mt-1 text-xl font-bold text-gray-900">{communicationAnalytics.byChannel.sms ?? 0}</p>
-                </div>
-                <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                  <p className="text-xs text-gray-500">Read / delivered</p>
-                  <p className="mt-1 text-xl font-bold text-gray-900">
-                    {(communicationAnalytics.byStatus.read ?? 0) + (communicationAnalytics.byStatus.delivered ?? 0)}
-                  </p>
-                </div>
-              </div>
-              {state.notificationCampaigns.map((campaign) => {
-                const campaignDelivery = campaign.sentCount ? (campaign.deliveredCount / campaign.sentCount) * 100 : 0;
-                const campaignOpen = campaign.sentCount ? (campaign.openedCount / campaign.sentCount) * 100 : 0;
-                return (
-                  <div key={campaign.id} className="rounded-2xl border border-[#dbe7f3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-gray-900">{campaign.name}</p>
-                          <Badge variant="secondary">{campaign.segment}</Badge>
-                          <Badge className={campaign.status === "completed" ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#fff7ed] text-[#c2410c]"}>
-                            {campaign.status}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {campaign.trigger} • {new Date(campaign.scheduledFor).toLocaleString()}
-                        </p>
-                      </div>
-                      {campaign.status !== "completed" ? (
-                        <Button variant="outline" className={adminOutlineButtonClass} onClick={() => launchScheduledCampaign(campaign.id)}>
-                          Launch now
-                        </Button>
-                      ) : (
-                        <Badge className="bg-[#10213a] text-white">Winner {campaign.winner}</Badge>
-                      )}
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                        <p className="text-xs text-gray-500">Sent</p>
-                        <p className="text-xl font-bold text-gray-900">{campaign.sentCount || campaign.audienceSize}</p>
-                      </div>
-                      <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                        <p className="text-xs text-gray-500">Delivery rate</p>
-                        <p className="text-xl font-bold text-gray-900">{campaignDelivery.toFixed(0)}%</p>
-                      </div>
-                      <div className="rounded-xl border border-[#d8e8fb] bg-[#f3f9ff] p-3">
-                        <p className="text-xs text-gray-500">Open rate</p>
-                        <p className="text-xl font-bold text-gray-900">{campaignOpen.toFixed(0)}%</p>
-                      </div>
-                    </div>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs font-bold text-[#52627a]">Trigger</Label>
+                    <select className="mt-1.5 h-8 w-full rounded-md border border-[#dbe5f0] bg-white px-3 text-sm" value={campaignTrigger} onChange={(event) => setCampaignTrigger(event.target.value as NotificationTrigger)}>
+                      {triggers.map((trigger) => <option key={trigger}>{trigger}</option>)}
+                    </select>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
+                  <div>
+                    <Label className="text-xs font-bold text-[#52627a]">Segment</Label>
+                    <select className="mt-1.5 h-8 w-full rounded-md border border-[#dbe5f0] bg-white px-3 text-sm" value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value as EngagementSegment)}>
+                      {segments.map((segment) => <option key={segment}>{segment}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs font-bold text-[#52627a]">Schedule notification</Label>
+                  <Input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} className="mt-1.5 h-8 rounded-md border-[#dbe5f0] text-sm" />
+                </div>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs font-bold text-[#52627a]">Variant A</Label>
+                    <Textarea value={variantA} onChange={(event) => setVariantA(event.target.value)} maxLength={160} className="mt-1.5 min-h-[58px] resize-none rounded-md border-[#dbe5f0] text-[11px] leading-4" />
+                    <p className="mt-0.5 text-right text-[10px] font-medium text-[#64748b]">{variantA.length}/160</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-bold text-[#52627a]">Variant B</Label>
+                    <Textarea value={variantB} onChange={(event) => setVariantB(event.target.value)} maxLength={160} className="mt-1.5 min-h-[58px] resize-none rounded-md border-[#dbe5f0] text-[11px] leading-4" />
+                    <p className="mt-0.5 text-right text-[10px] font-medium text-[#64748b]">{variantB.length}/160</p>
+                  </div>
+                </div>
+                <div className="rounded-md border border-[#cfe2ff] bg-[#eff6ff] px-3 py-2 text-xs font-bold text-[#061e3b]">
+                  Estimated audience: {campaignSegment === "Inactive 60+ Days" ? inactiveRows.length : Math.max(members.length || 40, 40)} members
+                </div>
+                <Button onClick={createCampaign} disabled={isSavingCampaign} className="h-9 w-full rounded-md bg-[#061e3b] text-xs font-black text-white hover:bg-[#0b2d56]">
+                  <Send className="mr-2 h-4 w-4" />
+                  {isSavingCampaign ? "Scheduling..." : "Schedule Push Campaign"}
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="flex min-w-0 flex-col rounded-[12px] border border-[#dbe5f0] bg-white p-4 shadow-[0_10px_28px_rgba(15,35,60,0.04)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-[#2563eb]" />
+                  <h2 className="text-[16px] font-black text-[#061e3b]">Recent Push Campaigns</h2>
+                </div>
+                <Button variant="outline" className="h-8 rounded-md border-[#dbe5f0] px-3 text-xs font-bold" onClick={() => setModal("push")}>View all</Button>
+              </div>
+              <PushCampaignTable campaigns={campaigns.slice(0, 5)} compact />
+              <MiniTableFooter label={`Showing 1 to ${Math.min(campaigns.length, 5)} of ${campaigns.length} campaigns`} />
+            </Card>
+          </section>
+
+          <section className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
+            <ReferralPanel referrals={referrals} onViewAll={() => setModal("referrals")} />
+            <FeedbackPanel feedbackRows={feedbackRows.slice(0, 4)} totalFeedback={feedback.length} averageRating={averageRating} topCategory={topCategory} onViewAll={() => setModal("feedback")} />
+          </section>
         </div>
       ) : null}
 
       {activeTab === "challenges" ? (
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Challenge Catalog</h2>
+        <section className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(360px,0.7fr)_minmax(0,1fr)]">
+          <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5">
+            <h2 className="text-[16px] font-black text-[#061e3b]">Create Challenge</h2>
+            <p className="mt-1 text-sm text-[#64748b]">Published challenges appear on the customer challenge tab.</p>
             <div className="mt-5 space-y-4">
-              {state.challenges.map((challenge) => (
-                <div key={challenge.id} className="rounded-2xl border border-[#dceee3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-gray-900">{challenge.title}</p>
-                    <Badge variant="secondary">{challenge.segment}</Badge>
-                    {challenge.competitive ? <Badge className="bg-[#10213a] text-white">Competitive</Badge> : null}
-                  </div>
-                  <p className="mt-2 text-sm text-gray-600">{challenge.description}</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-[#dceee3] bg-[#f3fcf7] p-3">
-                      <p className="text-xs text-gray-500">Target</p>
-                      <p className="text-lg font-bold text-gray-900">{challenge.targetValue} {challenge.unitLabel}</p>
-                    </div>
-                    <div className="rounded-xl border border-[#dceee3] bg-[#f3fcf7] p-3">
-                      <p className="text-xs text-gray-500">Reward</p>
-                      <p className="text-lg font-bold text-gray-900">{challenge.rewardPoints} pts</p>
-                    </div>
-                    <div className="rounded-xl border border-[#dceee3] bg-[#f3fcf7] p-3">
-                      <p className="text-xs text-gray-500">Badge</p>
-                      <p className="text-lg font-bold text-gray-900">{challenge.rewardBadge}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Leaderboard Preview</h2>
-                <p className="text-sm text-gray-500">
-                  {selectedChallenge?.title ?? "No challenge selected"}
-                </p>
+                <Label>Challenge name</Label>
+                <Input value={challengeName} onChange={(event) => setChallengeName(event.target.value)} className="mt-2" />
               </div>
-              <Badge className="bg-[#e6f8fa] text-[#0f5f65]">Live ranking</Badge>
-            </div>
-            <div className="mt-5 space-y-3">
-              {leaderboard.map((item, index) => (
-                <div key={item.memberId} className="rounded-2xl border border-[#dceee3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#10213a] text-sm font-bold text-white">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{item.memberName}</p>
-                        <p className="text-xs text-gray-500">{item.tier}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-gray-900">{item.value}</p>
-                      <p className="text-xs text-gray-500">{selectedChallenge?.unitLabel}</p>
-                    </div>
-                  </div>
-                  <Progress className="mt-3 h-2" value={selectedChallenge ? Math.min(100, (item.value / selectedChallenge.targetValue) * 100) : 0} />
-                </div>
-              ))}
+              <Button className="w-full bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={createChallenge}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Challenge
+              </Button>
             </div>
           </Card>
-        </div>
+          <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[16px] font-black text-[#061e3b]">Challenge Library</h2>
+              <Button variant="outline" className="h-8" onClick={() => setModal("challenges")}>View all</Button>
+            </div>
+            <ChallengeTable challenges={challenges.slice(0, 5)} />
+          </Card>
+        </section>
       ) : null}
 
       {activeTab === "sharing" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Social Sharing Analytics</h2>
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <div className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
-                <p className="text-sm text-gray-500">Tracked shares</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">{totalShares}</p>
-              </div>
-              <div className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
-                <p className="text-sm text-gray-500">Referral conversions</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">{totalConversions}</p>
-              </div>
-              <div className="rounded-2xl border border-[#eadcff] bg-[#faf5ff] p-4">
-                <p className="text-sm text-gray-500">Conversion rate</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">{shareConversionRate.toFixed(0)}%</p>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {shareEvents.map((event) => (
-                <div key={event.id} className="rounded-2xl border border-[#eadcff] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="font-semibold text-gray-900">{event.memberName}</p>
-                      <p className="text-sm text-gray-500">
-                        {event.achievement} • {event.channel} • {event.tier}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-gray-900">{event.conversions}</p>
-                      <p className="text-xs text-gray-500">conversions</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Acceptance Coverage</h2>
-            <div className="mt-5 space-y-3 text-sm text-gray-700">
-              <div className="rounded-2xl border border-[#eadcff] bg-white p-4">Facebook and Instagram share paths are available on the member side.</div>
-              <div className="rounded-2xl border border-[#eadcff] bg-white p-4">Generated share cards include the member tier badge and referral code.</div>
-              <div className="rounded-2xl border border-[#eadcff] bg-white p-4">Privacy controls let members hide their name or referral code before sharing.</div>
-              <div className="rounded-2xl border border-[#eadcff] bg-white p-4">Share events and simulated conversions feed this admin analytics panel.</div>
-            </div>
-          </Card>
-        </div>
+        <section className="grid gap-4 md:grid-cols-4">
+          <SummaryCard icon={Share2} label="Shares Tracked" value={String(shareCount)} trend="Customer shares feed this panel" color="#2563eb" />
+          <SummaryCard icon={Users} label="Referral Clicks" value="37" trend="+8% vs last 30 days" color="#22c55e" />
+          <SummaryCard icon={Sparkles} label="Best Share" value="Referral" trend="Highest converting card" color="#a855f7" />
+          <SummaryCard icon={Gift} label="Referral Code" value="REF000022" trend="Customer card tracking" color="#f97316" />
+        </section>
       ) : null}
 
       {activeTab === "surveys" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Survey Creator</h2>
+        <section className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(360px,0.6fr)_minmax(0,1fr)]">
+          <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5">
+            <h2 className="text-[16px] font-black text-[#061e3b]">Publish Survey</h2>
             <div className="mt-5 space-y-4">
-              <div className="space-y-2">
-                <Label>Survey title</Label>
-                <Input value={surveyTitle} onChange={(event) => setSurveyTitle(event.target.value)} />
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Target segment</Label>
-                  <select className={adminSelectClass} value={surveySegment} onChange={(event) => setSurveySegment(event.target.value as EngagementSegment)}>
-                    {segments.map((segment) => (
-                      <option key={segment} value={segment}>
-                        {segment}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Bonus points</Label>
-                  <Input value={surveyBonusPoints} onChange={(event) => setSurveyBonusPoints(event.target.value)} />
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {surveyQuestions.map((question, index) => (
-                  <div key={question.id} className="rounded-2xl border border-[#eadcff] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                    <div className="grid gap-3 md:grid-cols-[1fr_220px]">
-                      <Input
-                        value={question.prompt}
-                        onChange={(event) => updateSurveyQuestion(question.id, { prompt: event.target.value })}
-                        placeholder={`Question ${index + 1}`}
-                      />
-                      <select
-                        className={adminSelectClass}
-                        value={question.type}
-                        onChange={(event) => updateSurveyQuestion(question.id, { type: event.target.value as QuestionType })}
-                      >
-                        <option value="multiple-choice">Multiple choice</option>
-                        <option value="rating">Rating</option>
-                        <option value="free-text">Free text</option>
-                      </select>
-                    </div>
-                    {question.type === "multiple-choice" ? (
-                      <Textarea
-                        className="mt-3"
-                        rows={3}
-                        value={(question.options ?? []).join(", ")}
-                        onChange={(event) => updateSurveyQuestion(question.id, { options: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })}
-                        placeholder="Option A, Option B, Option C"
-                      />
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <Button variant="outline" className={adminOutlineButtonClass} onClick={addSurveyQuestion}>
-                  Add question
-                </Button>
-                <Button className={adminDarkButtonClass} onClick={createSurvey}>
-                  Publish survey
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Survey Results</h2>
-                <p className="text-sm text-gray-500">View responses and export survey data.</p>
+                <Label>Survey title</Label>
+                <Input value={surveyTitle} onChange={(event) => setSurveyTitle(event.target.value)} className="mt-2" />
               </div>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              {state.surveys.map((survey) => (
-                <div key={survey.id} className="rounded-2xl border border-[#eadcff] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900">{survey.title}</p>
-                        <Badge variant="secondary">{survey.segment}</Badge>
-                      </div>
-                      <p className="mt-1 text-sm text-gray-600">{survey.description}</p>
-                    </div>
-                    <Button variant="outline" className={adminOutlineButtonClass} onClick={() => exportSurveyResponsesCsv(survey)}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Export CSV
-                    </Button>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-[#eadcff] bg-[#faf5ff] p-3">
-                      <p className="text-xs text-gray-500">Responses</p>
-                      <p className="text-xl font-bold text-gray-900">{survey.responses.length}</p>
-                    </div>
-                    <div className="rounded-xl border border-[#eadcff] bg-[#faf5ff] p-3">
-                      <p className="text-xs text-gray-500">Questions</p>
-                      <p className="text-xl font-bold text-gray-900">{survey.questions.length}</p>
-                    </div>
-                    <div className="rounded-xl border border-[#eadcff] bg-[#faf5ff] p-3">
-                      <p className="text-xs text-gray-500">Bonus</p>
-                      <p className="text-xl font-bold text-gray-900">{survey.bonusPoints} pts</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {state.surveys.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#eadcff] bg-[#fcfaff] p-6 text-center text-sm text-[#7b6d8d]">
-                  No survey definitions are available yet. Publish a survey on the left and the response summary cards will appear here.
-                </div>
-              ) : null}
+              <div>
+                <Label>Bonus points</Label>
+                <Input value={surveyPoints} onChange={(event) => setSurveyPoints(event.target.value)} className="mt-2" />
+              </div>
+              <Button className="w-full bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={createSurvey}>Publish survey</Button>
             </div>
           </Card>
-        </div>
+          <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[16px] font-black text-[#061e3b]">Survey Results</h2>
+              <Button variant="outline" className="h-8" onClick={() => setModal("surveys")}>View all</Button>
+            </div>
+            <SurveyTable surveys={surveys.slice(0, 5)} />
+          </Card>
+        </section>
       ) : null}
 
       {activeTab === "winback" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Inactive Member Detection</h2>
-            <p className="mt-1 text-sm text-gray-500">Members with no transaction or login activity in the last 60+ days.</p>
-            <div className="mt-5 space-y-3">
-              {inactiveMembers.slice(0, 6).map((member) => (
-                <div key={member.memberId} className="rounded-2xl border border-[#f5dcc3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="font-semibold text-gray-900">{member.memberName}</p>
-                      <p className="text-sm text-gray-500">
-                        {member.memberNumber} • {member.tier} • {member.daysInactive} inactive days
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={member.riskLevel === "High" ? "bg-[#fee2e2] text-[#b91c1c]" : member.riskLevel === "Medium" ? "bg-[#fff7ed] text-[#c2410c]" : "bg-[#e6f8fa] text-[#0f5f65]"}>
-                        {member.riskLevel} risk
-                      </Badge>
-                      <Badge variant="secondary">{member.suggestedOffer}</Badge>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {inactiveMembers.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#f5dcc3] bg-[#fffaf5] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-gray-900">Activity monitor snapshot</p>
-                      <p className="mt-1 text-sm text-gray-500">Showing the least recently active members right now.</p>
-                    </div>
-                    <Badge className="bg-[#eef6ff] text-[#24507a]">No inactive members</Badge>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    {activityMonitorMembers.map((member) => (
-                      <div key={member.memberId} className="rounded-2xl border border-[#f5dcc3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <p className="font-semibold text-gray-900">{member.memberName}</p>
-                            <p className="text-sm text-gray-500">
-                              {member.memberNumber} • {member.tier} • {member.daysSinceLastActivity} days since last activity
-                            </p>
-                          </div>
-                          <Badge className={member.activityStatus === "Inactive" ? "bg-[#fee2e2] text-[#b91c1c]" : member.activityStatus === "At Risk" ? "bg-[#fff7ed] text-[#c2410c]" : "bg-[#e6f8fa] text-[#0f5f65]"}>
-                            {member.activityStatus}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+        <section className="rounded-[12px] border border-[#dbe5f0] bg-white p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-[16px] font-black text-[#061e3b]">Inactive Members 60+ Days</h2>
+              <p className="mt-1 text-sm text-[#64748b]">Find and re-engage dormant members with targeted campaigns.</p>
             </div>
-
-            <div className="mt-6 rounded-2xl border border-[#f5dcc3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-              <h3 className="font-semibold text-gray-900">Launch win-back automation</h3>
-              <div className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <Label>Campaign name</Label>
-                  <Input value={winBackName} onChange={(event) => setWinBackName(event.target.value)} />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Offer type</Label>
-                    <select className={adminSelectClass} value={winBackOffer} onChange={(event) => setWinBackOffer(event.target.value as WinBackOfferType)}>
-                      {offerTypes.map((offer) => (
-                        <option key={offer} value={offer}>
-                          {offer}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Offer value</Label>
-                    <Input value={winBackValue} onChange={(event) => setWinBackValue(event.target.value)} />
-                  </div>
-                </div>
-                <Button className={`w-full ${adminDarkButtonClass}`} onClick={createWinBackCampaign}>
-                  Start campaign
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Campaign Dashboard</h2>
-            <div className="mt-5 space-y-4">
-              {state.winBackCampaigns.map((campaign) => {
-                const responseRate = campaign.targetedMembers > 0 ? (campaign.responses / campaign.targetedMembers) * 100 : 0;
-                const reengagementRate = campaign.targetedMembers > 0 ? (campaign.reengagedMembers / campaign.targetedMembers) * 100 : 0;
-                const roi = campaign.offerCost > 0 ? ((campaign.estimatedRevenue - campaign.offerCost) / campaign.offerCost) * 100 : 0;
-
-                return (
-                  <div key={campaign.id} className="rounded-2xl border border-[#f5dcc3] bg-white p-4 shadow-[0_8px_22px_rgba(16,33,58,0.03)]">
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-gray-900">{campaign.name}</p>
-                          <Badge variant="secondary">{campaign.segment}</Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {campaign.offerType} • {campaign.offerValue} • {new Date(campaign.launchDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge className="bg-[#10213a] text-white">{campaign.status}</Badge>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-xl border border-[#f5dcc3] bg-[#fff7ed] p-3">
-                        <p className="text-xs text-gray-500">Response rate</p>
-                        <p className="text-xl font-bold text-gray-900">{responseRate.toFixed(0)}%</p>
-                      </div>
-                      <div className="rounded-xl border border-[#f5dcc3] bg-[#fff7ed] p-3">
-                        <p className="text-xs text-gray-500">Re-engaged count</p>
-                        <p className="text-xl font-bold text-gray-900">{campaign.reengagedMembers}</p>
-                        <p className="mt-1 text-xs text-gray-500">{reengagementRate.toFixed(0)}% of targeted members</p>
-                      </div>
-                      <div className="rounded-xl border border-[#f5dcc3] bg-[#fff7ed] p-3">
-                        <p className="text-xs text-gray-500">ROI</p>
-                        <p className="text-xl font-bold text-gray-900">{roi.toFixed(0)}%</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
+            <Button variant="outline" onClick={() => setModal("inactive")}>View all</Button>
+          </div>
+          <InactiveTable rows={inactiveRows.slice(0, 6)} />
+        </section>
       ) : null}
 
-      <Dialog open={isInsightsModalOpen} onOpenChange={setIsInsightsModalOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Feedback Insights</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            {isGeneratingInsights ? (
-              <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-[#dce7f2] bg-[#f8fbff]">
-                <p className="animate-pulse text-sm font-medium text-gray-500">Running cosine similarity analysis...</p>
-              </div>
-            ) : feedbackInsights ? (
-              <div className="grid gap-6 md:grid-cols-2">
-                <div>
-                  <h4 className="mb-4 text-sm font-semibold text-[#10213a]">Sentiment Split</h4>
-                  <div className="h-64 rounded-2xl border border-[#dce7f2] bg-white p-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={[
-                            { name: "Positive", value: feedbackInsights.sentimentSplit.positive, color: "#16a34a" },
-                            { name: "Neutral", value: feedbackInsights.sentimentSplit.neutral, color: "#94a3b8" },
-                            { name: "Negative", value: feedbackInsights.sentimentSplit.negative, color: "#ef4444" },
-                          ]}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={56}
-                          outerRadius={82}
-                        >
-                          {["#16a34a", "#94a3b8", "#ef4444"].map((color) => (
-                            <Cell key={color} fill={color} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <p className="mt-2 text-xs text-gray-500">{feedbackInsights.sourceCount.toLocaleString()} feedback records analyzed.</p>
-                </div>
-                <div className="space-y-5">
-                  <div>
-                    <h4 className="mb-3 text-sm font-semibold text-[#10213a]">Top Similar Themes</h4>
-                    <div className="space-y-2">
-                      {feedbackInsights.topTopics.length > 0 ? (
-                        feedbackInsights.topTopics.map((topic) => (
-                          <div key={topic.topic} className="flex items-center justify-between rounded-xl border border-[#dce7f2] bg-[#f8fbff] p-3 text-sm">
-                            <span className="font-semibold text-[#10213a]">{topic.topic}</span>
-                            <Badge variant="secondary">{topic.count} matches</Badge>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="rounded-xl border border-[#dce7f2] bg-[#f8fbff] p-3 text-sm text-gray-500">No repeated themes yet.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <h4 className="mb-3 text-sm font-semibold text-[#10213a]">Keyword Cloud</h4>
-                    <div className="flex min-h-[124px] flex-wrap items-center justify-center gap-2 rounded-xl border border-[#dce7f2] bg-[#f8fbff] p-4">
-                      {feedbackInsights.wordCloud.length > 0 ? (
-                        feedbackInsights.wordCloud.map((item) => {
-                          const weights = feedbackInsights.wordCloud.map((word) => word.weight);
-                          const minWeight = Math.min(...weights);
-                          const maxWeight = Math.max(...weights);
-                          const range = maxWeight - minWeight || 1;
-                          const weightRatio = (item.weight - minWeight) / range;
-                          const size = 12 + weightRatio * 20;
-                          return (
-                            <span key={item.word} className="font-semibold leading-none text-[#008c80]" style={{ fontSize: `${size}px`, opacity: 0.65 + weightRatio * 0.35 }}>
-                              {item.word}
-                            </span>
-                          );
-                        })
-                      ) : (
-                        <p className="text-sm text-gray-500">No keywords yet.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="rounded-2xl border border-[#dce7f2] bg-[#f8fbff] p-8 text-center text-sm text-gray-500">No insights generated yet.</p>
-            )}
-          </div>
+      <Dialog open={modal === "push"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="All Push Campaigns" onClose={() => setModal(null)} action={<Button variant="outline" className="h-9" onClick={() => toast.success("Campaign export prepared.")}><Download className="mr-2 h-4 w-4" />Export</Button>} />
+          <FilterBar searchPlaceholder="Search campaigns..." filters={["Status: All", "Segment: All", "May 15 - May 21, 2026"]} />
+          <PushCampaignTable campaigns={campaigns.slice(0, 6)} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(campaigns.length, 6)} of ${Math.max(campaigns.length, 24)} campaigns`} />
         </DialogContent>
       </Dialog>
+
+      <Dialog open={modal === "referrals"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="All Referrals" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]"><Send className="mr-2 h-4 w-4" />Send Invite</Button>} />
+          <ReferralSummary referrals={referrals} />
+          <FilterBar searchPlaceholder="Search by name or email..." filters={["All Statuses", "Last 30 Days", "Filters"]} />
+          <ReferralTable referrals={referrals.slice(0, 6)} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(referrals.length, 6)} of 127 referrals`} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modal === "feedback"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="All Member Feedback" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" disabled={isGeneratingInsights} onClick={runInsights}><Sparkles className="mr-2 h-4 w-4" />Generate Insights</Button>} />
+          <FeedbackSummary feedback={feedback} averageRating={averageRating} topCategory={topCategory} />
+          <FeedbackInsightsPanel insights={feedbackInsights} loading={isGeneratingInsights} />
+          <FilterBar searchPlaceholder="Search feedback..." filters={["All Categories", "All Ratings", "Sort: Newest First"]} />
+          <FeedbackTable rows={feedbackRows.slice(0, 6)} reviewedIds={reviewedFeedbackIds} onReview={(id) => setReviewedFeedbackIds((prev) => [...new Set([...prev, id])])} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(feedbackRows.length, 6)} of ${Math.max(feedback.length, 28)} feedbacks`} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modal === "surveys"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="All Surveys" onClose={() => setModal(null)} />
+          <FilterBar searchPlaceholder="Search surveys..." filters={["All Statuses", "All Incentives", "Clear filters"]} />
+          <SurveyTable surveys={surveys.slice(0, 6)} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(surveys.length, 6)} of ${surveys.length} surveys`} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modal === "inactive"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="Inactive Members 60+ Days" onClose={() => setModal(null)} />
+          <p className="-mt-2 mb-5 text-sm text-[#52627a]">Members who have not been active for 60 days or more. Use filters to find and re-engage them with targeted campaigns.</p>
+          <FilterBar searchPlaceholder="Search by name, email or phone" filters={["All Segments", "60+ Days", "Filters"]} />
+          <InactiveTable rows={inactiveRows.slice(0, 6)} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(inactiveRows.length, 6)} of 1,248 members`} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modal === "challenges"} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className={adminModalClass}>
+          <ModalHeader title="Challenge Library" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={createChallenge}>Create Challenge</Button>} />
+          <p className="-mt-2 mb-5 text-sm text-[#52627a]">Browse all challenges across your organization. Create new challenges or duplicate existing ones.</p>
+          <FilterBar searchPlaceholder="Search challenges..." filters={["Status: All", "Reward Type: All", "Clear filters"]} />
+          <ChallengeTable challenges={challenges.slice(0, 6)} />
+          <PaginationFooter label={`Showing 1 to ${Math.min(challenges.length, 6)} of 24 challenges`} />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function FilterBar({ searchPlaceholder, filters }: { searchPlaceholder: string; filters: string[] }) {
+  return (
+    <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+      <div className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748b]" />
+        <Input placeholder={searchPlaceholder} className="h-9 rounded-md border-[#dbe5f0] pl-10 text-sm" />
+      </div>
+      {filters.map((filter) => (
+        <button key={filter} type="button" className="inline-flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-[#dbe5f0] bg-white px-3 text-xs font-bold text-[#061e3b]">
+          {filter}
+          {filter.includes("Filter") ? <Filter className="h-4 w-4" /> : <CalendarDays className="h-4 w-4 text-[#64748b]" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PushCampaignTable({ campaigns, compact = false }: { campaigns: NotificationCampaign[]; compact?: boolean }) {
+  const pad = compact ? "px-3 py-2.5" : "px-2.5 py-2.5";
+  return (
+    <TableShell>
+      <table className={`${compact ? "text-[11px]" : "text-[11px]"} w-full table-fixed border-collapse text-left`}>
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className={`${pad} ${compact ? "w-[27%]" : "w-[18%]"} font-black`}>Campaign</th>
+            {!compact ? <th className={`${pad} w-[10%] font-black`}>Trigger</th> : null}
+            <th className={`${pad} ${compact ? "w-[17%]" : "w-[11%]"} font-black`}>Segment</th>
+            {!compact ? <th className={`${pad} w-[16%] font-black`}>Scheduled</th> : null}
+            <th className={`${pad} ${compact ? "w-[8%]" : "w-[6%]"} font-black`}>Sent</th>
+            <th className={`${pad} ${compact ? "w-[13%]" : "w-[10%]"} font-black`}>Delivery</th>
+            <th className={`${pad} ${compact ? "w-[11%]" : "w-[8%]"} font-black`}>Open</th>
+            <th className={`${pad} ${compact ? "w-[17%]" : "w-[11%]"} font-black`}>Status</th>
+            <th className={`${pad} ${compact ? "w-[7%]" : "w-[5%]"} font-black`}>Winner</th>
+            {!compact ? <th className={`${pad} w-[5%] font-black`}>Actions</th> : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {campaigns.map((campaign) => (
+            <tr key={campaign.id}>
+              <td className={`${pad} truncate font-bold leading-5`}>{campaign.name}</td>
+              {!compact ? <td className={`${pad} truncate`}>{campaign.trigger}</td> : null}
+              <td className={`${pad} truncate`}>{campaign.segment}</td>
+              {!compact ? <td className={`${pad} truncate`}>{formatDateTime(campaign.scheduledFor)}</td> : null}
+              <td className={pad}>{campaign.sentCount}</td>
+              <td className={`${pad} font-black text-[#16a34a]`}>{percentage(campaign.deliveredCount, campaign.sentCount)}%</td>
+              <td className={`${pad} font-black text-[#2563eb]`}>{percentage(campaign.openedCount, campaign.sentCount)}%</td>
+              <td className={pad}><Badge className={statusClass(campaign.status)}>{campaign.status}</Badge></td>
+              <td className={pad}>{campaign.winner === "Pending" ? "-" : <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">{campaign.winner}</span>}</td>
+              {!compact ? <td className={pad}><MoreHorizontal className="h-4 w-4" /></td> : null}
+            </tr>
+          ))}
+          {campaigns.length === 0 ? <EmptyTableRow colSpan={compact ? 7 : 10} text="No push campaigns yet." /> : null}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function MiniTableFooter({ label }: { label: string }) {
+  return (
+    <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-[#52627a]">
+      <span>{label}</span>
+      <div className="flex items-center gap-2">
+        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b]">&lt;</button>
+        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">1</button>
+        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#061e3b]">2</button>
+        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b]">&gt;</button>
+      </div>
+    </div>
+  );
+}
+
+function ReferralPanel({ referrals, onViewAll }: { referrals: ReferralRecord[]; onViewAll: () => void }) {
+  return (
+    <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5 shadow-[0_10px_28px_rgba(15,35,60,0.04)]">
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h2 className="text-[16px] font-black text-[#061e3b]">Referral Tracking</h2>
+          <p className="mt-1 text-xs font-bold text-[#52627a]">{referrals.length} invites - {referrals.filter((row) => row.status === "joined").length} conversion - {referrals.filter((row) => row.bonusAwarded).length} bonuses</p>
+        </div>
+        <Button variant="outline" className="h-8 text-xs" onClick={onViewAll}>View all</Button>
+      </div>
+      <ReferralTable referrals={referrals.slice(0, 3)} compact />
+    </Card>
+  );
+}
+
+function ReferralSummary({ referrals }: { referrals: ReferralRecord[] }) {
+  const joined = referrals.filter((row) => row.status === "joined").length;
+  const pending = referrals.length - joined;
+  const bonuses = referrals.filter((row) => row.bonusAwarded).length;
+  const cards: Array<{ label: string; value: string | number; icon: LucideIcon; color: string; trend: string }> = [
+    { label: "Total Invites", value: referrals.length || 127, icon: Users, color: "#2563eb", trend: "+12% vs last 30 days" },
+    { label: "Joined", value: joined || 42, icon: CheckCircle2, color: "#16a34a", trend: "+16% vs last 30 days" },
+    { label: "Pending", value: pending || 35, icon: Bell, color: "#f97316", trend: "-3% vs last 30 days" },
+    { label: "Conversion Rate", value: referrals.length ? `${Math.round((joined / referrals.length) * 100)}%` : "33.07%", icon: Sparkles, color: "#8b5cf6", trend: "+2.4% vs last 30 days" },
+    { label: "Bonuses Awarded", value: bonuses ? `$${bonuses * 25}` : "$420", icon: Gift, color: "#f59e0b", trend: "+8% vs last 30 days" },
+  ];
+  return (
+    <div className="mb-3 grid gap-2 md:grid-cols-5">
+      {cards.map(({ label, value, icon: Icon, color, trend }) => (
+        <Card key={label} className="rounded-[10px] border border-[#dbe5f0] p-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-[10px]" style={{ backgroundColor: `${color}14`, color }}>
+              <Icon className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[11px] font-bold text-[#64748b]">{label}</p>
+              <p className="mt-1 text-xl font-black text-[#061e3b]">{value}</p>
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] font-semibold text-[#16a34a]">{trend}</p>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function ReferralTable({ referrals, compact = false }: { referrals: ReferralRecord[]; compact?: boolean }) {
+  const pad = compact ? "px-3 py-3" : "px-2.5 py-2.5";
+  return (
+    <TableShell>
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className={`${pad} ${compact ? "w-[32%]" : "w-[18%]"} font-black`}>Referrer</th>
+            {!compact ? <th className={`${pad} w-[22%] font-black`}>Email</th> : null}
+            <th className={`${pad} ${compact ? "w-[18%]" : "w-[12%]"} font-black`}>Status</th>
+            <th className={`${pad} ${compact ? "w-[24%]" : "w-[14%]"} font-black`}>Code</th>
+            {!compact ? <th className={`${pad} w-[12%] font-black`}>Invited</th> : null}
+            <th className={`${pad} ${compact ? "w-[12%]" : "w-[9%]"} font-black`}>Joined</th>
+            <th className={`${pad} ${compact ? "w-[14%]" : "w-[9%]"} font-black`}>Bonus</th>
+            {!compact ? <th className={`${pad} w-[4%] font-black`}>Act</th> : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {referrals.map((referral, index) => {
+            const name = ["James Doe", "Ava Clark", "Michael Kim", "Jessica Smith", "Brian Roberts", "Sophie Williams"][index % 6];
+            return (
+              <tr key={referral.id}>
+                <td className={pad}>
+                  <div className="flex items-center gap-3">
+                    <span className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f3e8ff] text-[11px] font-black text-[#7e22ce] sm:inline-flex">{initials(name)}</span>
+                    <span className="min-w-0 truncate font-bold">{name}</span>
+                  </div>
+                </td>
+                {!compact ? <td className={`${pad} truncate`}>{referral.refereeEmail}</td> : null}
+                <td className={pad}><Badge className={statusClass(referral.status === "joined" ? "Converted" : "Pending")}>{referral.status === "joined" ? "Converted" : "Pending"}</Badge></td>
+                <td className={`${pad} truncate font-bold`}>{referral.referrerCode || "REF000022"}</td>
+                {!compact ? <td className={`${pad} truncate`}>{formatDate(referral.createdAt)}</td> : null}
+                <td className={pad}>{referral.status === "joined" ? "Yes" : "No"}</td>
+                <td className={`${pad} font-black text-[#16a34a]`}>{referral.bonusAwarded ? "$25" : "-"}</td>
+                {!compact ? <td className={pad}><Send className="h-4 w-4 text-[#2563eb]" /></td> : null}
+              </tr>
+            );
+          })}
+          {referrals.length === 0 ? <EmptyTableRow colSpan={compact ? 5 : 8} text="No referrals yet." /> : null}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function FeedbackPanel({
+  feedbackRows,
+  totalFeedback,
+  averageRating,
+  topCategory,
+  onViewAll,
+}: {
+  feedbackRows: Array<FeedbackRecord & { duplicateCount: number }>;
+  totalFeedback: number;
+  averageRating: number;
+  topCategory: string;
+  onViewAll: () => void;
+}) {
+  return (
+    <Card className="min-w-0 rounded-[12px] border border-[#dbe5f0] bg-white p-5 shadow-[0_10px_28px_rgba(15,35,60,0.04)]">
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h2 className="text-[16px] font-black text-[#061e3b]">Member Feedback</h2>
+          <p className="mt-1 text-xs font-bold text-[#52627a]">{totalFeedback} feedbacks - {averageRating.toFixed(1)} avg rating - Top category: {topCategory}</p>
+        </div>
+        <Button variant="outline" className="h-8 text-xs" onClick={onViewAll}>View all</Button>
+      </div>
+      <FeedbackTable rows={feedbackRows} reviewedIds={[]} onReview={() => undefined} compact />
+    </Card>
+  );
+}
+
+function FeedbackSummary({ feedback, averageRating, topCategory }: { feedback: FeedbackRecord[]; averageRating: number; topCategory: string }) {
+  const needsAttention = feedback.filter((item) => item.rating <= 3).length;
+  const cards: Array<{ label: string; value: string | number; icon: LucideIcon; color: string }> = [
+    { label: "Total Feedback", value: feedback.length || 28, icon: MessageSquareText, color: "#8b5cf6" },
+    { label: "Average Rating", value: averageRating ? averageRating.toFixed(1) : "4.8", icon: Star, color: "#f59e0b" },
+    { label: "Top Category", value: topCategory, icon: Gift, color: "#22c55e" },
+    { label: "Needs Attention", value: needsAttention, icon: Bell, color: "#ef4444" },
+  ];
+  return (
+    <div className="mb-3 grid gap-2 md:grid-cols-4">
+      {cards.map(({ label, value, icon: Icon, color }) => (
+        <Card key={label} className="rounded-[10px] border border-[#dbe5f0] p-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-[10px]" style={{ backgroundColor: `${color}14`, color: String(color) }}>
+              <Icon className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[11px] font-bold text-[#64748b]">{label}</p>
+              <p className="mt-1 text-xl font-black capitalize text-[#061e3b]">{value}</p>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function FeedbackInsightsPanel({ insights, loading }: { insights: FeedbackInsights | null; loading: boolean }) {
+  const sentiment = insights?.sentimentSplit ?? { positive: 0, neutral: 0, negative: 0 };
+  const topics = insights?.topTopics ?? [];
+  const similarGroups = (insights?.similarFeedbackGroups ?? []).filter((group) => group.count > 1);
+  const words = (insights?.wordCloud ?? []).slice(0, 10);
+  return (
+    <div className="mb-3 rounded-[12px] border border-[#dbe5f0] bg-[#f8fbff] p-3">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#0b8b95]">Cosine Similarity Insights</p>
+          <p className="text-xs font-semibold text-[#52627a]">
+            {loading ? "Generating feedback clusters..." : insights ? `${insights.sourceCount} feedback rows analyzed` : "Click Generate Insights to analyze feedback topics and duplicate clusters."}
+          </p>
+        </div>
+        {insights?.createdAt ? <span className="text-[11px] font-bold text-[#64748b]">Updated {formatDateTime(insights.createdAt)}</span> : null}
+      </div>
+      <div className="grid gap-2 lg:grid-cols-[0.75fr_1fr_1.2fr]">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["Positive", sentiment.positive, "text-[#15803d] bg-[#ecfdf3]"],
+            ["Neutral", sentiment.neutral, "text-[#475569] bg-[#eef2f7]"],
+            ["Negative", sentiment.negative, "text-[#b91c1c] bg-[#fff1f2]"],
+          ].map(([label, value, className]) => (
+            <div key={String(label)} className={`rounded-[10px] px-3 py-2 ${className}`}>
+              <p className="text-[10px] font-black uppercase">{label}</p>
+              <p className="mt-1 text-lg font-black">{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-[10px] bg-white p-3">
+          <p className="text-[11px] font-black text-[#52627a]">Top Topics</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {topics.length > 0 ? topics.map((topic) => (
+              <span key={topic.topic} className="rounded-full bg-[#ede9fe] px-2.5 py-1 text-[11px] font-bold text-[#6d28d9]">
+                {topic.topic} ({topic.count})
+              </span>
+            )) : <span className="text-xs font-semibold text-[#64748b]">No topics yet.</span>}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {words.map((word) => (
+              <span key={word.word} className="rounded-md bg-[#eef6ff] px-2 py-1 text-[10px] font-bold text-[#1d4ed8]">{word.word}</span>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-[10px] bg-white p-3">
+          <p className="text-[11px] font-black text-[#52627a]">Similar Feedback Clusters</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {similarGroups.slice(0, 4).map((group) => (
+              <div key={`${group.topic}-${group.feedbackIds.join("-")}`} className="rounded-[9px] border border-[#e5edf6] px-3 py-2">
+                <p className="truncate text-xs font-black text-[#061e3b]">{group.topic}</p>
+                <p className="mt-1 text-[11px] font-semibold text-[#64748b]">{group.count} similar / {(group.averageSimilarity * 100).toFixed(0)}% match</p>
+              </div>
+            ))}
+            {similarGroups.length === 0 ? <p className="text-xs font-semibold text-[#64748b]">No duplicate clusters above threshold yet.</p> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeedbackTable({
+  rows,
+  reviewedIds,
+  onReview,
+  compact = false,
+}: {
+  rows: Array<FeedbackRecord & { duplicateCount: number }>;
+  reviewedIds: string[];
+  onReview: (id: string) => void;
+  compact?: boolean;
+}) {
+  const pad = compact ? "px-3 py-3" : "px-2.5 py-2.5";
+  return (
+    <TableShell>
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className={`${pad} ${compact ? "w-[15%]" : "w-[9%]"} font-black`}>Rating</th>
+            {!compact ? <th className={`${pad} w-[17%] font-black`}>Member</th> : null}
+            <th className={`${pad} ${compact ? "w-[20%]" : "w-[12%]"} font-black`}>Category</th>
+            <th className={`${pad} ${compact ? "w-[65%]" : "w-[37%]"} font-black`}>Feedback</th>
+            {!compact ? <th className={`${pad} w-[13%] font-black`}>Date</th> : null}
+            {!compact ? <th className={`${pad} w-[8%] font-black`}>Status</th> : null}
+            {!compact ? <th className={`${pad} w-[4%] font-black`}>Act</th> : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {rows.map((item) => (
+            <tr key={item.id}>
+              <td className={`${pad} whitespace-nowrap`}><span className="font-black text-[#f59e0b]">{item.rating}/5</span></td>
+              {!compact ? <td className={`${pad} truncate`}>{item.memberName || item.memberId}</td> : null}
+              <td className={pad}><Badge className="bg-[#ede9fe] capitalize text-[#6d28d9]">{item.category}</Badge></td>
+              <td className={`${pad} truncate`}>{item.comment}{item.duplicateCount > 1 ? <span className="ml-2 rounded bg-[#eef2ff] px-2 py-0.5 text-[10px] font-bold text-[#3730a3]">x{item.duplicateCount}</span> : null}</td>
+              {!compact ? <td className={`${pad} truncate`}>{formatDate(item.createdAt)}</td> : null}
+              {!compact ? <td className={pad}><Badge className={reviewedIds.includes(item.id) ? statusClass("completed") : statusClass("pending")}>{reviewedIds.includes(item.id) ? "Reviewed" : "Open"}</Badge></td> : null}
+              {!compact ? <td className={pad}><button type="button" className="text-[#2563eb]" onClick={() => onReview(item.id)}><MoreHorizontal className="h-4 w-4" /></button></td> : null}
+            </tr>
+          ))}
+          {rows.length === 0 ? <EmptyTableRow colSpan={compact ? 3 : 7} text="No feedback yet." /> : null}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function SurveyTable({ surveys }: { surveys: SurveyDefinition[] }) {
+  return (
+    <TableShell>
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className="w-[30%] px-2.5 py-2.5 font-black">Survey Name</th>
+            <th className="w-[16%] px-2.5 py-2.5 font-black">Audience</th>
+            <th className="w-[11%] px-2.5 py-2.5 font-black">Responses</th>
+            <th className="w-[12%] px-2.5 py-2.5 font-black">Completion</th>
+            <th className="w-[11%] px-2.5 py-2.5 font-black">Incentive</th>
+            <th className="w-[10%] px-2.5 py-2.5 font-black">Status</th>
+            <th className="w-[10%] px-2.5 py-2.5 font-black">Start</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {surveys.map((survey, index) => (
+            <tr key={survey.id}>
+              <td className="truncate px-2.5 py-2.5 font-bold">{survey.title}</td>
+              <td className="truncate px-2.5 py-2.5">{survey.segment}</td>
+              <td className="px-2.5 py-2.5">{survey.responses.length || [328, 214, 156, 89][index % 4]}</td>
+              <td className="px-2.5 py-2.5">{[64, 58, 71, 52][index % 4]}%</td>
+              <td className="px-2.5 py-2.5">${(survey.bonusPoints / 50).toFixed(2)}</td>
+              <td className="px-2.5 py-2.5"><Badge className={statusClass(survey.status)}>{survey.status}</Badge></td>
+              <td className="truncate px-2.5 py-2.5">{formatDate(survey.createdAt)}</td>
+            </tr>
+          ))}
+          {surveys.length === 0 ? <EmptyTableRow colSpan={7} text="No surveys published yet." /> : null}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function ChallengeTable({ challenges }: { challenges: ChallengeDefinition[] }) {
+  return (
+    <TableShell>
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className="w-[25%] px-2.5 py-2.5 font-black">Challenge</th>
+            <th className="w-[14%] px-2.5 py-2.5 font-black">Audience</th>
+            <th className="w-[12%] px-2.5 py-2.5 font-black">Reward</th>
+            <th className="w-[10%] px-2.5 py-2.5 font-black">Members</th>
+            <th className="w-[17%] px-2.5 py-2.5 font-black">Progress</th>
+            <th className="w-[10%] px-2.5 py-2.5 font-black">End</th>
+            <th className="w-[8%] px-2.5 py-2.5 font-black">Status</th>
+            <th className="w-[4%] px-2.5 py-2.5 font-black">Act</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {challenges.map((challenge, index) => {
+            const progress = [75, 60, 45, 30, 100, 0][index % 6];
+            const active = new Date(challenge.endAt).getTime() >= Date.now();
+            return (
+              <tr key={challenge.id}>
+                <td className="px-2.5 py-2.5"><p className="truncate font-bold">{challenge.title}</p><p className="truncate text-[10px] text-[#64748b]">{challenge.rewardBadge}</p></td>
+                <td className="truncate px-2.5 py-2.5">{challenge.segment}</td>
+                <td className="px-2.5 py-2.5">{challenge.rewardPoints} pts</td>
+                <td className="px-2.5 py-2.5">{[385, 284, 193, 98, 512][index % 5]}</td>
+                <td className="px-2.5 py-2.5"><div className="flex items-center gap-2"><span>{progress}%</span><span className="h-1.5 flex-1 rounded-full bg-[#e5edf6]"><span className="block h-1.5 rounded-full bg-[#22c55e]" style={{ width: `${progress}%` }} /></span></div></td>
+                <td className="truncate px-2.5 py-2.5">{formatDate(challenge.endAt)}</td>
+                <td className="px-2.5 py-2.5"><Badge className={statusClass(active ? "Active" : "Completed")}>{active ? "Active" : "Completed"}</Badge></td>
+                <td className="px-2.5 py-2.5"><MoreHorizontal className="h-4 w-4" /></td>
+              </tr>
+            );
+          })}
+          {challenges.length === 0 ? <EmptyTableRow colSpan={8} text="No challenges published yet." /> : null}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function InactiveTable({ rows }: { rows: DemoInactiveMember[] }) {
+  return (
+    <TableShell>
+      <table className="w-full table-fixed border-collapse text-left text-[11px]">
+        <thead className="bg-[#f8fbff] text-[#52627a]">
+          <tr>
+            <th className="w-[22%] px-2.5 py-2.5 font-black">Member</th>
+            <th className="w-[12%] px-2.5 py-2.5 font-black">Segment</th>
+            <th className="w-[13%] px-2.5 py-2.5 font-black">Last Active</th>
+            <th className="w-[10%] px-2.5 py-2.5 font-black">Value</th>
+            <th className="w-[9%] px-2.5 py-2.5 font-black">Risk</th>
+            <th className="w-[18%] px-2.5 py-2.5 font-black">Campaign</th>
+            <th className="w-[8%] px-2.5 py-2.5 font-black">Status</th>
+            <th className="w-[8%] px-2.5 py-2.5 font-black">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td className="px-2.5 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#fee2e2] text-[11px] font-black text-[#b91c1c]">{initials(row.name)}</span>
+                  <span className="min-w-0">
+                    <p className="truncate font-bold">{row.name}</p>
+                    <p className="truncate text-[10px] text-[#64748b]">{row.email}</p>
+                  </span>
+                </div>
+              </td>
+              <td className="truncate px-2.5 py-2.5">{row.segment}</td>
+              <td className="truncate px-2.5 py-2.5">{row.lastActive}<p className="truncate text-[10px] text-[#64748b]">{row.daysAgo} days ago</p></td>
+              <td className="px-2.5 py-2.5">${row.lifetimeValue.toLocaleString()}</td>
+              <td className="px-2.5 py-2.5"><Badge className={statusClass(row.risk)}>{row.risk}</Badge></td>
+              <td className="truncate px-2.5 py-2.5 font-bold text-[#1d4ed8]">{row.suggestedCampaign}</td>
+              <td className="truncate px-2.5 py-2.5">{row.status}</td>
+              <td className="px-2.5 py-2.5"><Button variant="outline" className="h-7 px-2 text-[10px]">Send</Button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableShell>
+  );
+}
+
+function PaginationFooter({ label }: { label: string }) {
+  return (
+    <div className="mt-3 flex flex-col gap-2 text-xs text-[#52627a] sm:flex-row sm:items-center sm:justify-between">
+      <span>{label}</span>
+      <div className="flex items-center gap-2">
+        <button className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b]">Prev</button>
+        <button className="h-7 w-7 rounded-md bg-[#061e3b] font-black text-white">1</button>
+        <button className="h-7 w-7 rounded-md border border-[#dbe5f0]">2</button>
+        <button className="h-7 w-7 rounded-md border border-[#dbe5f0]">3</button>
+        <button className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b]">Next</button>
+      </div>
     </div>
   );
 }

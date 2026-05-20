@@ -27,6 +27,7 @@ import { normalizeTierLabel } from "../../lib/loyalty-engine";
 import { fetchTierRulesViaService } from "../../lib/points-service-client";
 import { loadSurveyDefinitions } from "../../lib/member-engagement";
 import { getMemberReferralCode, loadReferrals } from "../../lib/member-lifecycle";
+import { DEMO_PLATINUM_GOAL, demoSurveys, demoTransactions } from "../../lib/demo-loyalty-data";
 
 type EarnStatus = "available" | "completed" | "locked" | "mobile";
 
@@ -63,8 +64,9 @@ type TierRuleRow = {
 
 const defaultTierRules = [
   { name: "Bronze", min: 0 },
-  { name: "Silver", min: 250 },
-  { name: "Gold", min: 750 },
+  { name: "Silver", min: 25000 },
+  { name: "Gold", min: 50000 },
+  { name: "Platinum", min: DEMO_PLATINUM_GOAL },
 ];
 
 const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "action" | "disabled"> & { aliases: string[] }> = [
@@ -232,13 +234,26 @@ export default function EarnPoints() {
 
         setApiTasks((tasksResponse.earnTasks || []).filter((task) => task.active !== false));
         setRecentEarned(normalizeEarnedRows(activityResponse.history || []));
-        setSurveyCount(surveys.filter((survey) => survey.status === "live").length);
+        setSurveyCount((surveys.length > 0 ? surveys : demoSurveys).filter((survey) => survey.status === "live").length);
         setReferralCount(referrals.length);
         setReferralCode(code);
       })
       .catch((error) => {
         console.error("Earn points data failed to load", error);
         if (!alive) return;
+        setSurveyCount(demoSurveys.filter((survey) => survey.status === "live").length);
+        setRecentEarned(
+          demoTransactions
+            .filter((row) => row.type === "earned")
+            .slice(0, 5)
+            .map((row) => ({
+              id: row.id,
+              points: row.points,
+              type: "EARN",
+              date: row.date,
+              reason: row.description,
+            })),
+        );
         setLoadError(true);
       });
 
@@ -254,7 +269,7 @@ export default function EarnPoints() {
         for (const rule of response?.tiers ?? ([] as TierRuleRow[])) {
           const label = String(rule.tier_label || "").trim();
           const normalizedLabel = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
-          if (!["Bronze", "Silver", "Gold"].includes(normalizedLabel)) continue;
+          if (!["Bronze", "Silver", "Gold", "Platinum"].includes(normalizedLabel)) continue;
           nextRules.set(normalizedLabel, Math.max(0, Number(rule.min_points) || 0));
         }
         setTierRules(Array.from(nextRules.entries()).map(([name, min]) => ({ name, min })).sort((a, b) => a.min - b.min));
@@ -356,9 +371,9 @@ export default function EarnPoints() {
           status: "available",
           statusLabel: "Available",
           helperText: "Adds points from this page",
-          action: () => handleTestEarn(config.id, config.title, points),
-          disabled: Boolean(earningTaskId),
-          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
+        action: () => navigate("/customer/engagement#engagement-surveys"),
+        disabled: surveyCount === 0,
+        actionLabel: surveyCount > 0 ? "Open Survey" : "No Survey Live",
         };
       }
 
@@ -384,9 +399,9 @@ export default function EarnPoints() {
           status: completed ? "completed" : surveyCount > 0 ? "available" : "locked",
           statusLabel: completed ? "Completed" : "Available",
           helperText: surveyCount > 0 ? `${surveyCount} survey${surveyCount === 1 ? "" : "s"} ready` : "Sample survey earn",
-          action: () => handleTestEarn(config.id, config.title, points),
-          disabled: Boolean(earningTaskId),
-          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
+          action: () => navigate("/customer/engagement#engagement-rewards"),
+          disabled: false,
+          actionLabel: "Go to Referrals",
         };
       }
 
@@ -397,9 +412,9 @@ export default function EarnPoints() {
           status: "available",
           statusLabel: referralCount > 0 ? `${referralCount} tracked` : "Available",
           helperText: referralCode ? `Code ${referralCode}` : "Create your referral code",
-          action: () => handleTestEarn(config.id, config.title, points),
-          disabled: Boolean(earningTaskId),
-          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
+          action: () => navigate("/customer/engagement#engagement-rewards"),
+          disabled: false,
+          actionLabel: "Leave Review",
         };
       }
 
@@ -409,9 +424,9 @@ export default function EarnPoints() {
           points,
           status: "available",
           statusLabel: "Available",
-          action: () => handleTestEarn(config.id, config.title, points),
-          disabled: Boolean(earningTaskId),
-          actionLabel: earningTaskId === config.id ? "Adding..." : "Test Earn",
+          action: () => navigate("/customer/engagement#engagement-sharing"),
+          disabled: false,
+          actionLabel: "Open Social Hub",
         };
       }
 

@@ -521,6 +521,14 @@ export async function loadChallengeDefinitions() {
   return response.challenges || [];
 }
 
+export async function createChallengeDefinitionRecord(input: Omit<ChallengeDefinition, "id"> & { id?: string }) {
+  const response = await requestJson<{ ok: true; challenge: ChallengeDefinition | null }>("/api/engagement/challenges", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return response.challenge;
+}
+
 export async function loadChallengeProgressByMember(memberIdentifier: string) {
   return new Map<string, ChallengeProgressSnapshot>();
 }

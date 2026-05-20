@@ -55,6 +55,7 @@ import {
   customerPanelClass,
   customerPanelSoftClass,
 } from "../lib/page-theme";
+import { demoRewards } from "../../lib/demo-loyalty-data";
 
 type RedemptionMethod = "in-store" | "online";
 type RewardCategoryTab = "all" | "flash" | "partner" | "pharmacy" | "wellness" | "voucher";
@@ -292,7 +293,8 @@ export default function Rewards() {
       ]);
 
       if (!active) return;
-      setCatalog(mergeRewardsWithCampaigns(rewardsResponse.rewards, campaignsResponse.campaigns));
+      const sourceRewards = rewardsResponse.rewards.length > 0 ? rewardsResponse.rewards : demoRewards;
+      setCatalog(mergeRewardsWithCampaigns(sourceRewards, campaignsResponse.campaigns));
       setActiveCampaigns(campaignsResponse.campaigns);
     };
 
@@ -301,7 +303,7 @@ export default function Rewards() {
       void loadActiveCampaignsViaApi(user.tier)
         .then((response) => {
           setActiveCampaigns(response.campaigns);
-          setCatalog((current) => mergeRewardsWithCampaigns(current, response.campaigns));
+          setCatalog((current) => mergeRewardsWithCampaigns(current.length > 0 ? current : demoRewards, response.campaigns));
         })
         .catch(() => undefined);
     }, 30_000);

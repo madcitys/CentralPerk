@@ -74,6 +74,7 @@ import {
   type BirthdayRewardSettings,
   type ReferralRecord,
 } from "../../lib/member-lifecycle";
+import { DEMO_REFERRAL_CODE, demoChallenges, demoReferrals, demoSurveys } from "../../lib/demo-loyalty-data";
 
 type EngagementTab = "overview" | "rewards" | "challenges" | "sharing" | "surveys";
 
@@ -284,23 +285,20 @@ export default function CustomerEngagementPage() {
       loadMemberPrivacySettings(user.memberId),
     ]);
 
-    const rejected = results.find((r) => r.status === "rejected");
-    if (rejected) throw (rejected as PromiseRejectedResult).reason;
+    const challengeRows = results[0].status === "fulfilled" ? results[0].value : [];
+    const surveyRows = results[1].status === "fulfilled" ? results[1].value : [];
+    const shares = results[2].status === "fulfilled" ? results[2].value : [];
+    const referralRows = results[3].status === "fulfilled" ? results[3].value : [];
+    const code = results[4].status === "fulfilled" ? results[4].value : "";
+    const settings = results[5].status === "fulfilled" ? results[5].value : defaultBirthdaySettings;
+    const status = results[6].status === "fulfilled" ? results[6].value : birthdayStatus;
+    const privacy = results[7].status === "fulfilled" ? results[7].value : defaultPrivacySettings;
 
-    const challengeRows = (results[0] as PromiseFulfilledResult<ChallengeDefinition[]>).value;
-    const surveyRows = (results[1] as PromiseFulfilledResult<SurveyDefinition[]>).value;
-    const shares = (results[2] as PromiseFulfilledResult<ShareEvent[]>).value;
-    const referralRows = (results[3] as PromiseFulfilledResult<ReferralRecord[]>).value;
-    const code = (results[4] as PromiseFulfilledResult<string>).value;
-    const settings = (results[5] as PromiseFulfilledResult<BirthdayRewardSettings>).value;
-    const status = (results[6] as PromiseFulfilledResult<any>).value;
-    const privacy = (results[7] as PromiseFulfilledResult<SharePrivacySettings>).value;
-
-    setChallenges(challengeRows);
-    setSurveys(surveyRows);
+    setChallenges(challengeRows.length > 0 ? challengeRows : demoChallenges);
+    setSurveys(surveyRows.length > 0 ? surveyRows : demoSurveys);
     setShareEvents(shares);
-    setReferrals(referralRows);
-    setReferralCode(code);
+    setReferrals(referralRows.length > 0 ? referralRows : demoReferrals);
+    setReferralCode(code || DEMO_REFERRAL_CODE);
     setBirthdaySettings(settings);
     setBirthdayStatus(status);
     setPrivacySettings(privacy);

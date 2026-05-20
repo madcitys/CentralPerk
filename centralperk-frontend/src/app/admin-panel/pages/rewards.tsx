@@ -11,6 +11,7 @@ import { Card } from "../../../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 import { Textarea } from "../../../components/ui/textarea";
 import { cn } from "../../../components/ui/utils";
 import { useAdminData } from "../hooks/use-admin-data";
@@ -59,8 +60,16 @@ function toInputDate(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
+type RewardsTab = "overview" | "campaigns" | "flash" | "partners";
 type CampaignWizardStep = 1 | 2 | 3;
 type CampaignPerformanceTab = "overview" | "audience" | "engagement" | "financials";
+
+const rewardsTabs: { value: RewardsTab; label: string; hash: string }[] = [
+  { value: "overview", label: "Overview", hash: "#rewards-overview" },
+  { value: "campaigns", label: "Campaigns", hash: "#rewards-campaigns" },
+  { value: "flash", label: "Flash Sales", hash: "#rewards-flash" },
+  { value: "partners", label: "Partners", hash: "#rewards-partners" },
+];
 
 type CampaignFormState = {
   campaignCode: string;
@@ -271,6 +280,7 @@ const campaignTemplates: CampaignTemplate[] = [
 export default function AdminRewardsPage() {
   const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { loading, error, metrics, rewardsCatalog, refetch } = useAdminData();
+  const [activeTab, setActiveTab] = useState<RewardsTab>("overview");
   const [campaignWizardOpen, setCampaignWizardOpen] = useState(false);
   const [campaignPerformanceOpen, setCampaignPerformanceOpen] = useState(false);
   const [partnerDashboardOpen, setPartnerDashboardOpen] = useState(false);
@@ -368,6 +378,21 @@ export default function AdminRewardsPage() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const matchedTab = rewardsTabs.find((tab) => tab.hash === window.location.hash);
+    if (matchedTab) {
+      setActiveTab(matchedTab.value);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const current = rewardsTabs.find((tab) => tab.value === activeTab);
+    if (!current) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${current.hash}`);
+  }, [activeTab]);
 
   const campaignPerformanceById = useMemo(
     () => new Map(campaignPerformance.map((row) => [row.campaignId, row])),
@@ -532,6 +557,7 @@ export default function AdminRewardsPage() {
     });
     setSelectedCampaignId("");
     setCampaignWizardStep(1);
+    setActiveTab("campaigns");
     setCampaignWizardOpen(true);
   };
 
@@ -544,6 +570,7 @@ export default function AdminRewardsPage() {
     }));
     setSelectedCampaignId("");
     setCampaignWizardStep(1);
+    setActiveTab("campaigns");
     setCampaignWizardOpen(true);
     if (patch.campaignType === "flash_sale" && !patch.rewardId && !firstRewardId) {
       toast.warning("Template applied. Select a reward link before saving the flash sale.");
@@ -684,6 +711,22 @@ export default function AdminRewardsPage() {
         </div>
       </header>
 
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as RewardsTab)} className="flex min-h-0 flex-1 flex-col gap-5">
+        <div className="shrink-0 overflow-x-auto pb-1">
+          <TabsList className="h-auto min-w-max flex-nowrap justify-start gap-1 rounded-full border border-[#d6e0f7] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] p-1 shadow-[0_10px_24px_rgba(16,33,58,0.04)]">
+            {rewardsTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="rounded-full px-4 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-[#15243a] data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+
+        <TabsContent value="overview" className="m-0 flex min-h-0 flex-1 flex-col gap-5">
       {/* Metrics Row */}
       <div className="shrink-0 grid grid-cols-4 gap-5">
         <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
@@ -776,10 +819,11 @@ export default function AdminRewardsPage() {
         </div>
       </div>
 
-      {/* Bottom Row: Lists */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 flex-1 min-h-[350px]">
+        </TabsContent>
+
+        <TabsContent value="campaigns" className="m-0 min-h-0 flex-1">
         {/* Campaign List */}
-        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col min-h-0">
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex h-full min-h-[350px] flex-col overflow-hidden">
           <div className="flex items-center justify-between p-5 pb-3 border-b border-[#e4ecf4]">
             <h3 className="text-[15px] font-bold text-[#15243a]">Campaigns</h3>
             <select className="block w-40 py-1.5 pl-3 pr-8 border border-[#dce6f2] rounded-md text-xs bg-white text-[#5a6a7e] focus:outline-none focus:ring-1 focus:ring-[#0b8b95]" value={campaignStatusFilter} onChange={(e) => setCampaignStatusFilter(e.target.value as typeof campaignStatusFilter)}>
@@ -829,9 +873,68 @@ export default function AdminRewardsPage() {
             </table>
           </div>
         </div>
+        </TabsContent>
 
+        <TabsContent value="flash" className="m-0 min-h-0 flex-1">
+          <div className="grid gap-5 xl:grid-cols-2">
+            <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-[15px] font-bold text-[#15243a]">Flash Sales</h3>
+                  <p className="mt-1 text-xs font-medium text-[#5f6f86]">Limited campaigns linked to rewards in the customer catalog.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={() => applyCampaignTemplate(campaignTemplates.find((template) => template.id === "payday-flash") ?? campaignTemplates[0])}>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Flash Sale Template
+                </Button>
+              </div>
+
+              <div className="mt-5 grid gap-4">
+                {flashSales.map((campaign) => {
+                  const performance = campaignPerformanceById.get(campaign.id);
+                  return (
+                    <div key={campaign.id} className="rounded-[16px] border border-[#ffd7b2] bg-[linear-gradient(135deg,#ffffff_0%,#fff4e7_100%)] p-4 shadow-[0_10px_28px_rgba(234,88,12,0.07)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-[#15243a]">{campaign.campaignName}</p>
+                          <p className="mt-1 text-xs text-[#5a6a7e]">{campaign.rewardName || "No linked reward"}</p>
+                        </div>
+                        <Badge className="bg-[#ef4444] text-white">{campaign.status}</Badge>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-xl bg-white p-3"><p className="text-xs text-[#5a6a7e]">Claimed</p><p className="mt-1 text-lg font-bold text-[#15243a]">{performance?.quantityClaimed ?? campaign.flashSaleClaimedCount ?? 0}</p></div>
+                        <div className="rounded-xl bg-white p-3"><p className="text-xs text-[#5a6a7e]">Limit</p><p className="mt-1 text-lg font-bold text-[#15243a]">{performance?.quantityLimit ?? campaign.flashSaleQuantityLimit ?? 0}</p></div>
+                        <div className="rounded-xl bg-white p-3"><p className="text-xs text-[#5a6a7e]">Sell-through</p><p className="mt-1 text-lg font-bold text-[#15243a]">{performance?.sellThrough ?? 0}%</p></div>
+                        <div className="rounded-xl bg-white p-3"><p className="text-xs text-[#5a6a7e]">Speed</p><p className="mt-1 text-lg font-bold text-[#15243a]">{performance?.redemptionSpeedPerHour ?? 0}/hr</p></div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {flashSales.length === 0 ? <p className="rounded-[16px] border border-[#e4ecf4] bg-[#f9fbfe] p-5 text-sm text-[#5a6a7e]">No flash sales configured yet.</p> : null}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+              <h3 className="text-[15px] font-bold text-[#15243a]">Flash Sale Sell-through</h3>
+              <div className="mt-5 h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={flashPerformanceChart} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                    <CartesianGrid stroke="#e4ecf4" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} />
+                    <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[4, 4, 0, 0]} fill="#f59e0b" />
+                    <Bar dataKey="claimed" name="Claimed" radius={[4, 4, 0, 0]} fill="#1A2B47" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="partners" className="m-0 min-h-0 flex-1">
         {/* Partners List */}
-        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col min-h-0 overflow-hidden">
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex h-full min-h-[350px] flex-col overflow-hidden">
           <div className="flex items-center justify-between p-5 pb-3 border-b border-[#e4ecf4]">
             <h3 className="text-[15px] font-bold text-[#15243a]">Partners</h3>
             <span className="text-xs text-[#8f9eb2]">{partners.length} total partners</span>
@@ -860,7 +963,8 @@ export default function AdminRewardsPage() {
             })}
           </div>
         </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Dialogs */}
       
