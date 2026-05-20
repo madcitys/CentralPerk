@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Megaphone, PlusCircle, Sparkles, Zap, type LucideIcon } from "lucide-react";
+import { CalendarClock, Megaphone, PlusCircle, Sparkles, Zap, Bell, type LucideIcon } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import { AdminDashboardOutletContext } from "../types";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { CalendarDateTimePicker } from "../../../components/calendar-date-time-picker";
 import { Card } from "../../../components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 import { Textarea } from "../../../components/ui/textarea";
+import { cn } from "../../../components/ui/utils";
 import { useAdminData } from "../hooks/use-admin-data";
 import {
   adminDarkButtonClass,
@@ -24,6 +27,7 @@ import {
   adminPageTitleClass,
   adminPanelClass,
   adminPanelSoftClass,
+  adminPrimaryButtonClass,
   adminSelectClass,
 } from "../lib/page-theme";
 import {
@@ -55,16 +59,8 @@ function toInputDate(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
-type RewardsTab = "overview" | "campaigns" | "flash" | "partners";
 type CampaignWizardStep = 1 | 2 | 3;
 type CampaignPerformanceTab = "overview" | "audience" | "engagement" | "financials";
-
-const rewardsTabs: { value: RewardsTab; label: string; hash: string }[] = [
-  { value: "overview", label: "Overview", hash: "#rewards-overview" },
-  { value: "campaigns", label: "Campaigns", hash: "#rewards-campaigns" },
-  { value: "flash", label: "Flash Sales", hash: "#rewards-flash" },
-  { value: "partners", label: "Partners", hash: "#rewards-partners" },
-];
 
 type CampaignFormState = {
   campaignCode: string;
@@ -273,8 +269,11 @@ const campaignTemplates: CampaignTemplate[] = [
 ];
 
 export default function AdminRewardsPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { loading, error, metrics, rewardsCatalog, refetch } = useAdminData();
-  const [activeTab, setActiveTab] = useState<RewardsTab>("overview");
+  const [campaignWizardOpen, setCampaignWizardOpen] = useState(false);
+  const [campaignPerformanceOpen, setCampaignPerformanceOpen] = useState(false);
+  const [partnerDashboardOpen, setPartnerDashboardOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<PromotionCampaign[]>([]);
   const [campaignPerformance, setCampaignPerformance] = useState<CampaignPerformance[]>([]);
   const [campaignRewardOptions, setCampaignRewardOptions] = useState<Reward[]>([]);
@@ -369,23 +368,6 @@ export default function AdminRewardsPage() {
 
     return () => window.clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    const matchedTab = rewardsTabs.find((tab) => tab.hash === hash);
-    if (matchedTab) {
-      setActiveTab(matchedTab.value);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const current = rewardsTabs.find((tab) => tab.value === activeTab);
-    if (!current) return;
-    const nextUrl = `${window.location.pathname}${window.location.search}${current.hash}`;
-    window.history.replaceState(null, "", nextUrl);
-  }, [activeTab]);
 
   const campaignPerformanceById = useMemo(
     () => new Map(campaignPerformance.map((row) => [row.campaignId, row])),
@@ -550,7 +532,7 @@ export default function AdminRewardsPage() {
     });
     setSelectedCampaignId("");
     setCampaignWizardStep(1);
-    setActiveTab("campaigns");
+    setCampaignWizardOpen(true);
   };
 
   const applyCampaignTemplate = (template: CampaignTemplate) => {
@@ -562,7 +544,7 @@ export default function AdminRewardsPage() {
     }));
     setSelectedCampaignId("");
     setCampaignWizardStep(1);
-    setActiveTab("campaigns");
+    setCampaignWizardOpen(true);
     if (patch.campaignType === "flash_sale" && !patch.rewardId && !firstRewardId) {
       toast.warning("Template applied. Select a reward link before saving the flash sale.");
       return;
@@ -665,541 +647,415 @@ export default function AdminRewardsPage() {
   if (error) return <p className="text-red-600">{error}</p>;
 
   return (
-    <div className={adminPageShellClass}>
-      <div className={adminPageHeroClass}>
-        <div className={adminPageHeroInnerClass}>
-          <div className={adminEyebrowClass}>Rewards Engine</div>
-          <h1 className={adminPageTitleClass}>Campaigns & Promotions</h1>
-          <p className={adminPageDescriptionClass}>
-            Published campaigns, flash sales, partners, and reward links feed the customer rewards catalog through the same service-backed APIs.
-          </p>
+    <div className="flex h-full flex-col gap-5 p-6 bg-[#f3f6f9] overflow-auto">
+      {/* Header */}
+      <header className="shrink-0 rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+              Rewards Engine
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Campaigns & Promotions</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Published campaigns, flash sales, partners, and reward links feed the customer rewards catalog through the same service-backed APIs.</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2.5 self-start">
+            <button
+              type="button"
+              onClick={() => openNotifications?.()}
+              aria-label="Notifications"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" onClick={() => setPartnerDashboardOpen(true)} className="h-10 rounded-md border-[#dfe7f1] bg-white px-4 text-[12px] font-bold text-[#24364f] shadow-[0_4px_12px_rgba(17,38,60,0.04)] transition hover:border-[#bfd0e6] hover:bg-[#f9fbff]">Manage Partners</Button>
+            <Button className={cn(adminPrimaryButtonClass, "h-10 rounded-md px-4 shadow-[0_8px_18px_rgba(11,127,136,0.18)]")} onClick={() => { startBlankCampaign(); setCampaignWizardOpen(true); }}>+ New Campaign</Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Metrics Row */}
+      <div className="shrink-0 grid grid-cols-4 gap-5">
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+          <p className="text-xs font-semibold text-[#5a6a7e] mb-1 uppercase tracking-wider">Points Liability</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[28px] font-extrabold text-[#15243a] leading-none">{metrics.pointsLiability.toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+          <p className="text-xs font-semibold text-[#5a6a7e] mb-1 uppercase tracking-wider">Redeemed (6M)</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[28px] font-extrabold text-[#15243a] leading-none">{metrics.redemptionSeries.reduce((sum, point) => sum + point.value, 0).toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+          <p className="text-xs font-semibold text-[#5a6a7e] mb-1 uppercase tracking-wider">Active Campaigns</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[28px] font-extrabold text-[#15243a] leading-none">{campaigns.filter((campaign) => campaign.status === "active").length}</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+          <p className="text-xs font-semibold text-[#5a6a7e] mb-1 uppercase tracking-wider">Active Partners</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[28px] font-extrabold text-[#15243a] leading-none">{partners.filter((partner) => partner.isActive).length}</span>
+          </div>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as RewardsTab)} className="space-y-6">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="overflow-x-auto pb-1">
-            <TabsList className="h-auto min-w-max flex-nowrap justify-start gap-1 rounded-full border border-[#d6e0f7] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] p-1 shadow-[0_10px_24px_rgba(16,33,58,0.04)]">
-              <TabsTrigger value="overview" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Overview</TabsTrigger>
-              <TabsTrigger value="campaigns" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Campaigns</TabsTrigger>
-              <TabsTrigger value="flash" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Flash Sales</TabsTrigger>
-              <TabsTrigger value="partners" className="rounded-full px-4 py-2 data-[state=active]:bg-white data-[state=active]:ring-2 data-[state=active]:ring-[#2b4468]">Partners</TabsTrigger>
-            </TabsList>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" className={adminDarkButtonClass} onClick={() => startBlankCampaign()}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              New Campaign
-            </Button>
-            <Button type="button" variant="outline" onClick={() => applyCampaignTemplate(campaignTemplates.find((template) => template.id === "payday-flash") ?? campaignTemplates[0])}>
-              <Zap className="mr-2 h-4 w-4" />
-              Flash Sale Template
-            </Button>
+      {/* Middle Charts Row */}
+      <div className="shrink-0 grid grid-cols-1 xl:grid-cols-5 gap-5">
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] xl:col-span-2 flex flex-col">
+          <h3 className="text-sm font-bold text-[#15243a] mb-4">Liability Trend</h3>
+          <div className="flex-1 min-h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={metrics.liabilityTrend}>
+                <XAxis dataKey="month" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} />
+                <Line type="monotone" dataKey="points" stroke="#1A2B47" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}><p className="text-sm text-gray-500">Points Liability</p><p className="mt-2 text-3xl font-bold text-gray-900">{metrics.pointsLiability.toLocaleString()}</p></Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}><p className="text-sm text-gray-500">Redeemed (6m)</p><p className="mt-2 text-3xl font-bold text-gray-900">{metrics.redemptionSeries.reduce((sum, point) => sum + point.value, 0).toLocaleString()}</p></Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}><p className="text-sm text-gray-500">Active Campaigns</p><p className="mt-2 text-3xl font-bold text-gray-900">{campaigns.filter((campaign) => campaign.status === "active").length}</p></Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}><p className="text-sm text-gray-500">Active Partners</p><p className="mt-2 text-3xl font-bold text-gray-900">{partners.filter((partner) => partner.isActive).length}</p></Card>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] xl:col-span-1 flex flex-col">
+          <h3 className="text-sm font-bold text-[#15243a] mb-4">Campaign Comparison</h3>
+          <div className="flex-1 min-h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={campaignComparisonChart} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#e4ecf4" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} />
+                <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[4, 4, 0, 0]} fill="#0fa7b4" />
+                <Bar dataKey="redemptions" name="Redemptions" radius={[4, 4, 0, 0]} fill="#1A2B47" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+        </div>
 
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Liability Trend</h2>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics.liabilityTrend}>
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="points" stroke="#1A2B47" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Campaign Comparison</h2>
-              <p className="mt-1 text-sm text-gray-500">Quick read on which campaigns drive points and redemptions.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={campaignComparisonChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                    <Bar dataKey="pointsAwarded" name="Points Awarded" radius={[8, 8, 0, 0]} fill="#0fa7b4" />
-                    <Bar dataKey="redemptions" name="Redemptions" radius={[8, 8, 0, 0]} fill="#1A2B47" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Flash Sale Sell-through</h2>
-              <p className="mt-1 text-sm text-gray-500">Which flash drops are converting fastest and clearing inventory.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={flashPerformanceChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} />
-                    <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[8, 8, 0, 0]} fill="#f59e0b" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            <Card className={adminPanelClass}>
-              <h2 className="text-lg font-semibold text-gray-900">Partner Redemption Share</h2>
-              <p className="mt-1 text-sm text-gray-500">Top partners by redeemed rewards volume.</p>
-              <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} paddingAngle={3}>
-                      {partnerRedemptionChart.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] xl:col-span-1 flex flex-col">
+          <h3 className="text-sm font-bold text-[#15243a] mb-4">Flash Sale Sell-through</h3>
+          <div className="flex-1 min-h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={flashPerformanceChart} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#e4ecf4" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} />
+                <Bar dataKey="sellThrough" name="Sell-through (%)" radius={[4, 4, 0, 0]} fill="#f59e0b" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="campaigns" className="space-y-6">
-          <Card className={adminPanelClass}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Campaign Quick Starts</h2>
-                <p className="mt-1 text-sm leading-5 text-gray-500">
-                  Choose an occasion or flash sale preset, review the form, then save or publish it. Customer pages only show campaigns after they are published through this admin flow.
-                </p>
-              </div>
-              <Button type="button" variant="outline" onClick={() => startBlankCampaign("flash_sale")}>
-                <Zap className="mr-2 h-4 w-4" />
-                Start Flash Sale
-              </Button>
-            </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {campaignTemplates.map((template) => {
-                const Icon = template.icon;
-                return (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => applyCampaignTemplate(template)}
-                    className="group rounded-[24px] border border-[#d6e0f7] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-4 text-left shadow-[0_10px_24px_rgba(16,33,58,0.04)] transition hover:-translate-y-0.5 hover:border-[#0f8b92] hover:shadow-[0_18px_34px_rgba(16,33,58,0.08)]"
-                  >
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f8f6] text-[#0f8b92]">
-                      <Icon className="h-5 w-5" />
-                    </span>
-                    <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5f7895]">{template.eyebrow}</p>
-                    <p className="mt-2 text-base font-semibold text-[#10213a]">{template.title}</p>
-                    <p className="mt-2 text-sm leading-5 text-[#5d6c82]">{template.description}</p>
-                    <span className="mt-4 inline-flex items-center text-sm font-semibold text-[#0f8b92] group-hover:text-[#10213a]">
-                      Use Template
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Campaign Creation Wizard</h2>
-            <p className="text-sm leading-5 text-gray-500">Create campaigns in three guided steps so the setup flow is lighter and easier to scan.</p>
-
-            <div className="mt-5 grid gap-4 lg:grid-cols-3">
-              {[
-                { step: 1 as CampaignWizardStep, title: "Basic Info", description: "Name, type, and campaign messaging." },
-                { step: 2 as CampaignWizardStep, title: "Targeting", description: "Audience rules and A/B setup." },
-                { step: 3 as CampaignWizardStep, title: "Budget & Schedule", description: "Incentives, limits, and launch timing." },
-              ].map((item) => {
-                const isActive = campaignWizardStep === item.step;
-                return (
-                  <button
-                    key={item.step}
-                    type="button"
-                    onClick={() => setCampaignWizardStep(item.step)}
-                    className={`rounded-[28px] border p-5 text-left transition ${
-                      isActive
-                        ? "border-[#1A2B47] bg-[#172845] text-white shadow-[0_18px_36px_rgba(16,33,58,0.16)]"
-                        : "border-[#d6e0f7] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] text-[#10213a]"
-                    }`}
-                  >
-                    <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isActive ? "text-white/70" : "text-[#5f7895]"}`}>Step {item.step}</p>
-                    <p className="mt-4 text-[1.05rem] font-semibold">{item.title}</p>
-                    <p className={`mt-2 text-sm ${isActive ? "text-white/80" : "text-[#47617f]"}`}>{item.description}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            {campaignWizardStep === 1 ? (
-              <div className="mt-6 rounded-[28px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div><Label className="mb-2 inline-block">Campaign Code</Label><Input value={campaignForm.campaignCode} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignCode: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Campaign Name</Label><Input value={campaignForm.campaignName} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignName: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Type</Label><select className={adminSelectClass} value={campaignForm.campaignType} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignType: e.target.value as typeof campaignForm.campaignType }))}><option value="bonus_points">Bonus points</option><option value="multiplier_event">Multiplier event</option><option value="flash_sale">Flash sale</option></select></div>
-                  <div>
-                    <Label className="mb-2 inline-block">Reward Link</Label>
-                    <select
-                      className={adminSelectClass}
-                      value={campaignForm.rewardId}
-                      onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}
-                    >
-                      <option value="">No linked reward</option>
-                      {campaignRewardOptions.filter((reward) => reward.rewardCatalogId).map((reward) => (
-                        <option key={reward.rewardCatalogId ?? reward.id} value={String(reward.rewardCatalogId ?? "")}>
-                          {reward.name} ({reward.pointsCost.toLocaleString()} pts)
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-xs text-[#607087]">
-                      Flash sale campaigns must link a reward from the customer catalog to appear on the customer Rewards page.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4"><Label className="mb-2 inline-block">Description</Label><Textarea rows={3} value={campaignForm.description} onChange={(e) => setCampaignForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div><Label className="mb-2 inline-block">Banner Title</Label><Input value={campaignForm.bannerTitle} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bannerTitle: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Banner Message</Label><Input value={campaignForm.bannerMessage} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bannerMessage: e.target.value }))} /></div>
-                </div>
-              </div>
-            ) : null}
-
-            {campaignWizardStep === 2 ? (
-              <div className="mt-6 space-y-4">
-                <div className="rounded-[28px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div><Label className="mb-2 inline-block">Product Scope</Label><Input value={campaignForm.productScope} onChange={(e) => setCampaignForm((prev) => ({ ...prev, productScope: e.target.value }))} placeholder="pastry, beverage" /></div>
-                    <div><Label className="mb-2 inline-block">Eligible Tiers</Label><Input value={campaignForm.eligibleTiers} onChange={(e) => setCampaignForm((prev) => ({ ...prev, eligibleTiers: e.target.value }))} placeholder="Bronze,Silver,Gold" /></div>
-                  </div>
-                </div>
-                <div className="rounded-[28px] border border-[#d9cef8] bg-[linear-gradient(180deg,#f9f5ff_0%,#f5f0ff_100%)] p-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div><h3 className="text-lg font-semibold text-[#362b67]">A/B test setup</h3><p className="mt-1 text-sm text-[#665699]">Embedded inside step 2 so targeting and experiment setup stay together.</p></div>
-                    <label className="flex items-center gap-2 text-sm font-medium text-[#4333bf]"><input type="checkbox" checked={abTestEnabled} onChange={(e) => setAbTestEnabled(e.target.checked)} /> Enable A/B test</label>
-                  </div>
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <div><Label className="mb-2 inline-block">Audience Split</Label><Input value={abAudienceSplit} onChange={(e) => setAbAudienceSplit(e.target.value)} /></div>
-                    <div><Label className="mb-2 inline-block">Success Metric</Label><select className={adminSelectClass} value={abSuccessMetric} onChange={(e) => setAbSuccessMetric(e.target.value)}><option value="redemption_rate">Redemption rate</option><option value="points_awarded">Points awarded</option><option value="notifications_sent">Notifications sent</option></select></div>
-                    <div><Label className="mb-2 inline-block">Variant A</Label><Input value={variantAName} onChange={(e) => setVariantAName(e.target.value)} /></div>
-                    <div><Label className="mb-2 inline-block">Variant B</Label><Input value={variantBName} onChange={(e) => setVariantBName(e.target.value)} /></div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {campaignWizardStep === 3 ? (
-              <div className="mt-6 rounded-[28px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div><Label className="mb-2 inline-block">Multiplier</Label><Input type="number" step="0.01" value={campaignForm.multiplier} onChange={(e) => setCampaignForm((prev) => ({ ...prev, multiplier: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Bonus Points</Label><Input type="number" value={campaignForm.bonusPoints} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bonusPoints: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Minimum Purchase</Label><Input type="number" step="0.01" value={campaignForm.minimumPurchaseAmount} onChange={(e) => setCampaignForm((prev) => ({ ...prev, minimumPurchaseAmount: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Flash Quantity Limit</Label><Input type="number" value={campaignForm.flashSaleQuantityLimit} onChange={(e) => setCampaignForm((prev) => ({ ...prev, flashSaleQuantityLimit: e.target.value }))} /></div>
-                  <div><Label className="mb-2 inline-block">Countdown Label</Label><Input value={campaignForm.countdownLabel} onChange={(e) => setCampaignForm((prev) => ({ ...prev, countdownLabel: e.target.value }))} /></div>
-                  <div className="flex items-end rounded-[20px] border border-[#dbe8f6] bg-white px-4 py-3"><label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={campaignForm.pushNotificationEnabled} onChange={(e) => setCampaignForm((prev) => ({ ...prev, pushNotificationEnabled: e.target.checked }))} /> Queue push notifications after save</label></div>
-                  <div><Label className="mb-2 inline-block">Start</Label><CalendarDateTimePicker value={campaignForm.startsAt} onChange={(value) => setCampaignForm((prev) => ({ ...prev, startsAt: value }))} placeholder="Select start date" /></div>
-                  <div><Label className="mb-2 inline-block">End</Label><CalendarDateTimePicker value={campaignForm.endsAt} onChange={(value) => setCampaignForm((prev) => ({ ...prev, endsAt: value }))} placeholder="Select end date" /></div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setCampaignWizardStep((prev) => (prev > 1 ? ((prev - 1) as CampaignWizardStep) : prev))}>Back</Button>
-                <Button type="button" variant="outline" onClick={() => setCampaignWizardStep((prev) => (prev < 3 ? ((prev + 1) as CampaignWizardStep) : prev))}>Next</Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button className={adminDarkButtonClass} onClick={handleSaveCampaign} disabled={savingCampaign}>{savingCampaign ? "Saving..." : "Save Campaign"}</Button>
-                <Button type="button" variant="outline" onClick={handleSaveAndPublishCampaign} disabled={savingCampaign || Boolean(publishingCampaignId)}>
-                  {savingCampaign || publishingCampaignId ? "Publishing..." : "Save & Publish"}
-                </Button>
-                {selectedCampaignId ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => handlePublishCampaign(selectedCampaignId, Boolean(campaignForm.pushNotificationEnabled))}
-                    disabled={publishingCampaignId === selectedCampaignId}
-                  >
-                    {publishingCampaignId === selectedCampaignId ? "Publishing..." : "Publish Selected"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </Card>
-
-          <Card className={adminPanelClass}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Campaign List</h2>
-                <p className="mt-1 text-sm text-gray-500">ROI and redemption rate now stay inline for quick review.</p>
-              </div>
-              <div className="flex flex-wrap gap-3 lg:justify-end">
-                <select className={`${adminSelectClass} min-w-[168px] lg:w-[220px]`} value={campaignStatusFilter} onChange={(e) => setCampaignStatusFilter(e.target.value as typeof campaignStatusFilter)}>
-                  <option value="all">All statuses</option>
-                  <option value="active">Active</option>
-                  <option value="draft">Draft</option>
-                  <option value="paused">Paused</option>
-                  <option value="completed">Completed</option>
-                </select>
-                <select className={`${adminSelectClass} min-w-[168px] lg:w-[220px]`} value={selectedCampaignId} onChange={(e) => setSelectedCampaignId(e.target.value)}>
-                  {campaigns.map((campaign) => <option key={campaign.id} value={String(campaign.id)}>{campaign.campaignName}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="mt-5 overflow-x-auto rounded-[24px] border border-[#dbe8f6] bg-white">
-              <table className="w-full min-w-[920px]">
-                <thead>
-                  <tr className="border-b border-[#dbe8f6] text-left text-sm text-[#607087]">
-                    <th className="px-3 py-3 font-semibold">Campaign</th>
-                    <th className="px-3 py-3 font-semibold">Status</th>
-                    <th className="px-3 py-3 font-semibold">Tracked</th>
-                    <th className="px-3 py-3 font-semibold">Redemptions</th>
-                    <th className="px-3 py-3 font-semibold">Redemption Rate</th>
-                    <th className="px-3 py-3 font-semibold">ROI</th>
-                    <th className="px-3 py-3 font-semibold">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleCampaignListRows.map(({ campaign, performance, roi, redemptionRate }) => (
-                    <tr key={campaign.id} className="border-b border-[#edf2fb] transition hover:bg-[#f8fbff]">
-                      <td className="px-3 py-4"><button type="button" className="text-left" onClick={() => setSelectedCampaignId(String(campaign.id))}><p className="font-semibold text-[#10213a]">{campaign.campaignName}</p><p className="text-xs text-[#7a8aa2]">{campaign.campaignCode} • {campaign.campaignType}</p></button></td>
-                      <td className="px-3 py-4"><Badge className={campaign.status === "active" ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{campaign.status}</Badge></td>
-                      <td className="px-3 py-4 text-sm font-semibold text-[#10213a]">{performance?.pointsAwarded ?? 0}</td>
-                      <td className="px-3 py-4 text-sm font-semibold text-[#10213a]">{performance?.redemptionCount ?? 0}</td>
-                      <td className="px-3 py-4 text-sm font-semibold text-[#5d3fd3]">{redemptionRate.toFixed(1)}%</td>
-                      <td className="px-3 py-4 text-sm font-semibold text-[#0b7f88]">{roi.toFixed(1)}%</td>
-                      <td className="px-3 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedCampaignId(String(campaign.id));
-                              setCampaignPerformanceTab("overview");
-                            }}
-                            className="rounded-[12px] border border-[#dbe8f6] bg-white px-4 py-2 text-sm font-medium text-[#10213a] transition hover:border-[#0f8b92] hover:bg-[#0f8b92] hover:text-white"
-                          >
-                            View Performance
-                          </button>
-                          {campaign.status !== "active" ? (
-                            <button
-                              type="button"
-                              onClick={() => handlePublishCampaign(campaign.id, Boolean(campaign.pushNotificationEnabled))}
-                              disabled={publishingCampaignId === campaign.id}
-                              className="rounded-[12px] border border-[#dbe8f6] bg-white px-4 py-2 text-sm font-medium text-[#10213a] transition hover:border-[#172845] hover:bg-[#172845] hover:text-white disabled:opacity-60"
-                            >
-                              {publishingCampaignId === campaign.id ? "Publishing..." : "Publish"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] xl:col-span-1 flex flex-col">
+          <h3 className="text-sm font-bold text-[#15243a] mb-4">Partner Redemptions</h3>
+          <div className="flex-1 min-h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={partnerRedemptionChart} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2}>
+                  {partnerRedemptionChart.map((entry, index) => (
+                    <Cell key={`${entry.name}-${index}`} fill={["#0fa7b4", "#1A2B47", "#6d4ce6", "#f59e0b", "#14b8a6", "#94a3b8"][index % 6]} />
                   ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-6 rounded-[28px] border border-[#dbe8f6] bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] p-6">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div><h3 className="text-lg font-semibold text-gray-900">Performance View</h3><p className="mt-1 text-sm text-gray-500">Tabbed performance layout for the selected campaign. The campaign and time filter stay preserved while switching tabs.</p></div>
-                <div className="rounded-full border border-[#dbe8f6] bg-white px-4 py-2 text-sm text-[#4b607b]">{selectedCampaign ? `${selectedCampaign.campaignName} • ${performanceWindow}` : "Select a campaign"}</div>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {(["overview", "audience", "engagement", "financials"] as CampaignPerformanceTab[]).map((tab) => (
-                  <button key={tab} type="button" onClick={() => setCampaignPerformanceTab(tab)} className={`rounded-full px-4 py-2 text-sm font-medium transition ${campaignPerformanceTab === tab ? "bg-[#172845] text-white" : "border border-[#d6e0f7] bg-white text-[#35506e]"}`}>{tab[0].toUpperCase() + tab.slice(1)}</button>
-                ))}
-              </div>
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {campaignPerformanceTab === "overview" ? (
-                  <>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}>
-                      <p className="text-sm text-gray-500">Tracked Activity</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">{selectedCampaignPerformance?.trackedTransactions ?? 0}</p>
-                    </div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}>
-                      <p className="text-sm text-gray-500">Notifications</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">{selectedCampaignPerformance?.notificationsSent ?? 0}</p>
-                    </div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}>
-                      <p className="text-sm text-gray-500">Redemptions</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">{selectedCampaignPerformance?.redemptionCount ?? 0}</p>
-                    </div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}>
-                      <p className="text-sm text-gray-500">Campaign Snapshot</p>
-                      <p className="mt-2 text-lg font-bold text-gray-900">{selectedCampaign?.campaignType?.replace("_", " ") || "Campaign"}</p>
-                      <p className="mt-2 text-sm text-gray-500">
-                        {selectedCampaign?.status ? `${selectedCampaign.status} campaign` : "Status not set"}
-                      </p>
-                    </div>
-                  </>
-                ) : null}
-                {campaignPerformanceTab === "audience" ? (<><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}><p className="text-sm text-gray-500">Eligible Tiers</p><p className="mt-2 text-lg font-bold text-gray-900">{selectedCampaign?.eligibleTiers?.join(", ") || "All tiers"}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}><p className="text-sm text-gray-500">Product Scope</p><p className="mt-2 text-lg font-bold text-gray-900">{selectedCampaign?.productScope?.join(", ") || "All products"}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}><p className="text-sm text-gray-500">A/B Enabled</p><p className="mt-2 text-lg font-bold text-gray-900">{abTestEnabled ? "Yes" : "No"}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}><p className="text-sm text-gray-500">Audience Split</p><p className="mt-2 text-lg font-bold text-gray-900">{abAudienceSplit}</p></div></>) : null}
-                {campaignPerformanceTab === "engagement" ? (<><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}><p className="text-sm text-gray-500">Notifications Sent</p><p className="mt-2 text-3xl font-bold text-gray-900">{selectedCampaignPerformance?.notificationsSent ?? 0}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}><p className="text-sm text-gray-500">Primary Variant</p><p className="mt-2 text-lg font-bold text-gray-900">{variantAName}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}><p className="text-sm text-gray-500">Comparison Variant</p><p className="mt-2 text-lg font-bold text-gray-900">{variantBName}</p></div><div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}><p className="text-sm text-gray-500">Success Metric</p><p className="mt-2 text-lg font-bold text-gray-900">{abSuccessMetric.replace("_", " ")}</p></div></>) : null}
-                {campaignPerformanceTab === "financials" ? (
-                  <>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}>
-                      <p className="text-sm text-gray-500">Minimum Purchase</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        PHP {Number(selectedCampaign?.minimumPurchaseAmount ?? 0).toFixed(2)}
-                      </p>
-                    </div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}>
-                      <p className="text-sm text-gray-500">Points Cost</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        {selectedCampaign?.bonusPoints ?? selectedCampaignPerformance?.pointsAwarded ?? 0}
-                      </p>
-                    </div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}>
-                      <p className="text-sm text-gray-500">Estimated ROI</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        {campaignListRows.find((row) => row.campaign.id === selectedCampaign?.id)?.roi.toFixed(1) ?? "0.0"}%
-                      </p>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="flash" className="space-y-6">
-          <Card className={adminPanelClass}>
-            <h2 className="text-xl font-semibold text-gray-900">Flash Sale Analytics</h2>
-            <div className="mt-5 grid gap-4 lg:grid-cols-2">
-              {flashSales.map((campaign) => {
-                const performance = campaignPerformanceById.get(campaign.id);
-                return (
-                  <div key={campaign.id} className="rounded-[24px] border border-[#ffd7b2] bg-[linear-gradient(135deg,#ffffff_0%,#fff4e7_100%)] p-4 shadow-[0_10px_28px_rgba(234,88,12,0.07)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div><p className="font-semibold text-gray-900">{campaign.campaignName}</p><p className="text-sm text-gray-500">{campaign.rewardName || "No linked reward"}</p></div>
-                      <Badge className="bg-[#ef4444] text-white">{campaign.status}</Badge>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-xl bg-white p-3"><p className="text-gray-500">Claimed</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.quantityClaimed ?? campaign.flashSaleClaimedCount}</p></div>
-                      <div className="rounded-xl bg-white p-3"><p className="text-gray-500">Limit</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.quantityLimit ?? campaign.flashSaleQuantityLimit ?? 0}</p></div>
-                      <div className="rounded-xl bg-white p-3"><p className="text-gray-500">Sell-through</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.sellThrough ?? 0}%</p></div>
-                      <div className="rounded-xl bg-white p-3"><p className="text-gray-500">Speed</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.redemptionSpeedPerHour ?? 0}/hr</p></div>
-                    </div>
-                  </div>
-                );
-              })}
-              {flashSales.length === 0 ? <p className="text-sm text-gray-500">No flash sales configured yet.</p> : null}
-            </div>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="partners" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)}`}>
-              <p className="text-sm text-gray-500">Active Partners</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{partnerDashboardSummary.activePartners}</p>
-              <p className="mt-1 text-xs text-gray-500">Live partner relationships</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)}`}>
-              <p className="text-sm text-gray-500">Partner Redemptions</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">{partnerDashboardSummary.totalRedemptions}</p>
-              <p className="mt-1 text-xs text-gray-500">Linked reward redemptions</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)}`}>
-              <p className="text-sm text-gray-500">Settlement Value</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">PHP {partnerDashboardSummary.totalSettlementValue.toFixed(0)}</p>
-              <p className="mt-1 text-xs text-gray-500">Estimated by conversion rate</p>
-            </Card>
-            <Card className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)}`}>
-              <p className="text-sm text-gray-500">Commission Summary</p>
-              <p className="mt-2 text-3xl font-bold text-gray-900">PHP {partnerDashboardSummary.totalCommission.toFixed(0)}</p>
-              <p className="mt-1 text-xs text-gray-500">
-                {partnerDashboardSummary.topPartner
-                  ? `Top partner: ${partnerDashboardSummary.topPartner.name}`
-                  : "No partner redemption activity yet"}
-              </p>
-            </Card>
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value} redemptions`, "Redemptions"]} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
+        </div>
+      </div>
 
-          <Card className={adminPanelClass}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Partner Dashboard</h2>
-                <p className="mt-1 text-sm text-gray-500">Partner setup, commission monitoring, and performance in the shared admin style.</p>
-              </div>
-              <div className="rounded-2xl border border-[#dbe8f6] bg-[#f7fbff] px-4 py-3 text-sm text-[#39506c]">
-                <p className="font-semibold text-[#1A2B47]">Commission spotlight</p>
-                <p className="mt-1">
-                  {partnerDashboardSummary.topPartner
-                    ? `${partnerDashboardSummary.topPartner.name} is leading with ${partnerDashboardSummary.topPartner.redemptions} redemptions.`
-                    : "Commission insights will appear once redemptions come in."}
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div><Label>Partner Code</Label><Input value={partnerForm.partnerCode} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerCode: e.target.value }))} /></div>
-              <div><Label>Partner Name</Label><Input value={partnerForm.partnerName} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerName: e.target.value }))} /></div>
-              <div><Label>Conversion Rate</Label><Input type="number" step="0.01" value={partnerForm.conversionRate} onChange={(e) => setPartnerForm((prev) => ({ ...prev, conversionRate: e.target.value }))} /></div>
-              <div><Label>Logo URL</Label><Input value={partnerForm.logoUrl} onChange={(e) => setPartnerForm((prev) => ({ ...prev, logoUrl: e.target.value }))} /></div>
-            </div>
-            <div className="mt-4"><Label>Description</Label><Textarea rows={3} value={partnerForm.description} onChange={(e) => setPartnerForm((prev) => ({ ...prev, description: e.target.value }))} /></div>
-            <label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={partnerForm.isActive} onChange={(e) => setPartnerForm((prev) => ({ ...prev, isActive: e.target.checked }))} /> Active partner</label>
-            <div className="mt-5"><Button className={adminDarkButtonClass} onClick={handleSavePartner} disabled={savingPartner}>{savingPartner ? "Saving..." : "Save Partner"}</Button></div>
-          </Card>
+      {/* Bottom Row: Lists */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 flex-1 min-h-[350px]">
+        {/* Campaign List */}
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col min-h-0">
+          <div className="flex items-center justify-between p-5 pb-3 border-b border-[#e4ecf4]">
+            <h3 className="text-[15px] font-bold text-[#15243a]">Campaigns</h3>
+            <select className="block w-40 py-1.5 pl-3 pr-8 border border-[#dce6f2] rounded-md text-xs bg-white text-[#5a6a7e] focus:outline-none focus:ring-1 focus:ring-[#0b8b95]" value={campaignStatusFilter} onChange={(e) => setCampaignStatusFilter(e.target.value as typeof campaignStatusFilter)}>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#f9fbfe]">
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Campaign</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Status</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Tracked</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Redemptions</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Rate</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">ROI</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] sticky top-0 bg-[#f9fbfe]">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#edf2f7]">
+                {visibleCampaignListRows.map(({ campaign, performance, roi, redemptionRate }) => (
+                  <tr key={campaign.id} className="hover:bg-[#fbfdff] transition-colors">
+                    <td className="px-5 py-3"><p className="text-xs font-semibold text-[#15243a]">{campaign.campaignName}</p><p className="text-[10px] text-[#7a8aa2]">{campaign.campaignCode}</p></td>
+                    <td className="px-5 py-3"><Badge className={campaign.status === "active" ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{campaign.status}</Badge></td>
+                    <td className="px-5 py-3 text-xs font-medium text-[#5a6a7e]">{performance?.trackedTransactions ?? 0}</td>
+                    <td className="px-5 py-3 text-xs font-medium text-[#5a6a7e]">{performance?.redemptionCount ?? 0}</td>
+                    <td className="px-5 py-3 text-xs font-medium text-[#5a6a7e]">{redemptionRate.toFixed(1)}%</td>
+                    <td className="px-5 py-3 text-xs font-bold text-[#0b7f88]">{roi.toFixed(1)}%</td>
+                    <td className="px-5 py-3">
+                      <div className="flex gap-2">
+                        <button type="button" className="text-[11px] font-semibold text-[#15243a] border border-[#dce6f2] rounded-md px-3 py-1.5 bg-white hover:bg-[#f3f6f9] transition-colors" onClick={() => { setSelectedCampaignId(String(campaign.id)); setCampaignPerformanceTab("overview"); setCampaignPerformanceOpen(true); }}>View</button>
+                        {campaign.status !== "active" ? (
+                          <button type="button" className="text-[11px] font-semibold text-white bg-[#15243a] rounded-md px-3 py-1.5 hover:bg-[#1a2d47] transition-colors disabled:opacity-50" onClick={() => handlePublishCampaign(campaign.id, Boolean(campaign.pushNotificationEnabled))} disabled={publishingCampaignId === campaign.id}>{publishingCampaignId === campaign.id ? "..." : "Publish"}</button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {visibleCampaignListRows.length === 0 && (
+                  <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-[#8f9eb2]">No campaigns found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+        {/* Partners List */}
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col min-h-0 overflow-hidden">
+          <div className="flex items-center justify-between p-5 pb-3 border-b border-[#e4ecf4]">
+            <h3 className="text-[15px] font-bold text-[#15243a]">Partners</h3>
+            <span className="text-xs text-[#8f9eb2]">{partners.length} total partners</span>
+          </div>
+          <div className="flex-1 overflow-auto p-5 grid gap-4 lg:grid-cols-2 content-start bg-[#f9fbfe]">
             {partners.map((partner) => {
-              const performance = partnerPerformance.find((row) => row.id === partner.id);
               const dashboardRow = partnerDashboardRows.find((row) => row.partner.id === partner.id);
-              const linkedRewards = rewardsByPartner.get(partner.id) || [];
-              const estimatedSettlement = dashboardRow?.totals.grossAmount ?? 0;
-              const estimatedCommission = dashboardRow?.totals.totalCommission ?? 0;
               return (
-                <Card key={partner.id} className={adminPanelSoftClass}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div><p className="text-xl font-semibold text-gray-900">{partner.partnerName}</p><p className="text-sm text-gray-500">{partner.partnerCode}</p></div>
-                    <Badge className={partner.isActive ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{partner.isActive ? "Active" : "Disabled"}</Badge>
-                  </div>
-                  <p className="mt-3 text-sm text-gray-600">{partner.description || "No description provided."}</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(0)} p-3`}><p className="text-gray-500">Rewards Linked</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance?.rewardsCount ?? linkedRewards.length}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(1)} p-3`}><p className="text-gray-500">Partner Transactions</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.transactions ?? 0}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(3)} p-3`}><p className="text-gray-500">Pending Settlement</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.pendingTransactions ?? 0}</p></div>
-                    <div className={`${adminMetricPanelClass} ${adminMetricVariantClass(2)} p-3`}><p className="text-gray-500">Points Recorded</p><p className="mt-1 text-lg font-semibold text-gray-900">{dashboardRow?.totals.points ?? performance?.pointsRedeemed ?? 0}</p></div>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl border border-[#dbe8f6] bg-white px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[#5f6f86]">Settlement Value</p>
-                      <p className="mt-2 text-lg font-semibold text-[#1A2B47]">PHP {estimatedSettlement.toFixed(0)}</p>
+                <div key={partner.id} className="bg-white rounded-[16px] border border-[#e4ecf4] p-4 flex flex-col justify-between shadow-sm">
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-sm font-bold text-[#15243a]">{partner.partnerName}</p>
+                      <Badge className={partner.isActive ? "bg-[#e6f8fa] text-[#0f5f65]" : "bg-[#f3f4f6] text-gray-600"}>{partner.isActive ? "Active" : "Disabled"}</Badge>
                     </div>
-                    <div className="rounded-2xl border border-[#dbe8f6] bg-white px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[#5f6f86]">Commission</p>
-                      <p className="mt-2 text-lg font-semibold text-[#1A2B47]">PHP {estimatedCommission.toFixed(0)}</p>
+                    <div className="text-xs text-[#5a6a7e] grid grid-cols-2 gap-2 mt-3">
+                      <div><p className="text-[10px] font-semibold text-[#8f9eb2] uppercase mb-0.5">Transactions</p><p className="font-bold text-[#15243a]">{dashboardRow?.totals.transactions ?? 0}</p></div>
+                      <div><p className="text-[10px] font-semibold text-[#8f9eb2] uppercase mb-0.5">Commission</p><p className="font-bold text-[#15243a]">PHP {(dashboardRow?.totals.totalCommission ?? 0).toFixed(0)}</p></div>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">{linkedRewards.map((reward) => <Badge key={reward.reward_id} variant="outline">{reward.name}</Badge>)}{linkedRewards.length === 0 ? <span className="text-xs text-gray-500">No linked rewards yet.</span> : null}</div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => toggleRewardPartner(partner.id, !partner.isActive).then(async () => { await reload(); await refetch(); }).catch((toggleError) => toast.error(toggleError instanceof Error ? toggleError.message : "Unable to update partner."))}>{partner.isActive ? "Disable Partner" : "Enable Partner"}</Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSettlePartner(partner.id)}
-                      disabled={settlingPartnerId === partner.id || (dashboardRow?.totals.pendingTransactions ?? 0) === 0}
-                    >
-                      {settlingPartnerId === partner.id ? "Settling..." : "Settle & Download PDF"}
-                    </Button>
+                  <div className="mt-4 flex gap-2">
+                    <Button variant="outline" className="flex-1 h-8 text-[11px] font-semibold" onClick={() => handleSettlePartner(partner.id)} disabled={settlingPartnerId === partner.id || (dashboardRow?.totals.pendingTransactions ?? 0) === 0}>Settle</Button>
+                    <Button variant="outline" className="flex-1 h-8 text-[11px] font-semibold" onClick={() => toggleRewardPartner(partner.id, !partner.isActive).then(async () => { await reload(); await refetch(); }).catch((e) => toast.error(e.message))}>{partner.isActive ? "Disable" : "Enable"}</Button>
                   </div>
-                </Card>
+                </div>
               );
             })}
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
+
+      {/* Dialogs */}
+      
+      {/* Campaign Wizard Dialog */}
+      <Dialog open={campaignWizardOpen} onOpenChange={setCampaignWizardOpen}>
+        <DialogContent className="sm:max-w-[800px] p-6 bg-white rounded-[24px] border-0 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <DialogHeader className="mb-2 shrink-0">
+            <DialogTitle className="text-lg font-bold text-[#15243a]">Campaign Wizard</DialogTitle>
+            <DialogDescription className="text-xs text-[#5a6a7e]">Create campaigns in three guided steps.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto px-1 py-2">
+            {/* Quick Starts */}
+            {campaignWizardStep === 1 && !campaignForm.campaignCode && (
+              <div className="mb-6">
+                <h3 className="text-sm font-semibold text-[#15243a] mb-3">Quick Start Templates</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {campaignTemplates.map((template) => {
+                    const Icon = template.icon;
+                    return (
+                      <button key={template.id} type="button" onClick={() => applyCampaignTemplate(template)} className="flex text-left rounded-[16px] border border-[#d6e0f7] p-4 transition hover:border-[#0f8b92] hover:shadow-md bg-white">
+                        <span className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#e7f8f6] text-[#0f8b92] mr-3"><Icon className="h-5 w-5" /></span>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase text-[#5f7895]">{template.eyebrow}</p>
+                          <p className="text-sm font-bold text-[#10213a]">{template.title}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {/* Steps Progress */}
+            <div className="mb-6 flex items-center justify-center gap-2 text-sm font-semibold text-[#5a6a7e]">
+              <span className={campaignWizardStep >= 1 ? "text-[#0f8b92]" : ""}>1. Basic Info</span>
+              <span className="text-[#dce6f2]">&gt;</span>
+              <span className={campaignWizardStep >= 2 ? "text-[#0f8b92]" : ""}>2. Targeting</span>
+              <span className="text-[#dce6f2]">&gt;</span>
+              <span className={campaignWizardStep >= 3 ? "text-[#0f8b92]" : ""}>3. Schedule & Launch</span>
+            </div>
+
+            {/* Step 1 */}
+            {campaignWizardStep === 1 ? (
+              <div className="rounded-[20px] border border-[#e4ecf4] bg-white p-5 space-y-4 shadow-sm">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div><Label className="mb-1 block text-xs font-semibold">Campaign Code</Label><Input value={campaignForm.campaignCode} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignCode: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Campaign Name</Label><Input value={campaignForm.campaignName} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignName: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Type</Label><select className="block w-full px-3 py-2 border border-[#dce6f2] rounded-md text-sm bg-[#f9fbfe]" value={campaignForm.campaignType} onChange={(e) => setCampaignForm((prev) => ({ ...prev, campaignType: e.target.value as typeof campaignForm.campaignType }))}><option value="bonus_points">Bonus points</option><option value="multiplier_event">Multiplier event</option><option value="flash_sale">Flash sale</option></select></div>
+                  <div>
+                    <Label className="mb-1 block text-xs font-semibold">Reward Link</Label>
+                    <select className="block w-full px-3 py-2 border border-[#dce6f2] rounded-md text-sm bg-[#f9fbfe]" value={campaignForm.rewardId} onChange={(e) => setCampaignForm((prev) => ({ ...prev, rewardId: e.target.value }))}>
+                      <option value="">No linked reward</option>
+                      {campaignRewardOptions.filter((reward) => reward.rewardCatalogId).map((reward) => (
+                        <option key={reward.rewardCatalogId ?? reward.id} value={String(reward.rewardCatalogId ?? "")}>{reward.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div><Label className="mb-1 block text-xs font-semibold">Description</Label><Textarea rows={2} value={campaignForm.description} onChange={(e) => setCampaignForm((prev) => ({ ...prev, description: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div><Label className="mb-1 block text-xs font-semibold">Banner Title</Label><Input value={campaignForm.bannerTitle} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bannerTitle: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Banner Message</Label><Input value={campaignForm.bannerMessage} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bannerMessage: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Step 2 */}
+            {campaignWizardStep === 2 ? (
+              <div className="space-y-4">
+                <div className="rounded-[20px] border border-[#e4ecf4] bg-white p-5 shadow-sm">
+                  <h3 className="text-sm font-semibold text-[#15243a] mb-3">Audience Rules</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div><Label className="mb-1 block text-xs font-semibold">Product Scope</Label><Input value={campaignForm.productScope} onChange={(e) => setCampaignForm((prev) => ({ ...prev, productScope: e.target.value }))} placeholder="pastry, beverage" className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                    <div><Label className="mb-1 block text-xs font-semibold">Eligible Tiers</Label><Input value={campaignForm.eligibleTiers} onChange={(e) => setCampaignForm((prev) => ({ ...prev, eligibleTiers: e.target.value }))} placeholder="Bronze,Silver,Gold" className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  </div>
+                </div>
+                <div className="rounded-[20px] border border-[#dce3f8] bg-[#f8f9ff] p-5 shadow-sm">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-sm font-semibold text-[#25326b]">A/B Test Configuration</h3>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[#4333bf]"><input type="checkbox" checked={abTestEnabled} onChange={(e) => setAbTestEnabled(e.target.checked)} className="rounded" /> Enable</label>
+                  </div>
+                  {abTestEnabled && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div><Label className="mb-1 block text-xs font-semibold text-[#25326b]">Audience Split</Label><Input value={abAudienceSplit} onChange={(e) => setAbAudienceSplit(e.target.value)} className="bg-white border-[#dce3f8]" /></div>
+                      <div><Label className="mb-1 block text-xs font-semibold text-[#25326b]">Success Metric</Label><select className="block w-full px-3 py-2 border border-[#dce3f8] rounded-md text-sm bg-white" value={abSuccessMetric} onChange={(e) => setAbSuccessMetric(e.target.value)}><option value="redemption_rate">Redemption rate</option><option value="points_awarded">Points awarded</option></select></div>
+                      <div><Label className="mb-1 block text-xs font-semibold text-[#25326b]">Variant A</Label><Input value={variantAName} onChange={(e) => setVariantAName(e.target.value)} className="bg-white border-[#dce3f8]" /></div>
+                      <div><Label className="mb-1 block text-xs font-semibold text-[#25326b]">Variant B</Label><Input value={variantBName} onChange={(e) => setVariantBName(e.target.value)} className="bg-white border-[#dce3f8]" /></div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Step 3 */}
+            {campaignWizardStep === 3 ? (
+              <div className="rounded-[20px] border border-[#e4ecf4] bg-white p-5 space-y-4 shadow-sm">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div><Label className="mb-1 block text-xs font-semibold">Multiplier</Label><Input type="number" step="0.01" value={campaignForm.multiplier} onChange={(e) => setCampaignForm((prev) => ({ ...prev, multiplier: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Bonus Points</Label><Input type="number" value={campaignForm.bonusPoints} onChange={(e) => setCampaignForm((prev) => ({ ...prev, bonusPoints: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Minimum Purchase</Label><Input type="number" step="0.01" value={campaignForm.minimumPurchaseAmount} onChange={(e) => setCampaignForm((prev) => ({ ...prev, minimumPurchaseAmount: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Flash Limit</Label><Input type="number" value={campaignForm.flashSaleQuantityLimit} onChange={(e) => setCampaignForm((prev) => ({ ...prev, flashSaleQuantityLimit: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Countdown Label</Label><Input value={campaignForm.countdownLabel} onChange={(e) => setCampaignForm((prev) => ({ ...prev, countdownLabel: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">Start Date</Label><CalendarDateTimePicker value={campaignForm.startsAt} onChange={(value) => setCampaignForm((prev) => ({ ...prev, startsAt: value }))} /></div>
+                  <div><Label className="mb-1 block text-xs font-semibold">End Date</Label><CalendarDateTimePicker value={campaignForm.endsAt} onChange={(value) => setCampaignForm((prev) => ({ ...prev, endsAt: value }))} /></div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-[#15243a] p-3 bg-[#f9fbfe] rounded-lg border border-[#dce6f2]"><input type="checkbox" className="rounded text-[#0b8b95] focus:ring-[#0b8b95]" checked={campaignForm.pushNotificationEnabled} onChange={(e) => setCampaignForm((prev) => ({ ...prev, pushNotificationEnabled: e.target.checked }))} /> Queue push notifications after save</div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="mt-4 pt-4 border-t border-[#e4ecf4] shrink-0 sm:justify-between">
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setCampaignWizardStep((prev) => (prev > 1 ? ((prev - 1) as CampaignWizardStep) : prev))} disabled={campaignWizardStep === 1}>Back</Button>
+              <Button type="button" variant="outline" onClick={() => setCampaignWizardStep((prev) => (prev < 3 ? ((prev + 1) as CampaignWizardStep) : prev))} disabled={campaignWizardStep === 3}>Next</Button>
+            </div>
+            <div className="flex gap-2">
+              <Button className={adminDarkButtonClass} onClick={() => { handleSaveCampaign(); setCampaignWizardOpen(false); }} disabled={savingCampaign}>{savingCampaign ? "Saving..." : "Save Draft"}</Button>
+              <Button type="button" className="bg-[#0b8b95] hover:bg-[#097c85] text-white" onClick={() => { handleSaveAndPublishCampaign(); setCampaignWizardOpen(false); }} disabled={savingCampaign || Boolean(publishingCampaignId)}>
+                {savingCampaign || publishingCampaignId ? "Publishing..." : "Save & Publish"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Campaign Performance Dialog */}
+      <Dialog open={campaignPerformanceOpen} onOpenChange={setCampaignPerformanceOpen}>
+        <DialogContent className="sm:max-w-[700px] p-6 bg-white rounded-[24px] border-0 shadow-2xl">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-lg font-bold text-[#15243a]">Campaign Performance</DialogTitle>
+            <DialogDescription className="text-xs text-[#5a6a7e]">{selectedCampaign?.campaignName} ({performanceWindow})</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 mb-5 border-b border-[#e4ecf4] pb-2">
+            {(["overview", "audience", "engagement", "financials"] as CampaignPerformanceTab[]).map((tab) => (
+              <button key={tab} type="button" onClick={() => setCampaignPerformanceTab(tab)} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${campaignPerformanceTab === tab ? "bg-[#15243a] text-white" : "text-[#5a6a7e] hover:bg-[#f9fbfe]"}`}>{tab[0].toUpperCase() + tab.slice(1)}</button>
+            ))}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {campaignPerformanceTab === "overview" && (
+              <>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Tracked Activity</p><p className="text-2xl font-extrabold text-[#15243a]">{selectedCampaignPerformance?.trackedTransactions ?? 0}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Notifications</p><p className="text-2xl font-extrabold text-[#15243a]">{selectedCampaignPerformance?.notificationsSent ?? 0}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Redemptions</p><p className="text-2xl font-extrabold text-[#15243a]">{selectedCampaignPerformance?.redemptionCount ?? 0}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Status</p><p className="text-lg font-bold text-[#15243a]">{selectedCampaign?.status || "Unknown"}</p></div>
+              </>
+            )}
+            {campaignPerformanceTab === "audience" && (
+              <>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Eligible Tiers</p><p className="text-lg font-bold text-[#15243a]">{selectedCampaign?.eligibleTiers?.join(", ") || "All tiers"}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Product Scope</p><p className="text-lg font-bold text-[#15243a]">{selectedCampaign?.productScope?.join(", ") || "All products"}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">A/B Enabled</p><p className="text-lg font-bold text-[#15243a]">{abTestEnabled ? "Yes" : "No"}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Audience Split</p><p className="text-lg font-bold text-[#15243a]">{abAudienceSplit}</p></div>
+              </>
+            )}
+            {campaignPerformanceTab === "engagement" && (
+              <>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Notifications Sent</p><p className="text-2xl font-extrabold text-[#15243a]">{selectedCampaignPerformance?.notificationsSent ?? 0}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Success Metric</p><p className="text-lg font-bold text-[#15243a]">{abSuccessMetric.replace("_", " ")}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Primary Variant</p><p className="text-lg font-bold text-[#15243a]">{variantAName}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Comparison Variant</p><p className="text-lg font-bold text-[#15243a]">{variantBName}</p></div>
+              </>
+            )}
+            {campaignPerformanceTab === "financials" && (
+              <>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Minimum Purchase</p><p className="text-2xl font-extrabold text-[#15243a]">PHP {Number(selectedCampaign?.minimumPurchaseAmount ?? 0).toFixed(2)}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Points Cost</p><p className="text-2xl font-extrabold text-[#15243a]">{selectedCampaign?.bonusPoints ?? selectedCampaignPerformance?.pointsAwarded ?? 0}</p></div>
+                <div className="bg-[#f9fbfe] border border-[#dce6f2] rounded-[16px] p-4 md:col-span-2"><p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Estimated ROI</p><p className="text-2xl font-extrabold text-[#0b7f88]">{campaignListRows.find((row) => row.campaign.id === selectedCampaign?.id)?.roi.toFixed(1) ?? "0.0"}%</p></div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Partner Dashboard Dialog */}
+      <Dialog open={partnerDashboardOpen} onOpenChange={setPartnerDashboardOpen}>
+        <DialogContent className="sm:max-w-[700px] p-6 bg-white rounded-[24px] border-0 shadow-2xl overflow-auto max-h-[90vh]">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-lg font-bold text-[#15243a]">Partner Configuration</DialogTitle>
+            <DialogDescription className="text-xs text-[#5a6a7e]">Add or edit a reward partner.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2 mb-4">
+            <div><Label className="mb-1 block text-xs font-semibold">Partner Code</Label><Input value={partnerForm.partnerCode} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerCode: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+            <div><Label className="mb-1 block text-xs font-semibold">Partner Name</Label><Input value={partnerForm.partnerName} onChange={(e) => setPartnerForm((prev) => ({ ...prev, partnerName: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+            <div><Label className="mb-1 block text-xs font-semibold">Conversion Rate</Label><Input type="number" step="0.01" value={partnerForm.conversionRate} onChange={(e) => setPartnerForm((prev) => ({ ...prev, conversionRate: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+            <div><Label className="mb-1 block text-xs font-semibold">Logo URL</Label><Input value={partnerForm.logoUrl} onChange={(e) => setPartnerForm((prev) => ({ ...prev, logoUrl: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+          </div>
+          <div className="mb-4"><Label className="mb-1 block text-xs font-semibold">Description</Label><Textarea rows={3} value={partnerForm.description} onChange={(e) => setPartnerForm((prev) => ({ ...prev, description: e.target.value }))} className="bg-[#f9fbfe] border-[#dce6f2]" /></div>
+          <label className="flex items-center gap-2 text-sm text-[#15243a] font-semibold"><input type="checkbox" checked={partnerForm.isActive} onChange={(e) => setPartnerForm((prev) => ({ ...prev, isActive: e.target.checked }))} className="rounded text-[#0b8b95] focus:ring-[#0b8b95]" /> Active partner</label>
+          
+          <DialogFooter className="mt-6 pt-4 border-t border-[#e4ecf4] sm:justify-end gap-2">
+            <Button variant="outline" className="border-[#dce6f2] rounded-full px-6 text-[#15243a]" onClick={() => setPartnerDashboardOpen(false)}>Cancel</Button>
+            <Button className="bg-[#0b8b95] hover:bg-[#097c85] rounded-full px-6 text-white" onClick={() => { handleSavePartner(); setPartnerDashboardOpen(false); }} disabled={savingPartner}>{savingPartner ? "Saving..." : "Save Partner"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

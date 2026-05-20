@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
+  Bell,
   CalendarDays,
   ChevronRight,
   ClipboardCheck,
@@ -32,7 +33,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -169,6 +170,11 @@ type InsightItem = {
   ctaLabel?: string;
   icon: LucideIcon;
   tone: "teal" | "amber" | "rose" | "violet" | "blue";
+};
+
+type AdminDashboardOutletContext = {
+  notificationCount?: number;
+  openNotifications?: () => void;
 };
 
 type PartnerDashboardRow = Awaited<ReturnType<typeof loadPartnerDashboardViaApi>>["partners"][number];
@@ -981,6 +987,7 @@ function DashboardErrorBanner(props: { message: string; onRetry: () => void }) {
 }
 
 export default function AdminDashboardPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const defaultStart = toInputDate(startOfCurrentMonth());
   const defaultEnd = toInputDate(new Date());
@@ -1765,30 +1772,58 @@ export default function AdminDashboardPage() {
   return (
     <>
       <div className={cn(adminPageShellClass, "mx-auto max-w-[1180px] space-y-3 px-3 py-2 pb-5")}>
-        <section className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="text-[28px] font-extrabold leading-none tracking-normal text-[#132036]">Dashboard Overview</h1>
-            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Monitor loyalty health, rewards performance, and operational alerts.</p>
+        <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)]">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+                Admin Command Center
+              </div>
+              <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Dashboard Overview</h1>
+              <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Monitor loyalty health, rewards performance, and operational alerts.</p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2.5 self-start">
+              {auxLoading ? (
+                <span className="inline-flex h-10 items-center rounded-full border border-[#dfe7f1] bg-white px-3 text-[12px] font-bold text-[#64748b] shadow-[0_8px_18px_rgba(17,38,60,0.05)]">
+                  Refreshing data
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => openNotifications?.()}
+                aria-label="Notifications"
+                className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+              >
+                <Bell className="h-5 w-5" />
+                {notificationCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                    {notificationCount}
+                  </span>
+                ) : null}
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {auxLoading ? (
-              <span className="inline-flex h-10 items-center rounded-md border border-[#dfe7f1] bg-white px-3 text-[12px] font-bold text-[#64748b]">
-                Refreshing data
-              </span>
-            ) : null}
-            <DateRangeSelector
-              startDate={startDate}
-              endDate={endDate}
-              onApply={(nextStart, nextEnd) => setQueryParams({ startDate: nextStart, endDate: nextEnd })}
-            />
-            <ComparisonSelector value={compareMode} onChange={(value) => setQueryParams({ compare: value })} />
-            <Link to="/admin/rewards#rewards-campaigns" className={cn(adminPrimaryButtonClass, "h-10 rounded-md px-4 shadow-[0_8px_18px_rgba(11,127,136,0.18)]")}>
-              <Megaphone className="h-4 w-4" />
-              Create Campaign
-            </Link>
+          <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="inline-flex w-fit items-center rounded-full border border-[#d7e7f4] bg-white/75 px-3 py-1.5 text-[12px] font-semibold text-[#52627a] shadow-[0_6px_16px_rgba(17,38,60,0.04)]">
+              <CalendarDays className="mr-2 h-4 w-4 text-[#0b7f88]" />
+              <span>{formatHeaderRange(startDate, endDate)}</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <DateRangeSelector
+                startDate={startDate}
+                endDate={endDate}
+                onApply={(nextStart, nextEnd) => setQueryParams({ startDate: nextStart, endDate: nextEnd })}
+              />
+              <ComparisonSelector value={compareMode} onChange={(value) => setQueryParams({ compare: value })} />
+              <Link to="/admin/rewards#rewards-campaigns" className={cn(adminPrimaryButtonClass, "h-10 rounded-md px-4 shadow-[0_8px_18px_rgba(11,127,136,0.18)]")}>
+                <Megaphone className="h-4 w-4" />
+                Create Campaign
+              </Link>
+            </div>
           </div>
-        </section>
+        </header>
 
         {error ? <DashboardErrorBanner message={error} onRetry={handleRetry} /> : null}
         {auxError ? (

@@ -156,3 +156,8 @@ export interface AdminMetrics {
   monetaryLiability: number;
   liabilityTrend: { month: string; points: number; monetary: number }[];
 }
+
+export type AdminDashboardOutletContext = {
+  notificationCount?: number;
+  openNotifications?: () => void;
+};

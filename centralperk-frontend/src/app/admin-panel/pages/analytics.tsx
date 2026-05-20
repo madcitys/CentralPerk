@@ -37,7 +37,10 @@ import {
   type AnalyticsTierFilter,
 } from "../lib/analytics";
 import { loadSocialShareEvents, type ShareEvent } from "../../lib/member-engagement";
-import { adminPrimaryButtonClass, adminSelectClass } from "../lib/page-theme";
+import { adminPrimaryButtonClass, adminSelectClass, adminPageShellClass } from "../lib/page-theme";
+import { Bell } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import { AdminDashboardOutletContext } from "../types";
 
 const moneyFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
@@ -145,6 +148,7 @@ const analyticsTabs: { value: AnalyticsTab; label: string; hash: string }[] = [
 ];
 
 export default function AdminAnalyticsPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { members, transactions, loading, error, tierRules, earningRules, metrics, insights } = useAdminData();
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
   const [tierFilter, setTierFilter] = useState<AnalyticsTierFilter>("all");
@@ -335,7 +339,35 @@ export default function AdminAnalyticsPage() {
     .slice(0, 5);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className={adminPageShellClass}>
+      <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)] mb-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+              Analytics Dashboard
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Analytics & Insights</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Comprehensive data and insights into member lifetime value, churn risk, and program performance.</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2.5 self-start">
+            <button
+              type="button"
+              onClick={() => openNotifications?.()}
+              aria-label="Notifications"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </div>
+      </header>
+
       <div className="overflow-x-auto pb-1">
       <div className="inline-flex min-w-max items-center gap-1 rounded-full bg-[#eef3fb] p-1">
         {analyticsTabs.map((tab) => (

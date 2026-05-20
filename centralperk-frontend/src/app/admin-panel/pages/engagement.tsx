@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Download, Megaphone, MessageSquareText, Share2, Trophy, Radio, ClipboardList, FileQuestion, UserX } from "lucide-react";
+import { BellRing, Download, Megaphone, MessageSquareText, Share2, Trophy, Radio, ClipboardList, FileQuestion, UserX, Bell } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import { AdminDashboardOutletContext } from "../types";
 import { toast } from "sonner";
 import { Card } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
@@ -81,6 +83,7 @@ const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Rewar
 const offerTypes: WinBackOfferType[] = ["2x Points", "Special Discount", "Bonus Reward"];
 
 export default function AdminEngagementPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { members, transactions, loginActivity, loading, error } = useAdminData();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("notifications");
   const [state, setState] = useState<EngagementState>(() => loadEngagementState());
@@ -636,13 +639,33 @@ export default function AdminEngagementPage() {
 
   return (
     <div className={adminPageShellClass}>
-      <div className={adminPageHeroClass}>
-        <div className={adminPageHeroInnerClass}>
-          <div className={adminEyebrowClass}>Engagement Studio</div>
-          <h1 className={adminPageTitleClass}>Member Engagement</h1>
-          <p className={adminPageDescriptionClass}>Manage push campaigns, challenges, social sharing, surveys, and win-back flows with the same cohesive admin design language.</p>
+      <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)] mb-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+              Engagement Studio
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Member Engagement</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Manage push campaigns, challenges, social sharing, surveys, and win-back flows with the same cohesive admin design language.</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2.5 self-start">
+            <button
+              type="button"
+              onClick={() => openNotifications?.()}
+              aria-label="Notifications"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
       <section className="relative overflow-hidden rounded-[28px] border border-[#d7e1f5] bg-[radial-gradient(circle_at_top_left,_rgba(15,167,180,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(79,70,229,0.11),_transparent_28%),linear-gradient(180deg,_#ffffff_0%,_#f5f9ff_100%)] p-4 md:p-6 shadow-[0_16px_48px_rgba(16,33,58,0.06)]">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#9cc2ff] to-transparent" />

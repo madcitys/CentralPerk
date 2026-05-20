@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { Save, Bell } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import { AdminDashboardOutletContext } from "../types";
 import { fetchActiveEarningRules, fetchTierRules, saveEarningRules, saveTierRules, type EarningRule } from "../../lib/loyalty-supabase";
 import type { TierRule } from "../../lib/loyalty-engine";
 import { toast } from "sonner";
@@ -36,6 +38,7 @@ const FALLBACK_EARNING_RULES: EarningRule[] = [
 ];
 
 export default function AdminSettingsPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const [rules, setRules] = useState<TierRule[]>(FALLBACK_RULES);
   const [earningRules, setEarningRules] = useState<EarningRule[]>(FALLBACK_EARNING_RULES);
   const [birthdaySettings, setBirthdaySettings] = useState<BirthdayRewardSettings>(DEFAULT_BIRTHDAY_REWARD_SETTINGS);
@@ -105,13 +108,33 @@ export default function AdminSettingsPage() {
 
   return (
     <div className={adminPageShellClass}>
-      <div className={adminPageHeroClass}>
-        <div className={adminPageHeroInnerClass}>
-          <div className={adminEyebrowClass}>Rules & Configuration</div>
-          <h1 className={adminPageTitleClass}>Settings</h1>
-          <p className={adminPageDescriptionClass}>Administrative configuration for tiers and earning rules, using the same softer analytics visual language.</p>
+      <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)] mb-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+              Rules & Configuration
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Settings</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Administrative configuration for tiers and earning rules, using the same softer analytics visual language.</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2.5 self-start">
+            <button
+              type="button"
+              onClick={() => openNotifications?.()}
+              aria-label="Notifications"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
       <div className={adminPanelClass}>
         <div>

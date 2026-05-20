@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bell } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
 import { useAdminData } from "../hooks/use-admin-data";
 import { MemberLookup } from "../../../components/member-lookup";
 import { toast } from "sonner";
@@ -14,6 +16,7 @@ import {
 } from "../../../components/ui/dialog";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
+import { cn } from "../../../components/ui/utils";
 import {
   buildSegmentStats,
   createCustomSegment,
@@ -66,7 +69,13 @@ function formatBuilderChip(field: string, operator: string, value: string) {
   return `${field} ${operator} ${value}`;
 }
 
+type AdminDashboardOutletContext = {
+  notificationCount?: number;
+  openNotifications?: () => void;
+};
+
 export default function AdminMembersPage() {
+  const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
   const { members, transactions, loading, error, refetch } = useAdminData();
   const [query, setQuery] = useState("");
   const [awardingMember, setAwardingMember] = useState<string | null>(null);
@@ -89,6 +98,8 @@ export default function AdminMembersPage() {
   const [livePreviewCount, setLivePreviewCount] = useState(1);
   const [lastRecalculated, setLastRecalculated] = useState(() => new Date().toLocaleString());
   const [savingBuilder, setSavingBuilder] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 7;
   const [builderConditions, setBuilderConditions] = useState<BuilderCondition[]>([
     { id: "tier", field: "Tier", operator: "is", value: "Gold" },
     { id: "activity", field: "Last Activity", operator: "is within", value: "30" },
@@ -417,601 +428,477 @@ export default function AdminMembersPage() {
   if (loading) return <p className="text-base text-gray-700">Loading members...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
-  return (
-    <div className={adminPageShellClass}>
-      <div className={adminPageHeroClass}>
-        <div className={adminPageHeroInnerClass}>
-          <div className={adminEyebrowClass}>Member Intelligence</div>
-          <h1 className={adminPageTitleClass}>Member Segmentation & Lookup</h1>
-          <p className={adminPageDescriptionClass}>Auto-segment members, manage manual segments, and export target lists with the same calmer analytics-style presentation.</p>
-        </div>
-      </div>
+  const totalItems = filtered.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        {stats.map((item, index) => (
-          <div key={item.segment} className={`${adminMetricPanelClass} ${adminMetricVariantClass(index)}`}>
-            <p className="text-xs uppercase tracking-wide text-[#1A2B47]">{item.segment}</p>
-            <p className="mt-2 text-2xl font-bold text-[#10213a]">{item.count}</p>
-            <p className="text-xs text-gray-600">{item.share.toFixed(1)}% of members</p>
+  const getStat = (name: string) => stats.find(s => s.segment === name) || { count: 0, share: 0 };
+  const inactiveStat = getStat("Inactive");
+  const activeStat = getStat("Active");
+  const atRiskStat = getStat("At Risk");
+  const highValueStat = getStat("High Value");
+
+  return (
+    <div className="flex h-full flex-col gap-5 p-6 bg-[#f3f6f9] overflow-auto">
+      {/* Header */}
+      <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#cbe4f6] bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7f88]">
+              Member Intelligence
+            </div>
+            <h1 className="mt-3 text-[28px] font-extrabold leading-none tracking-normal text-[#132036] sm:text-[30px]">Member Segmentation & Lookup</h1>
+            <p className="mt-2 text-[13px] font-medium text-[#5f6f86]">Manage member profiles, analyze behavior, and build custom audiences.</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2.5 self-start">
+            <button
+              type="button"
+              onClick={() => openNotifications?.()}
+              aria-label="Notifications"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d4e5f4] bg-white/80 text-[#132036] shadow-[0_8px_18px_rgba(17,38,60,0.06)] transition hover:bg-white hover:shadow-sm"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#0b8b95] px-1 text-[10px] font-bold text-white">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" onClick={handleExport} className="h-10 rounded-md border-[#dfe7f1] bg-white px-4 text-[12px] font-bold text-[#24364f] shadow-[0_4px_12px_rgba(17,38,60,0.04)] transition hover:border-[#bfd0e6] hover:bg-[#f9fbff]">Export Report</Button>
+            <Button className={cn(adminPrimaryButtonClass, "h-10 rounded-md px-4 shadow-[0_8px_18px_rgba(11,127,136,0.18)]")} onClick={() => setSegmentDialogOpen(true)}>+ Create Segment</Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Metrics Row */}
+      <div className="grid grid-cols-4 gap-5">
+        {[
+          { label: "INACTIVE", stat: inactiveStat },
+          { label: "ACTIVE", stat: activeStat },
+          { label: "AT RISK", stat: atRiskStat },
+          { label: "HIGH VALUE", stat: highValueStat },
+        ].map((metric) => (
+          <div key={metric.label} className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)]">
+            <p className="text-xs font-semibold text-[#5a6a7e] mb-1">{metric.label}</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-extrabold text-[#15243a] leading-none">{metric.stat.count}</span>
+              <span className="text-xs font-medium text-[#8f9eb2]">{metric.stat.share.toFixed(1)}% of members</span>
+            </div>
           </div>
         ))}
       </div>
 
-      <div className={adminPanelClass}>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Segment Analytics</h2>
-            <p className="text-sm text-gray-500">Count, average spend, and 30-day activity rate by segment.</p>
+      {/* Middle Row */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        {/* Distribution */}
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col xl:col-span-1">
+          <h3 className="text-sm font-bold text-[#15243a]">Distribution</h3>
+          <p className="text-xs text-[#5a6a7e] mb-4">Current member mix.</p>
+          <div className="flex-1 relative min-h-[160px] flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={segmentDistributionChart}
+                  dataKey="members"
+                  nameKey="label"
+                  innerRadius={54}
+                  outerRadius={76}
+                  strokeWidth={0}
+                >
+                  {segmentDistributionChart.map((entry, index) => (
+                    <Cell key={`segment-slice-${entry.label}`} fill={segmentChartPalette[index % segmentChartPalette.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }}
+                  formatter={(value: number, _name, payload) => [`${value} members`, `${payload?.payload?.share ?? 0}% of members`]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-xl font-bold text-[#15243a]">{totalSegmentMembers}</span>
+              <span className="text-[10px] font-semibold text-[#5a6a7e]">TOTAL</span>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap justify-center gap-4">
+            {segmentDistributionChart.map((item, index) => (
+              <div key={item.label} className="flex items-center gap-1.5 text-xs text-[#15243a] font-medium">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: segmentChartPalette[index % segmentChartPalette.length] }} />
+                {item.label} ({item.share}%)
+              </div>
+            ))}
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {segmentAnalytics.map((item) => (
-            <div key={`analytics-${item.segment}`} className="rounded-xl border border-gray-200 p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-500">{item.segment}</p>
-              <p className="mt-2 text-2xl font-bold text-[#10213a]">{item.count}</p>
-              <p className="mt-2 text-sm text-gray-600">Avg spend: PHP {item.avgSpend.toFixed(2)}</p>
-              <p className="text-sm text-gray-600">Activity rate: {item.activityRate.toFixed(0)}%</p>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className={adminPanelClass}>
-          <h2 className="text-lg font-semibold text-gray-900">Segment Distribution</h2>
-          <p className="mt-1 text-sm text-gray-500">Current member mix across the core lifecycle segments.</p>
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={segmentDistributionChart}
-                    dataKey="members"
-                    nameKey="label"
-                    innerRadius={68}
-                    outerRadius={102}
-                    paddingAngle={3}
-                    strokeWidth={0}
-                  >
-                    {segmentDistributionChart.map((entry, index) => (
-                      <Cell key={`segment-slice-${entry.label}`} fill={segmentChartPalette[index % segmentChartPalette.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }}
-                    formatter={(value: number, _name, payload) => [`${value} members`, `${payload?.payload?.share ?? 0}% of members`]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-[#dbe8f6] bg-[#f8fbff] p-4">
-                <p className="text-xs uppercase tracking-[0.16em] text-[#5b6475]">Total Members</p>
-                <p className="mt-2 text-3xl font-bold text-[#10213a]">{totalSegmentMembers}</p>
-                <p className="mt-1 text-sm text-[#5b6475]">Across active lifecycle segments</p>
+        {/* Segment Value Snapshot */}
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] xl:col-span-1 flex flex-col">
+          <h3 className="text-sm font-bold text-[#15243a] mb-4">Segment Value Snapshot</h3>
+          <div className="flex gap-4 h-full">
+            <div className="flex-1 flex flex-col">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-semibold text-[#5a6a7e]">Avg Spend</span>
+                <span className="text-[10px] font-bold text-[#0b8b95] bg-[#e7fbfb] px-2 py-0.5 rounded-full">PHP</span>
               </div>
-              {segmentDistributionChart.map((item, index) => (
-                <div key={`segment-stat-${item.label}`} className="flex items-center justify-between rounded-2xl border border-[#e2ebf8] bg-white px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="h-3 w-3 rounded-full"
-                      style={{ backgroundColor: segmentChartPalette[index % segmentChartPalette.length] }}
-                    />
-                    <div>
-                      <p className="text-sm font-semibold text-[#10213a]">{item.label}</p>
-                      <p className="text-xs text-[#6b7b93]">{item.members} members</p>
-                    </div>
-                  </div>
-                  <p className="text-sm font-semibold text-[#1A2B47]">{item.share}%</p>
-                </div>
+              <div className="flex-1 min-h-[140px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={segmentValueChart} layout="vertical" margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="label" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} width={60} />
+                    <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} formatter={(value: number) => [`PHP ${value.toFixed(2)}`, "Avg Spend"]} />
+                    <Bar dataKey="avgSpend" radius={[0, 4, 4, 0]} barSize={8}>
+                      {segmentValueChart.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={segmentChartPalette[index % segmentChartPalette.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex justify-between text-[10px] text-[#8f9eb2] mt-1 border-t border-[#e4ecf4] pt-1">
+                <span>0</span>
+                <span>2</span>
+                <span>4</span>
+              </div>
+            </div>
+            <div className="flex-1 flex flex-col border-l border-[#e4ecf4] pl-4">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-semibold text-[#5a6a7e]">Activity Rate (30d)</span>
+                <span className="text-[10px] font-bold text-[#7c3aed] bg-[#f3efff] px-2 py-0.5 rounded-full">%</span>
+              </div>
+              <div className="flex-1 min-h-[140px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={segmentValueChart} layout="vertical" margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                    <XAxis type="number" domain={[0, 100]} hide />
+                    <YAxis type="category" dataKey="label" tick={{ fill: "#5a6a7e", fontSize: 10 }} tickLine={false} axisLine={false} width={60} />
+                    <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#dbe8f6" }} formatter={(value: number) => [`${value}%`, "Activity Rate"]} />
+                    <Bar dataKey="activityRate" radius={[0, 4, 4, 0]} barSize={8}>
+                      {segmentValueChart.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={segmentChartPalette[index % segmentChartPalette.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex justify-between text-[10px] text-[#8f9eb2] mt-1 border-t border-[#e4ecf4] pt-1">
+                <span>0</span>
+                <span>50</span>
+                <span>100</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lookup & Bulk */}
+        <div className="bg-white rounded-[16px] border border-[#e4ecf4] p-5 shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex flex-col gap-6 xl:col-span-1">
+          <div>
+            <h3 className="text-sm font-bold text-[#15243a] mb-2 flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-[#5a6a7e]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              Lookup & Filter
+            </h3>
+            <div className="relative mb-3">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-4 w-4 text-[#8f9eb2]" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+              </div>
+              <input type="text" className="block w-full pl-9 pr-3 py-2 border border-[#dce6f2] rounded-lg text-sm bg-[#f9fbfe] focus:outline-none focus:ring-1 focus:ring-[#0b8b95]" placeholder="Search MEM001, John..." value={query} onChange={(e) => {setQuery(e.target.value); setCurrentPage(1);}} />
+            </div>
+            <select className="block w-full px-3 py-2 border border-[#dce6f2] rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#0b8b95]" value={segmentFilter} onChange={(e) => {setSegmentFilter(e.target.value); setCurrentPage(1);}}>
+              <option value="All">All segments</option>
+              {segmentFilterOptions.map((segment) => (
+                <option key={segment} value={segment}>{segment}</option>
               ))}
-            </div>
+            </select>
           </div>
-        </div>
-
-        <div className={adminPanelClass}>
-          <h2 className="text-lg font-semibold text-gray-900">Segment Value Snapshot</h2>
-          <p className="mt-1 text-sm text-gray-500">Two focused views work better here than forcing spend and activity into one scale.</p>
-          <div className="mt-5 space-y-6">
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[#10213a]">Average Spend</h3>
-                <span className="rounded-full bg-[#eef8f8] px-3 py-1 text-xs font-semibold text-[#0f5f65]">PHP</span>
-              </div>
-              <div className="h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={segmentValueChart} layout="vertical" margin={{ top: 0, right: 12, left: 12, bottom: 0 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} width={78} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }}
-                      formatter={(value: number) => [`PHP ${value.toFixed(2)}`, "Avg Spend"]}
-                    />
-                    <Bar dataKey="avgSpend" name="Avg Spend" radius={[0, 10, 10, 0]} fill="#0b7f88" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[#10213a]">30-Day Activity Rate</h3>
-                <span className="rounded-full bg-[#f2edff] px-3 py-1 text-xs font-semibold text-[#5d3fd3]">Percent</span>
-              </div>
-              <div className="h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={segmentValueChart} layout="vertical" margin={{ top: 0, right: 12, left: 12, bottom: 0 }}>
-                    <CartesianGrid stroke="#dbe8f6" strokeDasharray="4 4" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="label" tick={{ fill: "#5b6475", fontSize: 12 }} tickLine={false} axisLine={false} width={78} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 16, borderColor: "#dbe8f6" }}
-                      formatter={(value: number) => [`${value}%`, "Activity Rate"]}
-                    />
-                    <Bar dataKey="activityRate" name="Activity Rate" radius={[0, 10, 10, 0]} fill="#6d4ce6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#9ed8ff] bg-gradient-to-br from-white via-[#fbfdff] to-[#f3f9ff] p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
-          <MemberLookup onSearch={setQuery} isLoading={loading} className="min-w-0 flex-1 xl:max-w-2xl" />
-
-          <div className="flex min-w-0 flex-1 flex-col justify-between rounded-2xl border border-[#dbe8f6] bg-white p-4">
-            <div>
-              <p className="text-sm font-semibold text-[#10213a]">Segment Controls</p>
-              <p className="mt-1 text-sm text-gray-500">Filter the current list, create reusable custom groups, or export the visible members.</p>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <Label htmlFor="segment-filter" className="text-sm font-medium text-[#1A2B47]">Filter by segment</Label>
-                <select
-                  id="segment-filter"
-                  className={`mt-2 ${adminSelectClass}`}
-                  value={segmentFilter}
-                  onChange={(e) => setSegmentFilter(e.target.value)}
-                >
-                  <option value="All">All segments</option>
-                  {segmentFilterOptions.map((segment) => (
-                    <option key={segment} value={segment}>{segment}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={adminOutlineButtonClass}
-                  onClick={() => {
-                    setEditingSegmentId(null);
-                    setSegmentName("");
-                    setSegmentDescription("");
-                    setSegmentDialogOpen(true);
-                  }}
-                >
-                  Create Segment
-                </Button>
-                <Button className={adminDarkButtonClass} onClick={handleExport}>
-                  Export Segment List
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-[28px] border border-[#cfe1f7] bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-6 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <h2 className="text-[1.75rem] font-semibold text-[#10213a]">Member Segmentation Builder</h2>
-            <p className="mt-2 text-base text-[#5f7087]">Live preview, readable condition chips, and clear AND/OR logic before backend preview wiring arrives.</p>
-          </div>
-          <div className="rounded-[22px] border border-[#dbe8f6] bg-white px-5 py-4">
-            <p className="text-[0.95rem] font-semibold text-[#10213a]">Last recalculated</p>
-            <p className="mt-2 text-[0.95rem] text-[#35506e]">{lastRecalculated}</p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.75fr)_360px]">
-          <div className="space-y-5">
-            <div className="grid gap-5 md:grid-cols-2">
-              <div>
-                <Label className="mb-2 inline-block">Segment name</Label>
-                <Input value={builderSegmentName} onChange={(e) => setBuilderSegmentName(e.target.value)} />
-                {duplicateBuilderName ? <p className="mt-2 text-sm font-medium text-[#c2410c]">A segment with this name already exists.</p> : null}
-              </div>
-              <div>
-                <Label className="mb-2 inline-block">Description</Label>
-                <Input value={builderDescription} onChange={(e) => setBuilderDescription(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-[#dbe8f6] bg-white p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-[#10213a]">Logic mode</h3>
-                  <p className="mt-2 text-sm text-[#5f7087]">Use color distinction so the operator is scannable at a glance.</p>
-                </div>
-                <div className="inline-flex rounded-full border border-[#d6e0f7] bg-[#f4f8ff] p-1">
-                  {(["AND", "OR"] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setBuilderLogicMode(mode)}
-                      className={`rounded-full px-7 py-3 text-sm font-semibold transition ${
-                        builderLogicMode === mode
-                          ? mode === "OR"
-                            ? "bg-[#7c3aed] text-white"
-                            : "bg-[#0f7f88] text-white"
-                          : "text-[#4f6580]"
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-4">
-                {builderConditions.map((condition, index) => (
-                  <div key={condition.id} className="rounded-[24px] border border-[#dbe8f6] bg-[#fbfdff] p-5">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_112px] lg:items-start">
-                      <div>
-                        <Label className="mb-2 inline-block">Field</Label>
-                        <select
-                          className={adminSelectClass}
-                          value={condition.field}
-                          onChange={(e) =>
-                            setBuilderConditions((prev) =>
-                              prev.map((item) =>
-                                item.id === condition.id
-                                  ? {
-                                      ...item,
-                                      field: e.target.value as BuilderCondition["field"],
-                                      operator: builderOperatorOptions[e.target.value]?.[0] ?? item.operator,
-                                    }
-                                  : item
-                              )
-                            )
-                          }
-                        >
-                          {builderFieldOptions.map((option) => (
-                            <option key={`${condition.id}-field-${option}`} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label className="mb-2 inline-block">Operator</Label>
-                        <select
-                          className={adminSelectClass}
-                          value={condition.operator}
-                          onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, operator: e.target.value } : item))}
-                        >
-                          {(builderOperatorOptions[condition.field] ?? [condition.operator]).map((option) => (
-                            <option key={`${condition.id}-operator-${option}`} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label className="mb-2 inline-block">Value</Label>
-                        <Input
-                          className={adminInputClass}
-                          value={condition.value}
-                          onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, value: e.target.value } : item))}
-                        />
-                      </div>
-                      <div>
-                        <Label className="mb-2 inline-block opacity-0">Action</Label>
-                        <button
-                          type="button"
-                          className={`${adminOutlineButtonClass} h-11 w-full px-0`}
-                          onClick={() => setBuilderConditions((prev) => (prev.length > 1 ? prev.filter((item) => item.id !== condition.id) : prev))}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-[20px] border border-[#dbe8f6] bg-white p-4">
-                      <p className="text-xs uppercase tracking-[0.24em] text-[#5f7895]">Readable chip</p>
-                      <div className="mt-3">
-                        <span className="inline-flex rounded-full bg-[#172845] px-4 py-2 text-sm font-semibold text-white">
-                          {formatBuilderChip(condition.field, condition.operator, condition.value)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {index < builderConditions.length - 1 ? (
-                      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.24em] text-[#5f7895]">{builderLogicMode}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`${adminOutlineButtonClass} h-12`}
-                  onClick={() =>
-                    setBuilderConditions((prev) => [
-                      ...prev,
-                      { id: `condition-${Date.now()}`, field: "Points Balance", operator: "is above", value: "100" },
-                    ])
-                  }
-                >
-                  Add Condition
-                </Button>
-                <Button
-                  type="button"
-                  className="h-12 rounded-[18px] bg-[#0f8b92] px-6 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(15,139,146,0.22)] transition hover:bg-[#0c7c82] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={duplicateBuilderName || savingBuilder}
-                  onClick={handleSaveBuilderSegment}
-                >
-                  {savingBuilder ? "Saving..." : "Save Builder Segment"}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-5">
-            <div className="rounded-[28px] border border-[#bfe8d8] bg-[linear-gradient(180deg,#f3fffb_0%,#ecfbf5_100%)] p-6">
-              <h3 className="text-lg font-semibold text-[#0d6070]">Live member count preview</h3>
-              <p className="mt-2 text-sm text-[#447486]">Debounced preview updates after builder changes, ready for future backend preview hookup.</p>
-              <p className="mt-8 text-6xl font-semibold leading-none text-[#172845]">{livePreviewCount}</p>
-              <p className="mt-4 text-base text-[#447486]">Members currently matching this rule set</p>
-            </div>
-
-            <div className="min-h-[268px] rounded-[28px] border border-[#dbe8f6] bg-white p-6">
-              <h3 className="text-lg font-semibold text-[#10213a]">Condition summary</h3>
-              <div className="mt-5 flex flex-wrap gap-3">
-                {builderConditionChips.map((chip) => (
-                  <span key={chip} className="rounded-full border border-[#d6e0f7] bg-[#f8fbff] px-5 py-3 text-base text-[#10213a]">
-                    {chip}
-                  </span>
-                ))}
-              </div>
-              <p className="mt-6 text-sm text-[#5f7087]">The preview logic uses <span className="font-semibold text-[#10213a]">{builderLogicMode}</span> across these conditions.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <Dialog open={segmentDialogOpen} onOpenChange={setSegmentDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingSegmentId ? "Edit Custom Segment" : "Create Custom Segment"}</DialogTitle>
-            <DialogDescription>Define a custom member segment for manual assignment.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="segment-name">Segment name</Label>
-              <Input id="segment-name" value={segmentName} onChange={(e) => setSegmentName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="segment-description">Description</Label>
-              <Input id="segment-description" value={segmentDescription} onChange={(e) => setSegmentDescription(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSegmentDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateOrUpdateSegment}>{editingSegmentId ? "Save Changes" : "Create Segment"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <div className="bg-white rounded-2xl p-6 border border-[#9ed8ff] space-y-4 shadow-sm">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Custom Segments</h2>
-            <p className="text-sm text-gray-500">Manage hand-crafted member groups for special targeting and manual campaigns.</p>
-          </div>
-          <div className="rounded-full bg-[#eef7ff] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#1A2B47]">
-            {segments.filter((segment) => !segment.is_system).length} active
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3">
-          {segments.filter((segment) => !segment.is_system).map((segment) => (
-            <div key={segment.id} className="flex flex-col gap-3 rounded-2xl border border-[#dbe8f6] bg-gradient-to-r from-white to-[#f8fbff] p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900">{segment.name}</p>
-                <p className="mt-1 text-sm text-gray-500">{segment.description || "No description added yet."}</p>
-              </div>
-              <div className="flex gap-2 self-start sm:self-auto">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={adminOutlineButtonClass}
-                  onClick={() => {
-                    setEditingSegmentId(segment.id);
-                    setSegmentName(segment.name);
-                    setSegmentDescription(segment.description || "");
-                    setSegmentDialogOpen(true);
-                  }}
-                >
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" className={adminDangerOutlineButtonClass} onClick={() => handleDeleteSegment(segment.id)}>Delete</Button>
-              </div>
-            </div>
-          ))}
-          {segments.filter((segment) => !segment.is_system).length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#c9d8eb] bg-[#f9fbfe] px-5 py-8 text-center">
-              <p className="text-sm font-medium text-[#1A2B47]">No custom segments yet.</p>
-              <p className="mt-1 text-sm text-gray-500">Create one to group members beyond the built-in system segments.</p>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-[#9ed8ff] p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">Bulk Segment Assignment</h2>
-            <p className="mt-1 text-sm text-gray-500">Assign the currently selected members to a segment in one step.</p>
-          </div>
-          <div className="rounded-full bg-[#eef7ff] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#1A2B47]">
-            {selectedMemberIds.length} selected
-          </div>
-        </div>
-        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-          <div className="min-w-0 flex-1">
-            <Label htmlFor="bulk-segment" className="text-sm font-medium text-[#1A2B47]">Assign selected to segment</Label>
-            <select
-              id="bulk-segment"
-              className={`mt-2 ${adminSelectClass}`}
-              value={bulkSegmentId}
-              onChange={(e) => setBulkSegmentId(e.target.value)}
-            >
-              <option value="">Select segment</option>
+            <h3 className="text-sm font-bold text-[#15243a] mb-2">Bulk Actions</h3>
+            <select className="block w-full px-3 py-2 border border-[#dce6f2] rounded-lg text-sm bg-white mb-3 focus:outline-none focus:ring-1 focus:ring-[#0b8b95]" value={bulkSegmentId} onChange={(e) => setBulkSegmentId(e.target.value)}>
+              <option value="">Select segment...</option>
               {segments.map((segment) => (
                 <option key={segment.id} value={segment.id}>{segment.name}</option>
               ))}
             </select>
+            <Button className="w-full bg-[#15243a] hover:bg-[#1a2d47] text-white rounded-lg font-semibold shadow-none py-2" onClick={handleBulkAssign}>Assign Selected</Button>
           </div>
-          <Button className={adminDarkButtonClass} onClick={handleBulkAssign}>Assign Members</Button>
         </div>
       </div>
 
-      {selectedMember ? (
-        <div className="bg-[#f8fcff] rounded-xl p-5 border border-[#9ed8ff]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Member Profile</h2>
-            <button type="button" onClick={() => setSelectedMember(null)} className="text-sm text-[#1A2B47]">Close</button>
-          </div>
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <p><span className="font-semibold">Member ID:</span> {selectedMember.member_number}</p>
-            <p><span className="font-semibold">Name:</span> {selectedMember.first_name} {selectedMember.last_name}</p>
-            <p><span className="font-semibold">Mobile:</span> {selectedMember.phone || "-"}</p>
-            <p><span className="font-semibold">Email:</span> {selectedMember.email || "-"}</p>
-            <p><span className="font-semibold">Points:</span> {(selectedMember.points_balance || 0).toLocaleString()}</p>
-            <p><span className="font-semibold">Tier:</span> {selectedMember.tier || "Bronze"}</p>
+      {/* Directory Table */}
+      <div className="bg-white rounded-[16px] border border-[#e4ecf4] shadow-[0_4px_12px_rgba(17,38,60,0.02)] flex-1 flex flex-col min-h-[400px]">
+        <div className="flex items-center justify-between p-5 pb-3">
+          <h3 className="text-[15px] font-bold text-[#15243a]">Member Directory</h3>
+          <span className="text-xs text-[#8f9eb2]">{totalItems} total members</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-[#e4ecf4]">
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2] w-12 text-center">
+                  <input type="checkbox" className="h-4 w-4 rounded border-[#dce6f2] text-[#0b8b95] focus:ring-[#0b8b95]" onChange={(e) => {
+                    const checked = e.target.checked;
+                    const next = { ...selectedMemberKeys };
+                    paginatedMembers.forEach(m => next[String(m.member_id ?? m.id ?? m.member_number)] = checked);
+                    setSelectedMemberKeys(next);
+                  }}/>
+                </th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">MEMBER #</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">NAME</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">EMAIL</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">MOBILE</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">POINTS</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">SEGMENT</th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#8f9eb2]">ACTION</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#edf2f7]">
+              {paginatedMembers.map((member) => {
+                const selectedKey = String(member.member_id ?? member.id ?? member.member_number);
+                return (
+                  <tr key={selectedKey} className="hover:bg-[#fbfdff] transition-colors group">
+                    <td className="px-5 py-3.5 text-center">
+                      <input type="checkbox" className="h-4 w-4 rounded border-[#dce6f2] text-[#0b8b95] focus:ring-[#0b8b95]" checked={Boolean(selectedMemberKeys[selectedKey])} onChange={(e) => setSelectedMemberKeys(prev => ({...prev, [selectedKey]: e.target.checked}))} />
+                    </td>
+                    <td className="px-5 py-3.5 text-xs font-semibold text-[#15243a]">{member.member_number}</td>
+                    <td className="px-5 py-3.5 text-xs text-[#5a6a7e]">{member.first_name} {member.last_name}</td>
+                    <td className="px-5 py-3.5 text-xs text-[#5a6a7e]">{member.email}</td>
+                    <td className="px-5 py-3.5 text-xs text-[#5a6a7e]">{member.phone || "-"}</td>
+                    <td className="px-5 py-3.5 text-xs font-bold text-[#15243a]">{(member.points_balance || 0).toLocaleString()}</td>
+                    <td className="px-5 py-3.5">
+                      <select
+                        value={member.segment}
+                        onChange={(e) => handleMemberSegmentChange(member.member_number, e.target.value)}
+                        className="block w-[120px] py-1.5 pl-3 pr-8 border border-[#dce6f2] rounded-md text-xs bg-white text-[#5a6a7e] focus:outline-none focus:ring-1 focus:ring-[#0b8b95]"
+                      >
+                        {SYSTEM_MEMBER_SEGMENTS.map((segment) => (
+                          <option key={`${selectedKey}-${segment}`} value={segment}>{segment}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <button className="text-[11px] font-semibold text-[#15243a] border border-[#dce6f2] rounded-md px-3 py-1.5 bg-white hover:bg-[#f3f6f9] transition-colors" onClick={() => setSelectedMember(member)}>View</button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {paginatedMembers.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-8 text-center text-sm text-[#8f9eb2]">No members found matching your criteria.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Pagination */}
+        <div className="mt-auto flex items-center justify-between px-5 py-4 border-t border-[#e4ecf4] bg-white rounded-b-[16px]">
+          <p className="text-xs text-[#8f9eb2]">
+            Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
+          </p>
+          <div className="flex gap-1.5">
+            <button 
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 border border-[#dce6f2] rounded-md text-xs font-medium bg-white text-[#5a6a7e] disabled:opacity-50 hover:bg-[#f9fbfe]"
+            >Prev</button>
+            
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={cn("w-7 h-7 rounded-md text-xs font-semibold flex items-center justify-center transition-colors", currentPage === page ? "bg-[#15243a] text-white" : "border border-[#dce6f2] bg-white text-[#5a6a7e] hover:bg-[#f9fbfe]")}
+              >
+                {page}
+              </button>
+            ))}
+
+            <button 
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="px-3 py-1.5 border border-[#dce6f2] rounded-md text-xs font-medium bg-white text-[#5a6a7e] disabled:opacity-50 hover:bg-[#f9fbfe]"
+            >Next</button>
           </div>
         </div>
-      ) : null}
+      </div>
 
-      <Dialog open={Boolean(manualAwardMember)} onOpenChange={(open) => {
-        if (!open) closeManualAwardDialog();
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Manual Award</DialogTitle>
-            <DialogDescription>
+      {/* View Member Dialog */}
+      {selectedMember && (
+        <Dialog open={Boolean(selectedMember)} onOpenChange={(open) => !open && setSelectedMember(null)}>
+          <DialogContent className="sm:max-w-md p-6 bg-white rounded-2xl border-0 shadow-xl">
+            <DialogHeader className="mb-4">
+              <DialogTitle className="text-lg font-bold text-[#15243a]">Member Profile</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Member ID</p>
+                <p className="font-semibold text-[#15243a]">{selectedMember.member_number}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Name</p>
+                <p className="font-semibold text-[#15243a]">{selectedMember.first_name} {selectedMember.last_name}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Mobile</p>
+                <p className="font-semibold text-[#15243a]">{selectedMember.phone || "-"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Email</p>
+                <p className="font-semibold text-[#15243a]">{selectedMember.email || "-"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Points Balance</p>
+                <p className="font-semibold text-[#15243a]">{(selectedMember.points_balance || 0).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-[#8f9eb2] uppercase mb-1">Tier</p>
+                <p className="font-semibold text-[#15243a]">{selectedMember.tier || "Bronze"}</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-[#e4ecf4]">
+              <Button variant="outline" className="border-[#dce6f2] rounded-full px-6 text-[#15243a]" onClick={() => setSelectedMember(null)}>Close</Button>
+              <Button className="bg-[#0b8b95] hover:bg-[#097c85] rounded-full px-6 text-white" onClick={() => { setManualAwardMember(selectedMember); setAwardPoints(""); setAwardReason(""); }}>Award Points</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Manual Award Dialog */}
+      <Dialog open={Boolean(manualAwardMember)} onOpenChange={(open) => !open && closeManualAwardDialog()}>
+        <DialogContent className="sm:max-w-md p-6 bg-white rounded-2xl border-0 shadow-xl">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-lg font-bold text-[#15243a]">Manual Award</DialogTitle>
+            <DialogDescription className="text-xs text-[#5a6a7e]">
               Award points to {manualAwardMember?.first_name} {manualAwardMember?.last_name} ({manualAwardMember?.member_number}).
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="award-points">Points to Award</Label>
-              <Input id="award-points" type="number" min="1" step="1" value={awardPoints} onChange={(e) => setAwardPoints(e.target.value)} placeholder="Enter points" />
+            <div>
+              <Label htmlFor="award-points" className="text-xs font-bold text-[#15243a] mb-1.5 block">Points to Award</Label>
+              <Input id="award-points" type="number" min="1" step="1" value={awardPoints} onChange={(e) => setAwardPoints(e.target.value)} placeholder="Enter points" className="border-[#dce6f2] focus-visible:ring-[#0b8b95]" />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="award-reason">Reason</Label>
-              <Input id="award-reason" value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder="Enter reason for manual award" />
+            <div>
+              <Label htmlFor="award-reason" className="text-xs font-bold text-[#15243a] mb-1.5 block">Reason</Label>
+              <Input id="award-reason" value={awardReason} onChange={(e) => setAwardReason(e.target.value)} placeholder="Enter reason for manual award" className="border-[#dce6f2] focus-visible:ring-[#0b8b95]" />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={closeManualAwardDialog}>Cancel</Button>
-            <Button onClick={handleManualAward} disabled={awardingMember === manualAwardMember?.member_number}>
+          <DialogFooter className="mt-6 pt-4 border-t border-[#e4ecf4] sm:justify-end gap-2">
+            <Button variant="outline" className="border-[#dce6f2] rounded-full px-6 text-[#15243a]" onClick={closeManualAwardDialog}>Cancel</Button>
+            <Button className="bg-[#0b8b95] hover:bg-[#097c85] rounded-full px-6 text-white" onClick={handleManualAward} disabled={awardingMember === manualAwardMember?.member_number}>
               {awardingMember === manualAwardMember?.member_number ? "Awarding..." : "Confirm Award"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <div className={adminPanelClass}>
-        <h2 className="text-xl font-semibold text-gray-900 mb-6">Members</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-2 border-gray-200">
-                <th className="w-16 py-3 pl-4 pr-2 text-left text-sm font-semibold text-gray-600">Select</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Member #</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Name</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Email</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Mobile</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Points</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Segment</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((member) => {
-                const key = String(member.member_id || member.id || member.member_number);
-                const selectedKey = String(member.member_id ?? member.id ?? member.member_number);
-                return (
-                  <tr key={key} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="py-4 pl-4 pr-2 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(selectedMemberKeys[selectedKey])}
-                        onChange={(e) =>
-                          setSelectedMemberKeys((prev) => ({
-                            ...prev,
-                            [selectedKey]: e.target.checked,
-                          }))
-                        }
-                        className="h-5 w-5 cursor-pointer accent-[#1A2B47]"
-                        aria-label={`Select ${member.member_number}`}
-                      />
-                    </td>
-                    <td className="py-4 px-4 text-sm font-medium text-gray-800">{member.member_number}</td>
-                    <td className="py-4 px-4 text-sm text-gray-700">{member.first_name} {member.last_name}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600">{member.email}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600">{member.phone || "-"}</td>
-                    <td className="py-4 px-4 text-sm font-semibold text-gray-800">{(member.points_balance || 0).toLocaleString()}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600">
-                      <select
-                        value={member.segment}
-                        onChange={(e) => handleMemberSegmentChange(member.member_number, e.target.value)}
-                        className={`${adminSelectClass} min-w-[170px]`}
-                      >
-                        {SYSTEM_MEMBER_SEGMENTS.map((segment) => (
-                          <option key={`${key}-${segment}`} value={segment}>
-                            {segment}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setSelectedMember(member)} className="inline-flex items-center justify-center rounded-lg border border-[#c9d8eb] bg-white px-3 py-1.5 text-xs font-semibold text-[#1A2B47] transition hover:border-[#9eb8da] hover:bg-[#eef5ff] hover:text-[#10213a]">View</button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManualAwardMember(member);
-                            setAwardPoints("");
-                            setAwardReason("");
-                          }}
-                          disabled={awardingMember === member.member_number}
-                          className="inline-flex items-center justify-center rounded-lg bg-[#0fa7b4] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c96a2] hover:text-white disabled:opacity-60"
-                        >
-                          {awardingMember === member.member_number ? "Awarding..." : "Award"}
-                        </button>
+      {/* Member Segmentation Builder Modal */}
+      <Dialog open={segmentDialogOpen} onOpenChange={setSegmentDialogOpen}>
+        <DialogContent className="sm:max-w-[960px] p-8 overflow-hidden border-0 bg-white rounded-[24px] shadow-2xl">
+          {/* Header Area */}
+          <div className="flex justify-between items-start mb-8">
+            <div className="pr-8">
+              <DialogTitle className="text-[24px] font-bold text-[#1f2937] leading-tight mb-2">Member Segmentation Builder</DialogTitle>
+              <DialogDescription className="text-[14px] text-[#6b7280] m-0 font-medium">A builder shell for live preview, logic selection, readable chips, timestamp, and duplicate-name validation.</DialogDescription>
+            </div>
+            <div className="bg-[#f9fafb] rounded-[12px] px-4 py-2.5 border border-[#e5e7eb] text-right flex-shrink-0">
+              <div className="text-[10px] font-bold text-[#6b7280] mb-0.5">Last recalculated</div>
+              <div className="text-[12px] font-medium text-[#4b5563]">{lastRecalculated}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* Left Column */}
+            <div className="flex-1 flex flex-col gap-6">
+              {/* Top Controls */}
+              <div className="flex gap-6 items-start">
+                <div className="flex-1">
+                  <label className="text-[13px] font-bold text-[#374151] block mb-2">Segment name</label>
+                  <input type="text" className={cn("w-full border rounded-lg px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0f766e]", duplicateBuilderName ? "border-red-500 focus:ring-red-500" : "border-[#e5e7eb]")} placeholder="Gold reactivation test" value={builderSegmentName} onChange={(e) => setBuilderSegmentName(e.target.value)} />
+                  {duplicateBuilderName && <p className="text-[12px] text-red-500 mt-2 font-medium">A segment with this name already exists.</p>}
+                </div>
+                <div>
+                  <label className="text-[13px] font-bold text-[#374151] block mb-2">Logic mode</label>
+                  <div className="flex rounded-full border border-[#e5e7eb] bg-white p-1">
+                    <button className={cn("px-5 py-1.5 text-[13px] font-bold rounded-full transition-colors", builderLogicMode === "AND" ? "bg-[#0d9488] text-white" : "text-[#4b5563] hover:text-[#1f2937]")} onClick={() => setBuilderLogicMode("AND")}>AND</button>
+                    <button className={cn("px-5 py-1.5 text-[13px] font-bold rounded-full transition-colors", builderLogicMode === "OR" ? "bg-[#0d9488] text-white" : "text-[#4b5563] hover:text-[#1f2937]")} onClick={() => setBuilderLogicMode("OR")}>OR</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Conditions */}
+              <div className="space-y-4">
+                {builderConditions.map((condition, index) => (
+                  <div key={condition.id} className="bg-white rounded-[20px] p-5 border border-[#e5e7eb] relative group">
+                    <div className="flex gap-4 items-end mb-5">
+                      <div className="flex-1">
+                        <label className="text-[13px] font-bold text-[#374151] block mb-2">Field</label>
+                        <select className="w-full border border-[#e5e7eb] rounded-[10px] px-3 py-2.5 text-[14px] bg-[#fdfdfd] focus:outline-none focus:ring-2 focus:ring-[#0f766e] font-medium" value={condition.field} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, field: e.target.value as BuilderCondition["field"], operator: builderOperatorOptions[e.target.value]?.[0] ?? item.operator } : item))}>
+                          {builderFieldOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {filtered.length === 0 ? <p className="py-6 text-gray-500">No matching members found.</p> : null}
-        </div>
-      </div>
+                      <div className="flex-1">
+                        <label className="text-[13px] font-bold text-[#374151] block mb-2">Operator</label>
+                        <select className="w-full border border-[#e5e7eb] rounded-[10px] px-3 py-2.5 text-[14px] bg-[#fdfdfd] focus:outline-none focus:ring-2 focus:ring-[#0f766e] font-medium" value={condition.operator} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, operator: e.target.value } : item))}>
+                          {(builderOperatorOptions[condition.field] ?? [condition.operator]).map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[13px] font-bold text-[#374151] block mb-2">Value</label>
+                        <div className="flex gap-2 items-center bg-[#fdfdfd] border border-[#e5e7eb] rounded-[10px] px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#0f766e]">
+                          <input type="text" className="w-full bg-transparent text-[14px] focus:outline-none font-medium" value={condition.value} onChange={(e) => setBuilderConditions((prev) => prev.map((item) => item.id === condition.id ? { ...item, value: e.target.value } : item))} />
+                          {condition.field === "Last Activity" && <span className="text-[13px] font-medium text-[#6b7280]">days</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => setBuilderConditions(prev => prev.length > 1 ? prev.filter(i => i.id !== condition.id) : prev)} className="p-2 text-[#9ca3af] hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 absolute top-3 right-3">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                      </button>
+                    </div>
+                    <div>
+                      <span className="inline-flex rounded-full bg-[#1f2937] text-white text-[13px] font-bold px-4 py-1.5 shadow-sm">{formatBuilderChip(condition.field, condition.operator, condition.value)}</span>
+                    </div>
+                  </div>
+                ))}
+
+                <button className="text-[#0d9488] text-[14px] font-bold flex items-center gap-1.5 hover:text-[#0f766e] px-2 py-1 transition-colors mt-2" onClick={() => setBuilderConditions(prev => [...prev, { id: Math.random().toString(), field: "Tier", operator: "is", value: "" }])}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                  Add Condition
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="w-full lg:w-[320px] flex flex-col gap-6">
+              <div className="bg-[#eefcf6] rounded-[24px] p-6 border border-[#d1fae5]">
+                <h3 className="text-[18px] font-bold text-[#065f46] mb-2">Live member count preview</h3>
+                <p className="text-[14px] font-medium text-[#059669] mb-8 leading-relaxed">Debounced preview updates within the builder shell.</p>
+                <div className="text-[72px] font-extrabold text-[#1f2937] leading-none mb-3 tracking-tight">{livePreviewCount}</div>
+                <p className="text-[13px] font-medium text-[#059669]">Members currently matching this rule set</p>
+              </div>
+
+              <div className="bg-white rounded-[24px] p-6 border border-[#e5e7eb] shadow-sm">
+                <h3 className="text-[15px] font-bold text-[#1f2937] mb-4">Condition chips</h3>
+                <div className="flex flex-col gap-2.5">
+                  {builderConditionChips.map((chip, idx) => (
+                    <div key={idx} className="bg-[#f9fafb] border border-[#f3f4f6] rounded-[16px] px-5 py-3 text-[13px] font-medium text-[#4b5563] w-max max-w-[200px] text-left leading-snug break-words">{chip}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center mt-8">
+            <button className="text-[14px] font-bold text-red-500 hover:text-red-600 transition-colors" onClick={() => setSegmentDialogOpen(false)}>Delete Segment</button>
+            <div className="flex gap-3">
+              <Button variant="outline" className="border-[#e5e7eb] text-[#374151] bg-[#f9fafb] rounded-[10px] font-bold px-6 hover:bg-[#f3f4f6] h-10" onClick={() => setSegmentDialogOpen(false)}>Cancel</Button>
+              <Button className="bg-[#0d9488] hover:bg-[#0f766e] text-white rounded-[10px] font-bold px-6 h-10 shadow-sm" disabled={savingBuilder || duplicateBuilderName} onClick={handleSaveBuilderSegment}>Save Changes</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

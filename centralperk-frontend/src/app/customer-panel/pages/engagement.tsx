@@ -271,7 +271,9 @@ export default function CustomerEngagementPage() {
   const loadEngagementData = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoadingError(false);
 
-    const [challengeRows, surveyRows, shares, referralRows, code, settings, status, privacy] = await Promise.all([
+    if (!user.memberId) return;
+
+    const results = await Promise.allSettled([
       loadChallengeDefinitions(),
       loadSurveyDefinitions(),
       loadSocialShareEvents({ memberIdentifier: user.memberId }),
@@ -281,6 +283,18 @@ export default function CustomerEngagementPage() {
       loadBirthdayRewardStatus(user.memberId, user.email),
       loadMemberPrivacySettings(user.memberId),
     ]);
+
+    const rejected = results.find((r) => r.status === "rejected");
+    if (rejected) throw (rejected as PromiseRejectedResult).reason;
+
+    const challengeRows = (results[0] as PromiseFulfilledResult<ChallengeDefinition[]>).value;
+    const surveyRows = (results[1] as PromiseFulfilledResult<SurveyDefinition[]>).value;
+    const shares = (results[2] as PromiseFulfilledResult<ShareEvent[]>).value;
+    const referralRows = (results[3] as PromiseFulfilledResult<ReferralRecord[]>).value;
+    const code = (results[4] as PromiseFulfilledResult<string>).value;
+    const settings = (results[5] as PromiseFulfilledResult<BirthdayRewardSettings>).value;
+    const status = (results[6] as PromiseFulfilledResult<any>).value;
+    const privacy = (results[7] as PromiseFulfilledResult<SharePrivacySettings>).value;
 
     setChallenges(challengeRows);
     setSurveys(surveyRows);

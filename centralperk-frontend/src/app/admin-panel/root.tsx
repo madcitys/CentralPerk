@@ -1,6 +1,6 @@
 import { Activity, Award, BarChart3, Bell, Home, LogOut, Menu, Settings, Sparkles, Users, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../../components/ui/utils";
 import { supabase } from "../../utils/supabase/client";
 import type { AppNotification } from "../lib/notifications";
@@ -21,9 +21,11 @@ const navItems = [
 
 export default function AdminRoot() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const isDashboardRoute = location.pathname === "/admin";
 
   const loadNotifications = async () => {
     try {
@@ -61,6 +63,10 @@ export default function AdminRoot() {
     } catch {
     }
   };
+
+  const openNotifications = useCallback(() => {
+    setNotifOpen((state) => !state);
+  }, []);
 
   useEffect(() => {
     let timeoutRef: ReturnType<typeof setTimeout>;
@@ -104,18 +110,6 @@ export default function AdminRoot() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setNotifOpen((s) => !s)}
-              className="relative p-2 rounded-lg hover:bg-gray-100"
-              aria-label="Notifications"
-            >
-              <Bell className="w-5 h-5 text-[#1A2B47]" />
-              {notifications.length > 0 ? (
-                <span className={cn("absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
-                  {Math.min(notifications.length, 9)}
-                </span>
-              ) : null}
-            </button>
             <button
               onClick={() => setSidebarOpen((s) => !s)}
               className="p-2 rounded-lg hover:bg-gray-100"
@@ -209,20 +203,6 @@ export default function AdminRoot() {
 
       <div className="lg:pl-64 pt-16 lg:pt-0 bg-transparent">
         <main className="p-4 lg:p-8">
-          <div className="mb-4 hidden lg:flex justify-end relative">
-            <button
-              onClick={() => setNotifOpen((s) => !s)}
-              className="relative inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 hover:bg-gray-50"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5 text-[#1A2B47]" />
-              {notifications.length > 0 ? (
-                <span className={cn("absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold", brandTealSolidClass)}>
-                  {Math.min(notifications.length, 9)}
-                </span>
-              ) : null}
-            </button>
-          </div>
 
           {notifOpen ? (
             <div className="mb-4 lg:absolute lg:right-8 lg:top-20 z-50 w-full max-w-sm rounded-xl border border-[#9ed8ff] bg-[#f8fcff] p-3 shadow-lg">
@@ -247,7 +227,7 @@ export default function AdminRoot() {
             </div>
           ) : null}
 
-          <Outlet />
+          <Outlet context={{ notificationCount: notifications.length, openNotifications }} />
         </main>
       </div>
     </div>
