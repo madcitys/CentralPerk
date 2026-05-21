@@ -168,15 +168,6 @@ type ActionCenterItem = {
   records: ActionRecord[];
 };
 
-type ActionModalState = {
-  title: string;
-  description: string;
-  actionLabel: string;
-  actionHref?: string;
-  rows: ActionRecord[];
-  emptyText: string;
-};
-
 type InsightItem = {
   title: string;
   value: string;
@@ -810,37 +801,47 @@ function actionCenterIcon(label: string): LucideIcon {
   return TriangleAlert;
 }
 
-function ActionCenterCard(props: {
-  item: ActionCenterItem;
-  onOpen: (item: ActionCenterItem) => void;
-}) {
-  const { item, onOpen } = props;
+function ActionCenterCard({ item }: { item: ActionCenterItem }) {
   const Icon = actionCenterIcon(item.label);
-  return (
-    <div className="grid grid-cols-[40px_minmax(0,1fr)_48px_102px] items-center gap-3 border-b border-[#e7edf5] px-1 py-[14px] last:border-b-0 max-sm:grid-cols-[40px_minmax(0,1fr)_48px] max-sm:gap-x-3 max-sm:gap-y-2">
-      <div className={cn("flex h-9 w-9 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
-        <Icon className="h-[18px] w-[18px]" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-medium leading-5 text-[#071936]">{item.label}</p>
-      </div>
-      <div className="flex justify-center">
-        <span className={cn("inline-flex h-9 min-w-12 items-center justify-center rounded-[10px] px-3 text-[14px] font-medium", actionToneClass(item.tone))}>
+  const content = (
+    <div className="flex min-h-[132px] min-w-0 flex-col rounded-lg border border-[#e3eaf4] bg-[#fbfdff] p-3 transition hover:border-[#cbd9eb] hover:bg-white">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
+            <Icon className="h-[18px] w-[18px]" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-extrabold leading-5 text-[#071936]">{item.label}</p>
+            <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-4 text-[#64748b]">{item.description}</p>
+          </div>
+        </div>
+        <span className={cn("inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-[10px] px-2.5 text-[14px] font-black", actionToneClass(item.tone))}>
           {integerFormatter.format(item.count)}
         </span>
       </div>
-      <button
-        type="button"
-        onClick={() => onOpen(item)}
-        className={cn(
-          "inline-flex h-[43px] w-[102px] items-center justify-center rounded-[10px] border border-[#c7d9ee] bg-white px-4 text-[14px] font-medium text-[#071936] shadow-none transition",
-          actionButtonToneClass(item.tone),
-          "max-sm:col-start-2 max-sm:w-full",
-        )}
-      >
-        {item.actionLabel}
-      </button>
+      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+        <p className="line-clamp-1 text-[11px] font-semibold text-[#7a8798]">
+          {item.count > 0 ? item.records[0]?.primary : item.emptyText}
+        </p>
+        <span
+          className={cn(
+            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936]",
+            actionButtonToneClass(item.tone),
+          )}
+        >
+          {item.actionLabel}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </div>
     </div>
+  );
+
+  if (!item.actionHref) return content;
+
+  return (
+    <Link to={item.actionHref} className="block min-w-0">
+      {content}
+    </Link>
   );
 }
 
@@ -1079,7 +1080,6 @@ export default function AdminDashboardPage() {
   const [shareEvents, setShareEvents] = useState<ShareEvent[]>([]);
   const [auxLoading, setAuxLoading] = useState(true);
   const [auxError, setAuxError] = useState<string | null>(null);
-  const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
   // Compact layout is enabled by default to fit more panels without scrolling.
   const compactMode = true;
 
@@ -1634,7 +1634,7 @@ export default function AdminDashboardPage() {
         label: "Push Campaigns",
         value: scheduledPushCampaigns.length,
         supporting: `${notificationCampaigns.length} total campaigns synced from notification service`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?tab=notifications&modal=push",
         icon: Send,
         tone: "blue",
       },
@@ -1642,7 +1642,7 @@ export default function AdminDashboardPage() {
         label: "Referral Pipeline",
         value: referrals.length,
         supporting: `${referralConversions} conversions / ${pendingReferralInvites.length} pending invites`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?modal=referrals",
         icon: Users,
         tone: "teal",
       },
@@ -1650,7 +1650,7 @@ export default function AdminDashboardPage() {
         label: "Member Feedback",
         value: feedback.length,
         supporting: `${averageFeedbackRating ? averageFeedbackRating.toFixed(1) : "0.0"} avg rating / ${lowRatingFeedback.length} need attention`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?modal=feedback",
         icon: MessageSquareText,
         tone: lowRatingFeedback.length > 0 ? "rose" : "violet",
       },
@@ -1658,7 +1658,7 @@ export default function AdminDashboardPage() {
         label: "Live Surveys",
         value: liveSurveys.length,
         supporting: `${surveyResponseCount} submitted responses across ${surveys.length} surveys`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?tab=surveys&modal=surveys",
         icon: ClipboardList,
         tone: "violet",
       },
@@ -1666,7 +1666,7 @@ export default function AdminDashboardPage() {
         label: "Active Challenges",
         value: activeChallenges.length,
         supporting: `${challenges.length} published challenges available to customers`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?tab=challenges&modal=challenges",
         icon: Trophy,
         tone: "green",
       },
@@ -1674,7 +1674,7 @@ export default function AdminDashboardPage() {
         label: "Social Shares",
         value: shareEvents.length,
         supporting: `${shareConversionCount} referral conversions attributed to share events`,
-        href: "/admin/engagement",
+        href: "/admin/engagement?tab=sharing",
         icon: Share2,
         tone: "amber",
       },
@@ -1784,7 +1784,7 @@ export default function AdminDashboardPage() {
         label: "Customer Feedback",
         count: feedback.length,
         actionLabel: "Review",
-        actionHref: "/admin/engagement",
+        actionHref: "/admin/engagement?modal=feedback",
         tone: "violet",
         description: "Feedback submitted from the customer engagement page.",
         emptyText: "No member feedback has been submitted yet.",
@@ -1794,7 +1794,7 @@ export default function AdminDashboardPage() {
         label: "Referral Pipeline",
         count: pendingReferralInvites.length,
         actionLabel: "Track",
-        actionHref: "/admin/engagement",
+        actionHref: "/admin/engagement?modal=referrals",
         tone: "teal",
         description: "Pending referral invites waiting for conversion.",
         emptyText: "No pending referral invites are waiting right now.",
@@ -1804,7 +1804,7 @@ export default function AdminDashboardPage() {
         label: "Live Surveys",
         count: liveSurveys.length,
         actionLabel: "Open",
-        actionHref: "/admin/engagement",
+        actionHref: "/admin/engagement?tab=surveys&modal=surveys",
         tone: "blue",
         description: "Published surveys visible to customer survey and earn-points flows.",
         emptyText: "No live surveys are currently published.",
@@ -1814,7 +1814,7 @@ export default function AdminDashboardPage() {
         label: "Active Challenges",
         count: activeChallenges.length,
         actionLabel: "Open",
-        actionHref: "/admin/engagement",
+        actionHref: "/admin/engagement?tab=challenges&modal=challenges",
         tone: "amber",
         description: "Published challenges visible to customers.",
         emptyText: "No active customer challenges are currently published.",
@@ -1824,7 +1824,7 @@ export default function AdminDashboardPage() {
         label: "Scheduled Push",
         count: scheduledPushCampaigns.length,
         actionLabel: "Manage",
-        actionHref: "/admin/engagement",
+        actionHref: "/admin/engagement?tab=notifications&modal=push",
         tone: "blue",
         description: "Notification campaigns scheduled or live in the notification service.",
         emptyText: "No push campaigns are scheduled or live.",
@@ -1894,7 +1894,7 @@ export default function AdminDashboardPage() {
         label: "Inactive Members (60+ days)",
         count: inactiveMembers.length,
         actionLabel: "Engage",
-        actionHref: "/admin/members?segment=inactive_60d",
+        actionHref: "/admin/engagement?tab=winback&modal=inactive",
         tone: "blue",
         description: "Members who have been dormant long enough to qualify for a win-back action.",
         emptyText: "No inactive member backlog is currently above the 60-day threshold.",
@@ -1930,6 +1930,12 @@ export default function AdminDashboardPage() {
     scheduledPushCampaigns,
     vouchers,
   ]);
+
+  const visibleActionCenterItems = useMemo(
+    () => actionCenterItems.slice(0, 6),
+    [actionCenterItems],
+  );
+  const monitoredActionCount = Math.max(0, actionCenterItems.length - visibleActionCenterItems.length);
 
   const insights = useMemo<InsightItem[]>(() => {
     const topMemberInsight: InsightItem = dashboardData.topMember
@@ -2108,7 +2114,7 @@ export default function AdminDashboardPage() {
 
   return (
     <>
-      <div className={cn(adminPageShellClass, "mx-auto max-w-[1180px] space-y-3 px-3 py-2 pb-5")}>
+      <div className={cn(adminPageShellClass, "mx-auto max-w-[1540px] space-y-3 px-3 py-2 pb-5")}>
         <header className="rounded-[16px] border border-[#d9e8f6] bg-[linear-gradient(135deg,#ffffff_0%,#f3fbff_48%,#eef8ff_100%)] px-5 py-5 shadow-[0_14px_32px_rgba(17,38,60,0.07)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
@@ -2299,24 +2305,16 @@ export default function AdminDashboardPage() {
           </SectionCard>
 
           <SectionCard title="B. Action Center" subtitle="Operational alerts and next actions" icon={TriangleAlert}>
-            <div className="min-h-0 flex-1">
-              {actionCenterItems.map((item) => (
-                <ActionCenterCard
-                  key={item.label}
-                  item={item}
-                  onOpen={(selected) =>
-                    setActionModal({
-                      title: selected.label,
-                      description: selected.description,
-                      actionLabel: selected.actionLabel,
-                      actionHref: selected.actionHref,
-                      rows: selected.records,
-                      emptyText: selected.emptyText,
-                    })
-                  }
-                />
+            <div className="grid min-h-0 flex-1 gap-3 sm:grid-cols-2">
+              {visibleActionCenterItems.map((item) => (
+                <ActionCenterCard key={item.label} item={item} />
               ))}
             </div>
+            {monitoredActionCount > 0 ? (
+              <p className="mt-3 rounded-md border border-[#e3eaf4] bg-[#fbfdff] px-3 py-2 text-[11px] font-semibold text-[#607087]">
+                {monitoredActionCount} more operational checks continue syncing through their owner pages.
+              </p>
+            ) : null}
           </SectionCard>
         </section>
 
@@ -2333,41 +2331,6 @@ export default function AdminDashboardPage() {
         </section>
       </div>
 
-      <Dialog open={Boolean(actionModal)} onOpenChange={(open) => !open && setActionModal(null)}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{actionModal?.title}</DialogTitle>
-            <DialogDescription>{actionModal?.description}</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-[#e5edf6] bg-[#fbfdff]">
-            {actionModal?.rows.length ? (
-              <div className="divide-y divide-[#edf2f7]">
-                {actionModal.rows.map((row, index) => (
-                  <div key={`${row.primary}-${index}`} className="flex items-start justify-between gap-3 p-3">
-                    <div>
-                      <p className="text-sm font-bold text-[#18263b]">{row.primary}</p>
-                      <p className="mt-1 text-xs leading-5 text-[#607087]">{row.secondary}</p>
-                    </div>
-                    {row.badge ? <span className="shrink-0 rounded-md bg-white px-2 py-1 text-[11px] font-bold text-[#52627a] ring-1 ring-[#e1e9f3]">{row.badge}</span> : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="p-4 text-sm text-[#607087]">{actionModal?.emptyText}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <button type="button" onClick={() => setActionModal(null)} className={cn(adminOutlineButtonClass, "rounded-md")}>
-              Close
-            </button>
-            {actionModal?.actionHref ? (
-              <Link to={actionModal.actionHref} onClick={() => setActionModal(null)} className={cn(adminPrimaryButtonClass, "rounded-md")}>
-                {actionModal.actionLabel}
-              </Link>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

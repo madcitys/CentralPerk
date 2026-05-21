@@ -29,6 +29,7 @@ import type { AppOutletContext } from "../../types/app-context";
 import type { Reward, Transaction } from "../../types/loyalty";
 import type { PromotionCampaign } from "../../lib/promotions";
 import { loadActiveCampaignsViaApi, loadRewardsViaApi } from "../../lib/api";
+import { loadNotificationCampaigns, type NotificationCampaign } from "../../lib/member-engagement";
 import { fetchEarningRules, fetchTierRulesViaService } from "../../lib/points-service-client";
 import { normalizeTransactionDescription } from "../../lib/reward-display";
 
@@ -119,6 +120,48 @@ function transactionIcon(transaction: Transaction) {
   if (text.includes("health") || text.includes("wellness")) return HeartPulse;
   if (text.includes("product") || text.includes("purchase")) return ShoppingBag;
   return ReceiptText;
+}
+
+function notificationCampaignMatchesMember(campaign: NotificationCampaign, tier: string, points: number) {
+  const segment = campaign.segment.toLowerCase();
+  const tierName = tier.toLowerCase();
+  if (segment === "all members") return true;
+  if (segment === tierName) return true;
+  if (segment === "high value") return points >= 50000 || tierName === "gold" || tierName === "platinum";
+  return false;
+}
+
+function notificationCampaignToPromotionCampaign(campaign: NotificationCampaign): PromotionCampaign {
+  const scheduledAt = new Date(campaign.scheduledFor);
+  const startsAt = Number.isNaN(scheduledAt.getTime()) ? new Date() : scheduledAt;
+  const endsAt = new Date(startsAt.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  return {
+    id: `notification-${campaign.id}`,
+    campaignCode: `PUSH-${campaign.id}`,
+    campaignName: campaign.name,
+    description: campaign.variantA || `Scheduled ${campaign.trigger.toLowerCase()} message for ${campaign.segment}.`,
+    campaignType: campaign.trigger === "Flash Sale" ? "flash_sale" : "bonus_points",
+    status: campaign.status === "completed" ? "completed" : "scheduled",
+    multiplier: 1,
+    minimumPurchaseAmount: 0,
+    bonusPoints: campaign.trigger === "Flash Sale" ? 0 : 50,
+    productScope: [],
+    eligibleTiers: campaign.segment === "All Members" || campaign.segment === "High Value" ? [] : [campaign.segment],
+    rewardId: null,
+    rewardName: null,
+    rewardPointsCost: null,
+    rewardImageUrl: null,
+    flashSaleQuantityLimit: campaign.trigger === "Flash Sale" ? Math.max(campaign.audienceSize, 1) : null,
+    flashSaleClaimedCount: campaign.trigger === "Flash Sale" ? campaign.openedCount : 0,
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    countdownLabel: campaign.status === "live" ? "Live now" : "Scheduled push",
+    bannerTitle: campaign.name,
+    bannerMessage: campaign.variantB || campaign.variantA || "A pharmacy rewards campaign is available for your account.",
+    bannerColor: "#008c80",
+    pushNotificationEnabled: true,
+  };
 }
 
 export default function Dashboard() {
@@ -240,10 +283,27 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    void loadActiveCampaignsViaApi(user.tier)
-      .then((response) => setActiveCampaigns(response.campaigns))
+    void Promise.allSettled([loadActiveCampaignsViaApi(user.tier), loadNotificationCampaigns()])
+      .then(([promotionResult, notificationResult]) => {
+        const promotionCampaigns = promotionResult.status === "fulfilled" ? promotionResult.value.campaigns : [];
+        const notificationCampaigns =
+          notificationResult.status === "fulfilled"
+            ? notificationResult.value
+                .filter((campaign) => campaign.status !== "completed")
+                .filter((campaign) => notificationCampaignMatchesMember(campaign, user.tier, user.points))
+                .map(notificationCampaignToPromotionCampaign)
+            : [];
+        const seen = new Set<string>();
+        const mergedCampaigns = [...notificationCampaigns, ...promotionCampaigns].filter((campaign) => {
+          const key = `${campaign.campaignName.toLowerCase()}-${campaign.startsAt}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setActiveCampaigns(mergedCampaigns);
+      })
       .catch(() => setActiveCampaigns([]));
-  }, [user.tier]);
+  }, [user.points, user.tier]);
 
   useEffect(() => {
     void loadRewardsViaApi()

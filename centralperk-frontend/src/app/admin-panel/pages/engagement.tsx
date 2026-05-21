@@ -21,7 +21,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -84,6 +84,21 @@ const adminModalClass =
 
 const segments: EngagementSegment[] = ["All Members", "Bronze", "Silver", "Gold", "High Value", "Inactive 60+ Days"];
 const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Reward Available", "Flash Sale", "Birthday"];
+
+function isEngagementTab(value: string | null): value is EngagementTab {
+  return value === "notifications" || value === "challenges" || value === "sharing" || value === "surveys" || value === "winback";
+}
+
+function isModalName(value: string | null): value is Exclude<ModalName, null> {
+  return value === "push" || value === "referrals" || value === "feedback" || value === "surveys" || value === "inactive" || value === "challenges";
+}
+
+function tabForModal(value: Exclude<ModalName, null>): EngagementTab {
+  if (value === "surveys") return "surveys";
+  if (value === "challenges") return "challenges";
+  if (value === "inactive") return "winback";
+  return "notifications";
+}
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -227,6 +242,7 @@ function EmptyTableRow({ colSpan, text }: { colSpan: number; text: string }) {
 
 export default function AdminEngagementPage() {
   const { notificationCount = 0, openNotifications } = useOutletContext<AdminDashboardOutletContext>();
+  const [searchParams] = useSearchParams();
   const { members, transactions, loginActivity, loading, error } = useAdminData();
   const [activeTab, setActiveTab] = useState<EngagementTab>("notifications");
   const [modal, setModal] = useState<ModalName>(null);
@@ -249,6 +265,20 @@ export default function AdminEngagementPage() {
   const [challengeName, setChallengeName] = useState("Wellness Week");
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    const modalParam = searchParams.get("modal");
+
+    if (isEngagementTab(tabParam)) {
+      setActiveTab(tabParam);
+    }
+
+    if (isModalName(modalParam)) {
+      setActiveTab((current) => (isEngagementTab(tabParam) ? current : tabForModal(modalParam)));
+      setModal(modalParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let alive = true;
