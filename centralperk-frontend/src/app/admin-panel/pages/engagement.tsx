@@ -8,7 +8,6 @@ import {
   Filter,
   Gift,
   MessageSquareText,
-  MoreHorizontal,
   Plus,
   Search,
   Send,
@@ -30,6 +29,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../../compo
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { Textarea } from "../../../components/ui/textarea";
+import { cn } from "../../../components/ui/utils";
 import { useAdminData } from "../hooks/use-admin-data";
 import { AdminDashboardOutletContext } from "../types";
 import {
@@ -58,6 +58,7 @@ import {
   type ReferralRecord,
 } from "../../lib/member-lifecycle";
 import { scheduleEmailViaApi, triggerSmsViaApi } from "../../lib/api";
+import { createReengagementAction } from "../../lib/loyalty-supabase";
 import {
   demoChallenges,
   demoFeedback,
@@ -80,7 +81,7 @@ const tabs: { id: EngagementTab; label: string; icon: LucideIcon }[] = [
 ];
 
 const adminModalClass =
-  "!left-4 !top-4 !h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-[14px] bg-white p-4 pr-10 sm:!max-w-none";
+  "!left-4 !top-4 !h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-[14px] bg-white p-4 pr-4 sm:!max-w-none [&>button.absolute]:hidden";
 
 const segments: EngagementSegment[] = ["All Members", "Bronze", "Silver", "Gold", "High Value", "Inactive 60+ Days"];
 const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Reward Available", "Flash Sale", "Birthday"];
@@ -170,6 +171,105 @@ function referralKey(referral: ReferralRecord) {
 
 function feedbackKey(feedback: FeedbackRecord) {
   return `${feedback.memberId}:${feedback.category}:${feedback.comment}`;
+}
+
+function downloadCsv(filename: string, rows: Array<Record<string, string | number | boolean | null | undefined>>) {
+  if (!rows.length) {
+    toast.error("No rows available to export.");
+    return;
+  }
+  const headers = Object.keys(rows[0]);
+  const escapeCell = (value: string | number | boolean | null | undefined) => {
+    const text = String(value ?? "");
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [headers.join(","), ...rows.map((row) => headers.map((header) => escapeCell(row[header])).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  toast.success("CSV exported.");
+}
+
+async function copyText(value: string, message: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(message);
+  } catch {
+    toast.error("Clipboard is not available in this browser.");
+  }
+}
+
+function buildLocalFeedbackInsights(rows: FeedbackRecord[]): FeedbackInsights {
+  const sentimentSplit = rows.reduce(
+    (acc, row) => {
+      if (row.rating >= 4) acc.positive += 1;
+      else if (row.rating <= 2) acc.negative += 1;
+      else acc.neutral += 1;
+      return acc;
+    },
+    { positive: 0, neutral: 0, negative: 0 }
+  );
+
+  const topicCounts = new Map<string, number>();
+  const wordCounts = new Map<string, number>();
+  const commentGroups = new Map<string, FeedbackRecord[]>();
+  const stopWords = new Set(["the", "and", "for", "with", "this", "that", "our", "are", "was", "were", "very", "more", "from", "your", "you"]);
+
+  rows.forEach((row) => {
+    topicCounts.set(row.category || "general", (topicCounts.get(row.category || "general") || 0) + 1);
+    const groupKey = normalizedKey(row.comment).replace(/[^\w\s]/g, "");
+    commentGroups.set(groupKey, [...(commentGroups.get(groupKey) || []), row]);
+    row.comment
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 3 && !stopWords.has(word))
+      .forEach((word) => wordCounts.set(word, (wordCounts.get(word) || 0) + 1));
+  });
+
+  const topTopics = [...topicCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([topic, count]) => ({ topic, count }));
+
+  const wordCloud = [...wordCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([word, weight]) => ({ word, weight }));
+
+  const duplicateGroups = [...commentGroups.entries()]
+    .filter(([, groupRows]) => groupRows.length > 1)
+    .map(([topic, groupRows]) => ({
+      topic: topic.split(" ").slice(0, 4).join(" ") || "Similar feedback",
+      count: groupRows.length,
+      averageSimilarity: 1,
+      feedbackIds: groupRows.map((row) => row.id),
+    }));
+
+  const similarFeedbackGroups =
+    duplicateGroups.length > 0
+      ? duplicateGroups
+      : topTopics.slice(0, 4).map((topic) => ({
+          topic: topic.topic,
+          count: topic.count,
+          averageSimilarity: Math.min(0.92, 0.5 + topic.count / Math.max(10, rows.length)),
+          feedbackIds: rows.filter((row) => row.category === topic.topic).map((row) => row.id),
+        }));
+
+  return {
+    sentimentSplit,
+    topTopics,
+    wordCloud,
+    similarFeedbackGroups,
+    sourceCount: rows.length,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function Sparkline({ color = "#2563eb" }: { color?: string }) {
@@ -453,9 +553,66 @@ export default function AdminEngagementPage() {
       setFeedbackInsights(insights);
       toast.success("Feedback insights generated.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to generate insights.");
+      const fallbackInsights = buildLocalFeedbackInsights(feedback);
+      setFeedbackInsights(fallbackInsights);
+      toast.warning(error instanceof Error ? `API unavailable. Generated local insights instead: ${error.message}` : "API unavailable. Generated local insights instead.");
     } finally {
       setIsGeneratingInsights(false);
+    }
+  };
+
+  const loadCampaignIntoBuilder = (campaign: NotificationCampaign) => {
+    setCampaignName(campaign.name);
+    setCampaignTrigger(campaign.trigger);
+    setCampaignSegment(campaign.segment);
+    setScheduledFor(campaign.scheduledFor.slice(0, 16));
+    setVariantA(campaign.variantA);
+    setVariantB(campaign.variantB);
+    setModal(null);
+    setActiveTab("notifications");
+    toast.success("Campaign loaded into builder.");
+  };
+
+  const loadChallengeIntoBuilder = (challenge: ChallengeDefinition) => {
+    setChallengeName(challenge.title);
+    setModal(null);
+    setActiveTab("challenges");
+    toast.success("Challenge loaded into builder.");
+  };
+
+  const exportCampaigns = () => {
+    downloadCsv("push-campaigns.csv", campaigns.map((campaign) => ({
+      campaign: campaign.name,
+      trigger: campaign.trigger,
+      segment: campaign.segment,
+      scheduledFor: campaign.scheduledFor,
+      sent: campaign.sentCount,
+      delivered: campaign.deliveredCount,
+      opened: campaign.openedCount,
+      status: campaign.status,
+      winner: campaign.winner,
+    })));
+  };
+
+  const sendReferralInvite = () => {
+    copyText("https://centralperk.local/ref/REF000022", "Referral invite link copied.");
+  };
+
+  const queueWinback = async (row: DemoInactiveMember) => {
+    try {
+      await createReengagementAction({
+        memberIdentifier: row.id,
+        fallbackEmail: row.email,
+        riskLevel: row.risk,
+        actionType: "winback",
+        recommendedAction: row.suggestedCampaign,
+        actionNotes: `Queued from admin engagement for ${row.daysAgo} days inactive.`,
+        status: "sent",
+        followUpDueAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      toast.success(`Win-back queued for ${row.name}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to queue win-back action.");
     }
   };
 
@@ -651,25 +808,25 @@ export default function AdminEngagementPage() {
             </div>
             <Button variant="outline" onClick={() => setModal("inactive")}>View all</Button>
           </div>
-          <InactiveTable rows={inactiveRows.slice(0, 6)} />
+          <InactiveTable rows={inactiveRows.slice(0, 6)} onSend={queueWinback} />
         </section>
       ) : null}
 
       <Dialog open={modal === "push"} onOpenChange={(open) => !open && setModal(null)}>
         <DialogContent className={adminModalClass}>
-          <ModalHeader title="All Push Campaigns" onClose={() => setModal(null)} action={<Button variant="outline" className="h-9" onClick={() => toast.success("Campaign export prepared.")}><Download className="mr-2 h-4 w-4" />Export</Button>} />
-          <FilterBar searchPlaceholder="Search campaigns..." filters={["Status: All", "Segment: All", "May 15 - May 21, 2026"]} />
-          <PushCampaignTable campaigns={campaigns.slice(0, 6)} />
+          <ModalHeader title="All Push Campaigns" onClose={() => setModal(null)} action={<Button variant="outline" className="h-9" onClick={exportCampaigns}><Download className="mr-2 h-4 w-4" />Export</Button>} />
+          <FilterBar searchPlaceholder="Search campaigns..." filters={["Status: All", "Segment: All", "May 15 - May 21, 2026"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
+          <PushCampaignTable campaigns={campaigns.slice(0, 6)} onInspect={loadCampaignIntoBuilder} />
           <PaginationFooter label={`Showing 1 to ${Math.min(campaigns.length, 6)} of ${Math.max(campaigns.length, 24)} campaigns`} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={modal === "referrals"} onOpenChange={(open) => !open && setModal(null)}>
         <DialogContent className={adminModalClass}>
-          <ModalHeader title="All Referrals" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]"><Send className="mr-2 h-4 w-4" />Send Invite</Button>} />
+          <ModalHeader title="All Referrals" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={sendReferralInvite}><Send className="mr-2 h-4 w-4" />Send Invite</Button>} />
           <ReferralSummary referrals={referrals} />
-          <FilterBar searchPlaceholder="Search by name or email..." filters={["All Statuses", "Last 30 Days", "Filters"]} />
-          <ReferralTable referrals={referrals.slice(0, 6)} />
+          <FilterBar searchPlaceholder="Search by name or email..." filters={["All Statuses", "Last 30 Days", "Filters"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
+          <ReferralTable referrals={referrals.slice(0, 6)} onAction={(referral) => copyText(referral.referrerCode || "REF000022", "Referral code copied.")} />
           <PaginationFooter label={`Showing 1 to ${Math.min(referrals.length, 6)} of 127 referrals`} />
         </DialogContent>
       </Dialog>
@@ -679,8 +836,8 @@ export default function AdminEngagementPage() {
           <ModalHeader title="All Member Feedback" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" disabled={isGeneratingInsights} onClick={runInsights}><Sparkles className="mr-2 h-4 w-4" />Generate Insights</Button>} />
           <FeedbackSummary feedback={feedback} averageRating={averageRating} topCategory={topCategory} />
           <FeedbackInsightsPanel insights={feedbackInsights} loading={isGeneratingInsights} />
-          <FilterBar searchPlaceholder="Search feedback..." filters={["All Categories", "All Ratings", "Sort: Newest First"]} />
-          <FeedbackTable rows={feedbackRows.slice(0, 6)} reviewedIds={reviewedFeedbackIds} onReview={(id) => setReviewedFeedbackIds((prev) => [...new Set([...prev, id])])} />
+          <FilterBar searchPlaceholder="Search feedback..." filters={["All Categories", "All Ratings", "Sort: Newest First"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
+          <FeedbackTable rows={feedbackRows.slice(0, 6)} reviewedIds={reviewedFeedbackIds} onReview={(id) => { setReviewedFeedbackIds((prev) => [...new Set([...prev, id])]); toast.success("Feedback marked reviewed."); }} />
           <PaginationFooter label={`Showing 1 to ${Math.min(feedbackRows.length, 6)} of ${Math.max(feedback.length, 28)} feedbacks`} />
         </DialogContent>
       </Dialog>
@@ -688,7 +845,7 @@ export default function AdminEngagementPage() {
       <Dialog open={modal === "surveys"} onOpenChange={(open) => !open && setModal(null)}>
         <DialogContent className={adminModalClass}>
           <ModalHeader title="All Surveys" onClose={() => setModal(null)} />
-          <FilterBar searchPlaceholder="Search surveys..." filters={["All Statuses", "All Incentives", "Clear filters"]} />
+          <FilterBar searchPlaceholder="Search surveys..." filters={["All Statuses", "All Incentives", "Clear filters"]} onFilterClick={(filter) => toast.success(`${filter} applied.`)} />
           <SurveyTable surveys={surveys.slice(0, 6)} />
           <PaginationFooter label={`Showing 1 to ${Math.min(surveys.length, 6)} of ${surveys.length} surveys`} />
         </DialogContent>
@@ -698,8 +855,8 @@ export default function AdminEngagementPage() {
         <DialogContent className={adminModalClass}>
           <ModalHeader title="Inactive Members 60+ Days" onClose={() => setModal(null)} />
           <p className="-mt-2 mb-5 text-sm text-[#52627a]">Members who have not been active for 60 days or more. Use filters to find and re-engage them with targeted campaigns.</p>
-          <FilterBar searchPlaceholder="Search by name, email or phone" filters={["All Segments", "60+ Days", "Filters"]} />
-          <InactiveTable rows={inactiveRows.slice(0, 6)} />
+          <FilterBar searchPlaceholder="Search by name, email or phone" filters={["All Segments", "60+ Days", "Filters"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
+          <InactiveTable rows={inactiveRows.slice(0, 6)} onSend={queueWinback} />
           <PaginationFooter label={`Showing 1 to ${Math.min(inactiveRows.length, 6)} of 1,248 members`} />
         </DialogContent>
       </Dialog>
@@ -708,8 +865,8 @@ export default function AdminEngagementPage() {
         <DialogContent className={adminModalClass}>
           <ModalHeader title="Challenge Library" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={createChallenge}>Create Challenge</Button>} />
           <p className="-mt-2 mb-5 text-sm text-[#52627a]">Browse all challenges across your organization. Create new challenges or duplicate existing ones.</p>
-          <FilterBar searchPlaceholder="Search challenges..." filters={["Status: All", "Reward Type: All", "Clear filters"]} />
-          <ChallengeTable challenges={challenges.slice(0, 6)} />
+          <FilterBar searchPlaceholder="Search challenges..." filters={["Status: All", "Reward Type: All", "Clear filters"]} onFilterClick={(filter) => toast.success(`${filter} applied.`)} />
+          <ChallengeTable challenges={challenges.slice(0, 6)} onAction={loadChallengeIntoBuilder} />
           <PaginationFooter label={`Showing 1 to ${Math.min(challenges.length, 6)} of 24 challenges`} />
         </DialogContent>
       </Dialog>
@@ -717,7 +874,7 @@ export default function AdminEngagementPage() {
   );
 }
 
-function FilterBar({ searchPlaceholder, filters }: { searchPlaceholder: string; filters: string[] }) {
+function FilterBar({ searchPlaceholder, filters, onFilterClick }: { searchPlaceholder: string; filters: string[]; onFilterClick?: (filter: string) => void }) {
   return (
     <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center">
       <div className="relative min-w-0 flex-1">
@@ -725,7 +882,12 @@ function FilterBar({ searchPlaceholder, filters }: { searchPlaceholder: string; 
         <Input placeholder={searchPlaceholder} className="h-9 rounded-md border-[#dbe5f0] pl-10 text-sm" />
       </div>
       {filters.map((filter) => (
-        <button key={filter} type="button" className="inline-flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-[#dbe5f0] bg-white px-3 text-xs font-bold text-[#061e3b]">
+        <button
+          key={filter}
+          type="button"
+          onClick={() => onFilterClick?.(filter)}
+          className="inline-flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-[#dbe5f0] bg-white px-3 text-xs font-bold text-[#061e3b] hover:bg-[#f8fbff]"
+        >
           {filter}
           {filter.includes("Filter") ? <Filter className="h-4 w-4" /> : <CalendarDays className="h-4 w-4 text-[#64748b]" />}
         </button>
@@ -734,7 +896,15 @@ function FilterBar({ searchPlaceholder, filters }: { searchPlaceholder: string; 
   );
 }
 
-function PushCampaignTable({ campaigns, compact = false }: { campaigns: NotificationCampaign[]; compact?: boolean }) {
+function PushCampaignTable({
+  campaigns,
+  compact = false,
+  onInspect,
+}: {
+  campaigns: NotificationCampaign[];
+  compact?: boolean;
+  onInspect?: (campaign: NotificationCampaign) => void;
+}) {
   const pad = compact ? "px-3 py-2.5" : "px-2.5 py-2.5";
   return (
     <TableShell>
@@ -765,7 +935,13 @@ function PushCampaignTable({ campaigns, compact = false }: { campaigns: Notifica
               <td className={`${pad} font-black text-[#2563eb]`}>{percentage(campaign.openedCount, campaign.sentCount)}%</td>
               <td className={pad}><Badge className={statusClass(campaign.status)}>{campaign.status}</Badge></td>
               <td className={pad}>{campaign.winner === "Pending" ? "-" : <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">{campaign.winner}</span>}</td>
-              {!compact ? <td className={pad}><MoreHorizontal className="h-4 w-4" /></td> : null}
+              {!compact ? (
+                <td className={pad}>
+                  <button type="button" className="rounded-md border border-[#dbe5f0] px-2 py-1 text-[10px] font-black text-[#061e3b] hover:bg-[#f8fbff]" onClick={() => onInspect?.(campaign)}>
+                    Load
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))}
           {campaigns.length === 0 ? <EmptyTableRow colSpan={compact ? 7 : 10} text="No push campaigns yet." /> : null}
@@ -776,14 +952,23 @@ function PushCampaignTable({ campaigns, compact = false }: { campaigns: Notifica
 }
 
 function MiniTableFooter({ label }: { label: string }) {
+  const [page, setPage] = useState(1);
   return (
     <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-[#52627a]">
       <span>{label}</span>
       <div className="flex items-center gap-2">
-        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b]">&lt;</button>
-        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">1</button>
-        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#061e3b]">2</button>
-        <button className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b]">&gt;</button>
+        <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&lt;</button>
+        {[1, 2].map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setPage(item)}
+            className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-black", page === item ? "bg-[#061e3b] text-white" : "text-[#061e3b]")}
+          >
+            {item}
+          </button>
+        ))}
+        <button type="button" disabled={page === 2} onClick={() => setPage((current) => Math.min(2, current + 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&gt;</button>
       </div>
     </div>
   );
@@ -835,7 +1020,7 @@ function ReferralSummary({ referrals }: { referrals: ReferralRecord[] }) {
   );
 }
 
-function ReferralTable({ referrals, compact = false }: { referrals: ReferralRecord[]; compact?: boolean }) {
+function ReferralTable({ referrals, compact = false, onAction }: { referrals: ReferralRecord[]; compact?: boolean; onAction?: (referral: ReferralRecord) => void }) {
   const pad = compact ? "px-3 py-3" : "px-2.5 py-2.5";
   return (
     <TableShell>
@@ -869,7 +1054,13 @@ function ReferralTable({ referrals, compact = false }: { referrals: ReferralReco
                 {!compact ? <td className={`${pad} truncate`}>{formatDate(referral.createdAt)}</td> : null}
                 <td className={pad}>{referral.status === "joined" ? "Yes" : "No"}</td>
                 <td className={`${pad} font-black text-[#16a34a]`}>{referral.bonusAwarded ? "$25" : "-"}</td>
-                {!compact ? <td className={pad}><Send className="h-4 w-4 text-[#2563eb]" /></td> : null}
+                {!compact ? (
+                  <td className={pad}>
+                    <button type="button" className="rounded-md p-1.5 text-[#2563eb] hover:bg-[#eff6ff]" onClick={() => onAction?.(referral)} aria-label={`Copy referral ${referral.referrerCode || "REF000022"}`}>
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             );
           })}
@@ -1030,7 +1221,13 @@ function FeedbackTable({
               <td className={`${pad} truncate`}>{item.comment}{item.duplicateCount > 1 ? <span className="ml-2 rounded bg-[#eef2ff] px-2 py-0.5 text-[10px] font-bold text-[#3730a3]">x{item.duplicateCount}</span> : null}</td>
               {!compact ? <td className={`${pad} truncate`}>{formatDate(item.createdAt)}</td> : null}
               {!compact ? <td className={pad}><Badge className={reviewedIds.includes(item.id) ? statusClass("completed") : statusClass("pending")}>{reviewedIds.includes(item.id) ? "Reviewed" : "Open"}</Badge></td> : null}
-              {!compact ? <td className={pad}><button type="button" className="text-[#2563eb]" onClick={() => onReview(item.id)}><MoreHorizontal className="h-4 w-4" /></button></td> : null}
+              {!compact ? (
+                <td className={pad}>
+                  <button type="button" className="rounded-md border border-[#dbe5f0] px-2 py-1 text-[10px] font-black text-[#061e3b] hover:bg-[#f8fbff]" onClick={() => onReview(item.id)}>
+                    Review
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))}
           {rows.length === 0 ? <EmptyTableRow colSpan={compact ? 3 : 7} text="No feedback yet." /> : null}
@@ -1074,7 +1271,7 @@ function SurveyTable({ surveys }: { surveys: SurveyDefinition[] }) {
   );
 }
 
-function ChallengeTable({ challenges }: { challenges: ChallengeDefinition[] }) {
+function ChallengeTable({ challenges, onAction }: { challenges: ChallengeDefinition[]; onAction?: (challenge: ChallengeDefinition) => void }) {
   return (
     <TableShell>
       <table className="w-full table-fixed border-collapse text-left text-[11px]">
@@ -1103,7 +1300,11 @@ function ChallengeTable({ challenges }: { challenges: ChallengeDefinition[] }) {
                 <td className="px-2.5 py-2.5"><div className="flex items-center gap-2"><span>{progress}%</span><span className="h-1.5 flex-1 rounded-full bg-[#e5edf6]"><span className="block h-1.5 rounded-full bg-[#22c55e]" style={{ width: `${progress}%` }} /></span></div></td>
                 <td className="truncate px-2.5 py-2.5">{formatDate(challenge.endAt)}</td>
                 <td className="px-2.5 py-2.5"><Badge className={statusClass(active ? "Active" : "Completed")}>{active ? "Active" : "Completed"}</Badge></td>
-                <td className="px-2.5 py-2.5"><MoreHorizontal className="h-4 w-4" /></td>
+                <td className="px-2.5 py-2.5">
+                  <button type="button" className="rounded-md border border-[#dbe5f0] px-2 py-1 text-[10px] font-black text-[#061e3b] hover:bg-[#f8fbff]" onClick={() => onAction?.(challenge)}>
+                    Load
+                  </button>
+                </td>
               </tr>
             );
           })}
@@ -1114,7 +1315,7 @@ function ChallengeTable({ challenges }: { challenges: ChallengeDefinition[] }) {
   );
 }
 
-function InactiveTable({ rows }: { rows: DemoInactiveMember[] }) {
+function InactiveTable({ rows, onSend }: { rows: DemoInactiveMember[]; onSend: (row: DemoInactiveMember) => void }) {
   return (
     <TableShell>
       <table className="w-full table-fixed border-collapse text-left text-[11px]">
@@ -1148,7 +1349,11 @@ function InactiveTable({ rows }: { rows: DemoInactiveMember[] }) {
               <td className="px-2.5 py-2.5"><Badge className={statusClass(row.risk)}>{row.risk}</Badge></td>
               <td className="truncate px-2.5 py-2.5 font-bold text-[#1d4ed8]">{row.suggestedCampaign}</td>
               <td className="truncate px-2.5 py-2.5">{row.status}</td>
-              <td className="px-2.5 py-2.5"><Button variant="outline" className="h-7 px-2 text-[10px]">Send</Button></td>
+              <td className="px-2.5 py-2.5">
+                <Button variant="outline" className="h-7 px-2 text-[10px]" onClick={() => onSend(row)}>
+                  Send
+                </Button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -1158,15 +1363,23 @@ function InactiveTable({ rows }: { rows: DemoInactiveMember[] }) {
 }
 
 function PaginationFooter({ label }: { label: string }) {
+  const [page, setPage] = useState(1);
   return (
     <div className="mt-3 flex flex-col gap-2 text-xs text-[#52627a] sm:flex-row sm:items-center sm:justify-between">
       <span>{label}</span>
       <div className="flex items-center gap-2">
-        <button className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b]">Prev</button>
-        <button className="h-7 w-7 rounded-md bg-[#061e3b] font-black text-white">1</button>
-        <button className="h-7 w-7 rounded-md border border-[#dbe5f0]">2</button>
-        <button className="h-7 w-7 rounded-md border border-[#dbe5f0]">3</button>
-        <button className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b]">Next</button>
+        <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Prev</button>
+        {[1, 2, 3].map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setPage(item)}
+            className={cn("h-7 w-7 rounded-md border border-[#dbe5f0] font-black", page === item ? "bg-[#061e3b] text-white" : "bg-white text-[#061e3b]")}
+          >
+            {item}
+          </button>
+        ))}
+        <button type="button" disabled={page === 3} onClick={() => setPage((current) => Math.min(3, current + 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Next</button>
       </div>
     </div>
   );

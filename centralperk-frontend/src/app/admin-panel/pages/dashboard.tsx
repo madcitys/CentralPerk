@@ -803,36 +803,31 @@ function actionCenterIcon(label: string): LucideIcon {
 
 function ActionCenterCard({ item }: { item: ActionCenterItem }) {
   const Icon = actionCenterIcon(item.label);
+  const recordText = item.count > 0 ? item.records[0]?.primary : item.emptyText;
   const content = (
-    <div className="flex min-h-[132px] min-w-0 flex-col rounded-lg border border-[#e3eaf4] bg-[#fbfdff] p-3 transition hover:border-[#cbd9eb] hover:bg-white">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
-            <Icon className="h-[18px] w-[18px]" />
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-extrabold leading-5 text-[#071936]">{item.label}</p>
-            <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-4 text-[#64748b]">{item.description}</p>
-          </div>
+    <div className="grid min-w-0 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[#e3eaf4] bg-[#fbfdff] p-3 transition hover:border-[#cbd9eb] hover:bg-white sm:grid-cols-[40px_minmax(0,1fr)_56px_92px]">
+      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
+        <Icon className="h-[18px] w-[18px]" />
+      </div>
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-[13px] font-extrabold leading-5 text-[#071936]">{item.label}</p>
+          <p className="hidden min-w-0 truncate text-[11px] font-semibold text-[#7a8798] xl:block">{recordText}</p>
         </div>
-        <span className={cn("inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-[10px] px-2.5 text-[14px] font-black", actionToneClass(item.tone))}>
-          {integerFormatter.format(item.count)}
-        </span>
+        <p className="line-clamp-1 text-[11px] font-semibold leading-4 text-[#64748b]">{item.description}</p>
       </div>
-      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-        <p className="line-clamp-1 text-[11px] font-semibold text-[#7a8798]">
-          {item.count > 0 ? item.records[0]?.primary : item.emptyText}
-        </p>
-        <span
-          className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936]",
-            actionButtonToneClass(item.tone),
-          )}
-        >
-          {item.actionLabel}
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      </div>
+      <span className={cn("inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-[10px] px-2.5 text-[14px] font-black", actionToneClass(item.tone))}>
+        {integerFormatter.format(item.count)}
+      </span>
+      <span
+        className={cn(
+          "col-span-3 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936] sm:col-span-1",
+          actionButtonToneClass(item.tone),
+        )}
+      >
+        {item.actionLabel}
+        <ChevronRight className="h-3.5 w-3.5" />
+      </span>
     </div>
   );
 
@@ -2305,15 +2300,15 @@ export default function AdminDashboardPage() {
           </SectionCard>
 
           <SectionCard title="B. Action Center" subtitle="Operational alerts and next actions" icon={TriangleAlert}>
-            <div className="grid min-h-0 flex-1 gap-3 sm:grid-cols-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5">
               {visibleActionCenterItems.map((item) => (
                 <ActionCenterCard key={item.label} item={item} />
               ))}
             </div>
             {monitoredActionCount > 0 ? (
-              <p className="mt-3 rounded-md border border-[#e3eaf4] bg-[#fbfdff] px-3 py-2 text-[11px] font-semibold text-[#607087]">
-                {monitoredActionCount} more operational checks continue syncing through their owner pages.
-              </p>
+              <Link to="/admin/engagement" className="mt-3 inline-flex h-9 items-center justify-center rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936] transition hover:border-[#9fd7dd] hover:bg-[#f4ffff]">
+                Open engagement studio for {monitoredActionCount} more checks
+              </Link>
             ) : null}
           </SectionCard>
         </section>

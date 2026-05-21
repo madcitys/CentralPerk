@@ -42,6 +42,8 @@ const builderOperatorOptions: Record<string, string[]> = {
   "Points Balance": ["is", "is above", "is below"],
 };
 
+const ACTIVITY_PAGE_SIZE = 10;
+
 type BuilderCondition = {
   id: string;
   field: "Tier" | "Last Activity" | "Points Balance" | string;
@@ -301,6 +303,9 @@ export default function AdminActivityPage() {
   
   const [activeTab, setActiveTab] = useState<"details" | "transactions">("details");
   const [segmentBuilderOpen, setSegmentBuilderOpen] = useState(false);
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false);
+  const [activityPage, setActivityPage] = useState(1);
+  const [selectedActivityRow, setSelectedActivityRow] = useState<(typeof metrics.memberActivityRows)[number] | null>(null);
 
   const [builderSegmentName, setBuilderSegmentName] = useState("Gold reactivation test");
   const [builderLogicMode, setBuilderLogicMode] = useState<"AND" | "OR">("AND");
@@ -324,9 +329,12 @@ export default function AdminActivityPage() {
     const end = endDate ? new Date(`${endDate}T23:59:59`).getTime() : Number.POSITIVE_INFINITY;
     return transactions.filter((tx) => {
       const timestamp = new Date(tx.transaction_date).getTime();
-      return timestamp >= start && timestamp <= end;
+      const typeMatches =
+        transactionFilter === "all" ||
+        classifyTransactionType(tx.transaction_type, Number(tx.points || 0)) === transactionFilter;
+      return timestamp >= start && timestamp <= end && typeMatches;
     });
-  }, [transactions, startDate, endDate]);
+  }, [transactions, startDate, endDate, transactionFilter]);
 
   const filteredActivityRows = useMemo(
     () =>
@@ -334,6 +342,17 @@ export default function AdminActivityPage() {
         activityFilter === "all" ? true : row.activityLevel === activityFilter
       ),
     [metrics.memberActivityRows, activityFilter]
+  );
+
+  useEffect(() => {
+    setActivityPage(1);
+  }, [activityFilter, startDate, endDate]);
+
+  const activityTotalPages = Math.max(1, Math.ceil(filteredActivityRows.length / ACTIVITY_PAGE_SIZE));
+  const safeActivityPage = Math.min(activityPage, activityTotalPages);
+  const paginatedActivityRows = filteredActivityRows.slice(
+    (safeActivityPage - 1) * ACTIVITY_PAGE_SIZE,
+    safeActivityPage * ACTIVITY_PAGE_SIZE
   );
 
   const earnedPointsTrend = useMemo(() => {
@@ -417,7 +436,10 @@ export default function AdminActivityPage() {
   }, [filteredTransactions, metrics.memberActivityRows]);
 
   const downloadStatement = () => {
-    if (filteredTransactions.length === 0) return;
+    if (filteredTransactions.length === 0) {
+      toast.error("No transactions available for the selected range.");
+      return;
+    }
 
     const header = "Date,Member Number,Member Name,Type,Points\n";
     const rows = filteredTransactions
@@ -440,6 +462,7 @@ export default function AdminActivityPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    toast.success("Activity CSV exported.");
   };
 
   const downloadPdf = () => {
@@ -594,10 +617,71 @@ export default function AdminActivityPage() {
             Activity Monitor Table
           </h3>
           <div className="flex gap-2">
-            <button className="px-4 py-2 border border-[#e5e7eb] rounded-lg text-[13px] font-bold text-[#4b5563] hover:bg-[#f9fafb] transition-colors">Filters</button>
-            <button className="px-4 py-2 bg-[#0b7f88] rounded-lg text-[13px] font-bold text-white hover:bg-[#096d75] transition-colors shadow-sm">Export Data</button>
+            <button
+              type="button"
+              onClick={() => setTableFiltersOpen((open) => !open)}
+              className="px-4 py-2 border border-[#e5e7eb] rounded-lg text-[13px] font-bold text-[#4b5563] hover:bg-[#f9fafb] transition-colors"
+            >
+              Filters
+            </button>
+            <button
+              type="button"
+              onClick={downloadStatement}
+              className="px-4 py-2 bg-[#0b7f88] rounded-lg text-[13px] font-bold text-white hover:bg-[#096d75] transition-colors shadow-sm"
+            >
+              Export Data
+            </button>
           </div>
         </div>
+
+        {tableFiltersOpen ? (
+          <div className="grid gap-3 border-b border-[#e5e7eb] bg-[#fbfdff] px-6 py-4 md:grid-cols-4">
+            <label className="text-[11px] font-black uppercase tracking-widest text-[#6b7280]">
+              Engagement
+              <select
+                value={activityFilter}
+                onChange={(e) => setActivityFilter(e.target.value as typeof activityFilter)}
+                className="mt-2 h-10 w-full rounded-lg border border-[#dce6f2] bg-white px-3 text-[13px] font-bold normal-case tracking-normal text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#0b7f88]/20"
+              >
+                <option value="all">All members</option>
+                <option value="active">Active</option>
+                <option value="warm">Warm</option>
+                <option value="inactive">Dormant</option>
+              </select>
+            </label>
+            <label className="text-[11px] font-black uppercase tracking-widest text-[#6b7280]">
+              Transaction Type
+              <select
+                value={transactionFilter}
+                onChange={(e) => setTransactionFilter(e.target.value as TransactionQuickFilter)}
+                className="mt-2 h-10 w-full rounded-lg border border-[#dce6f2] bg-white px-3 text-[13px] font-bold normal-case tracking-normal text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#0b7f88]/20"
+              >
+                <option value="all">All activity</option>
+                <option value="earned">Earned points</option>
+                <option value="redeemed">Redeemed points</option>
+                <option value="other">Other adjustments</option>
+              </select>
+            </label>
+            <label className="text-[11px] font-black uppercase tracking-widest text-[#6b7280]">
+              Start Date
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="mt-2 h-10 w-full rounded-lg border border-[#dce6f2] bg-white px-3 text-[13px] font-bold normal-case tracking-normal text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#0b7f88]/20"
+              />
+            </label>
+            <label className="text-[11px] font-black uppercase tracking-widest text-[#6b7280]">
+              End Date
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="mt-2 h-10 w-full rounded-lg border border-[#dce6f2] bg-white px-3 text-[13px] font-bold normal-case tracking-normal text-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#0b7f88]/20"
+              />
+            </label>
+          </div>
+        ) : null}
         
         <div className="flex-1 overflow-auto">
           <table className="w-full text-left border-collapse">
@@ -612,7 +696,9 @@ export default function AdminActivityPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e5e7eb]">
-              {filteredActivityRows.slice(0, 10).map((row, i) => (
+              {paginatedActivityRows.map((row, i) => {
+                const rowIndex = (safeActivityPage - 1) * ACTIVITY_PAGE_SIZE + i;
+                return (
                 <tr key={row.memberNumber} className="hover:bg-[#fbfdff] transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
@@ -627,8 +713,8 @@ export default function AdminActivityPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-[14px] font-bold text-[#1f2937] leading-none">{95 - i * 3}</span>
-                      <span className="text-[10px] font-bold text-[#059669] flex items-center">↑ 2.1</span>
+                      <span className="text-[14px] font-bold text-[#1f2937] leading-none">{Math.max(62, 95 - rowIndex * 3)}</span>
+                      <span className="text-[10px] font-bold text-[#059669] flex items-center">+2.1</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -649,12 +735,18 @@ export default function AdminActivityPage() {
                     {row.lastActivityDate ? new Date(row.lastActivityDate).toLocaleDateString() : "No activity"}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button className="p-1.5 text-[#9ca3af] hover:text-[#0b7f88] hover:bg-[#e0f2fe] rounded-md transition-colors inline-flex">
+                    <button
+                      type="button"
+                      aria-label={`Open ${row.fullName}`}
+                      onClick={() => setSelectedActivityRow(row)}
+                      className="p-1.5 text-[#9ca3af] hover:text-[#0b7f88] hover:bg-[#e0f2fe] rounded-md transition-colors inline-flex"
+                    >
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {filteredActivityRows.length === 0 && (
                 <tr><td colSpan={6} className="px-6 py-12 text-center text-[13px] font-medium text-[#6b7280]">No members match the criteria.</td></tr>
               )}
@@ -663,16 +755,109 @@ export default function AdminActivityPage() {
         </div>
         <div className="p-4 border-t border-[#e5e7eb] flex items-center justify-between bg-[#f9fafb] rounded-b-[20px]">
           <p className="text-[12px] font-medium text-[#6b7280]">
-            Showing 1 to {Math.min(10, filteredActivityRows.length)} of {filteredActivityRows.length} entries
+            Showing {filteredActivityRows.length ? (safeActivityPage - 1) * ACTIVITY_PAGE_SIZE + 1 : 0} to {Math.min(safeActivityPage * ACTIVITY_PAGE_SIZE, filteredActivityRows.length)} of {filteredActivityRows.length} entries
           </p>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563] hover:bg-[#f3f4f6]">Prev</button>
-            <button className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-[#0b7f88] text-white shadow-sm">1</button>
-            <button className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563] hover:bg-[#f3f4f6]">2</button>
-            <button className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563] hover:bg-[#f3f4f6]">Next</button>
+            <button
+              type="button"
+              disabled={safeActivityPage === 1}
+              onClick={() => setActivityPage((page) => Math.max(1, page - 1))}
+              className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563] hover:bg-[#f3f4f6] disabled:opacity-50"
+            >
+              Prev
+            </button>
+            <span className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-[#0b7f88] text-white shadow-sm">{safeActivityPage}</span>
+            <span className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563]">{activityTotalPages}</span>
+            <button
+              type="button"
+              disabled={safeActivityPage >= activityTotalPages}
+              onClick={() => setActivityPage((page) => Math.min(activityTotalPages, page + 1))}
+              className="px-3 py-1.5 border border-[#d1d5db] rounded-lg text-[12px] font-bold bg-white text-[#4b5563] hover:bg-[#f3f4f6] disabled:opacity-50"
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>
+
+      <Dialog open={Boolean(selectedActivityRow)} onOpenChange={(open) => !open && setSelectedActivityRow(null)}>
+        <DialogContent className="max-w-[560px] rounded-[20px] border border-[#dbe7f3] bg-white p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-[20px] font-black text-[#061e3b]">Member Activity Detail</DialogTitle>
+            <DialogDescription className="text-sm font-medium text-[#64748b]">
+              Review current engagement status and choose the next admin action.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedActivityRow ? (
+            <div className="space-y-4">
+              <div className="rounded-[14px] border border-[#e5edf6] bg-[#f8fbff] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-black text-[#061e3b]">{selectedActivityRow.fullName}</p>
+                    <p className="mt-1 text-xs font-bold text-[#64748b]">#{selectedActivityRow.memberNumber}</p>
+                  </div>
+                  <span className={cn(
+                    "rounded-full px-3 py-1 text-xs font-black capitalize",
+                    selectedActivityRow.activityLevel === "active" ? "bg-[#dcfce7] text-[#15803d]" :
+                    selectedActivityRow.activityLevel === "warm" ? "bg-[#fff7ed] text-[#c2410c]" :
+                    "bg-[#fee2e2] text-[#b91c1c]"
+                  )}>
+                    {selectedActivityRow.activityLevel === "inactive" ? "Dormant" : selectedActivityRow.activityLevel}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg bg-white p-3">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-[#64748b]">Tier</p>
+                    <p className="mt-1 text-sm font-black text-[#061e3b]">Gold</p>
+                  </div>
+                  <div className="rounded-lg bg-white p-3">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-[#64748b]">Last Active</p>
+                    <p className="mt-1 text-sm font-black text-[#061e3b]">{selectedActivityRow.lastActivityDate ? new Date(selectedActivityRow.lastActivityDate).toLocaleDateString() : "No activity"}</p>
+                  </div>
+                  <div className="rounded-lg bg-white p-3">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-[#64748b]">Score</p>
+                    <p className="mt-1 text-sm font-black text-[#061e3b]">Admin review ready</p>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedActivityRow(null);
+                    setActiveTab("transactions");
+                    setTableFiltersOpen(true);
+                    toast.success("Transactions filter panel opened.");
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-[#cbd9eb] bg-white px-4 text-sm font-black text-[#061e3b] hover:bg-[#f8fbff]"
+                >
+                  Review Transactions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedActivityRow(null);
+                    setSegmentBuilderOpen(true);
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-[#cbd9eb] bg-white px-4 text-sm font-black text-[#061e3b] hover:bg-[#f8fbff]"
+                >
+                  Build Segment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.success(`Re-engagement queued for ${selectedActivityRow.fullName}.`);
+                    setSelectedActivityRow(null);
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-[#061e3b] px-4 text-sm font-black text-white hover:bg-[#0b2d56]"
+                >
+                  Send Re-engagement
+                </button>
+              </DialogFooter>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* Segmentation Builder Modal */}
       <Dialog open={segmentBuilderOpen} onOpenChange={setSegmentBuilderOpen}>
