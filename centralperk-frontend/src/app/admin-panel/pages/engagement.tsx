@@ -81,7 +81,10 @@ const tabs: { id: EngagementTab; label: string; icon: LucideIcon }[] = [
 ];
 
 const adminModalClass =
-  "!left-4 !top-4 !h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-[14px] bg-white p-4 pr-4 sm:!max-w-none [&>button.absolute]:hidden";
+  "!left-4 !top-4 !h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-none !translate-x-0 !translate-y-0 overflow-y-auto overflow-x-hidden rounded-[14px] bg-white p-4 pr-4 sm:!max-w-none [&>button.absolute]:hidden";
+
+const RECENT_CAMPAIGN_PAGE_SIZE = 5;
+const ADMIN_MODAL_PAGE_SIZE = 6;
 
 const segments: EngagementSegment[] = ["All Members", "Bronze", "Silver", "Gold", "High Value", "Inactive 60+ Days"];
 const triggers: NotificationTrigger[] = ["Points Earned", "Tier Upgrade", "Reward Available", "Flash Sale", "Birthday"];
@@ -171,6 +174,32 @@ function referralKey(referral: ReferralRecord) {
 
 function feedbackKey(feedback: FeedbackRecord) {
   return `${feedback.memberId}:${feedback.category}:${feedback.comment}`;
+}
+
+function normalizeGoldOnlyText(value: string) {
+  return value.replace(/Platinum Progress Nudge/gi, "Gold Benefits Nudge").replace(/Platinum/gi, "Gold");
+}
+
+function normalizeCampaignForGoldOnly(campaign: NotificationCampaign): NotificationCampaign {
+  return {
+    ...campaign,
+    name: normalizeGoldOnlyText(campaign.name),
+    variantA: normalizeGoldOnlyText(campaign.variantA),
+    variantB: normalizeGoldOnlyText(campaign.variantB),
+  };
+}
+
+function pageRows<T>(rows: T[], page: number, pageSize: number) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, rows.length);
+  return {
+    rows: rows.slice(startIndex, endIndex),
+    page: safePage,
+    totalPages,
+    label: rows.length === 0 ? "Showing 0 of 0 entries" : `Showing ${startIndex + 1} to ${endIndex} of ${rows.length} entries`,
+  };
 }
 
 function downloadCsv(filename: string, rows: Array<Record<string, string | number | boolean | null | undefined>>) {
@@ -354,6 +383,13 @@ export default function AdminEngagementPage() {
   const [shareCount, setShareCount] = useState(12);
   const [reviewedFeedbackIds, setReviewedFeedbackIds] = useState<string[]>([]);
   const [feedbackInsights, setFeedbackInsights] = useState<FeedbackInsights | null>(null);
+  const [recentCampaignPage, setRecentCampaignPage] = useState(1);
+  const [pushModalPage, setPushModalPage] = useState(1);
+  const [referralModalPage, setReferralModalPage] = useState(1);
+  const [feedbackModalPage, setFeedbackModalPage] = useState(1);
+  const [surveyModalPage, setSurveyModalPage] = useState(1);
+  const [inactiveModalPage, setInactiveModalPage] = useState(1);
+  const [challengeModalPage, setChallengeModalPage] = useState(1);
   const [campaignName, setCampaignName] = useState("Birthday Loyalty Push");
   const [campaignTrigger, setCampaignTrigger] = useState<NotificationTrigger>("Birthday");
   const [campaignSegment, setCampaignSegment] = useState<EngagementSegment>("All Members");
@@ -398,7 +434,7 @@ export default function AdminEngagementPage() {
       const feedbackRows = results[4].status === "fulfilled" ? results[4].value : [];
       const shareRows = results[5].status === "fulfilled" ? results[5].value : [];
 
-      setCampaigns(mergeUniqueRows(campaignRows, demoNotificationCampaigns, campaignKey));
+      setCampaigns(mergeUniqueRows(campaignRows, demoNotificationCampaigns, campaignKey).map(normalizeCampaignForGoldOnly));
       setSurveys(mergeUniqueRows(surveyRows, demoSurveys, surveyKey));
       setChallenges(mergeUniqueRows(challengeRows, demoChallenges, challengeKey));
       setReferrals(mergeUniqueRows(referralRows, demoReferrals, referralKey));
@@ -439,9 +475,10 @@ export default function AdminEngagementPage() {
     }));
   }, [loginActivity, members, transactions]);
 
+  const displayCampaigns = useMemo(() => campaigns.map(normalizeCampaignForGoldOnly), [campaigns]);
   const liveChallenges = challenges.filter((challenge) => new Date(challenge.endAt).getTime() >= Date.now());
   const liveSurveys = surveys.filter((survey) => survey.status === "live");
-  const scheduledCampaigns = campaigns.filter((campaign) => campaign.status === "scheduled");
+  const scheduledCampaigns = displayCampaigns.filter((campaign) => campaign.status === "scheduled");
   const referralConversions = referrals.filter((row) => row.status === "joined").length;
   const referralBonuses = referrals.filter((row) => row.bonusAwarded).length;
   const averageRating = feedback.length ? feedback.reduce((sum, item) => sum + item.rating, 0) / feedback.length : 0;
@@ -465,11 +502,19 @@ export default function AdminEngagementPage() {
     return [...byComment.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [feedback]);
 
+  const recentCampaignPageData = pageRows(displayCampaigns, recentCampaignPage, RECENT_CAMPAIGN_PAGE_SIZE);
+  const pushModalPageData = pageRows(displayCampaigns, pushModalPage, ADMIN_MODAL_PAGE_SIZE);
+  const referralModalPageData = pageRows(referrals, referralModalPage, ADMIN_MODAL_PAGE_SIZE);
+  const feedbackModalPageData = pageRows(feedbackRows, feedbackModalPage, ADMIN_MODAL_PAGE_SIZE);
+  const surveyModalPageData = pageRows(surveys, surveyModalPage, ADMIN_MODAL_PAGE_SIZE);
+  const inactiveModalPageData = pageRows(inactiveRows, inactiveModalPage, ADMIN_MODAL_PAGE_SIZE);
+  const challengeModalPageData = pageRows(challenges, challengeModalPage, ADMIN_MODAL_PAGE_SIZE);
+
   const createCampaign = async () => {
     const audienceSize = campaignSegment === "Inactive 60+ Days" ? inactiveRows.length : Math.max(members.length || 40, 40);
     const nextCampaign: NotificationCampaign = {
       id: crypto.randomUUID(),
-      name: campaignName,
+      name: normalizeGoldOnlyText(campaignName),
       trigger: campaignTrigger,
       segment: campaignSegment,
       scheduledFor: new Date(scheduledFor).toISOString(),
@@ -478,8 +523,8 @@ export default function AdminEngagementPage() {
       sentCount: 0,
       deliveredCount: 0,
       openedCount: 0,
-      variantA,
-      variantB,
+      variantA: normalizeGoldOnlyText(variantA),
+      variantB: normalizeGoldOnlyText(variantB),
       winner: "Pending",
     };
 
@@ -495,10 +540,12 @@ export default function AdminEngagementPage() {
         variantB,
       }).catch(() => null);
       await Promise.allSettled([
-        scheduleEmailViaApi({ subject: campaignName, message: variantA, segment: campaignSegment, scheduledFor: nextCampaign.scheduledFor }),
-        triggerSmsViaApi({ subject: campaignName, message: variantA, segment: campaignSegment }),
+        scheduleEmailViaApi({ subject: nextCampaign.name, message: nextCampaign.variantA, segment: campaignSegment, scheduledFor: nextCampaign.scheduledFor }),
+        triggerSmsViaApi({ subject: nextCampaign.name, message: nextCampaign.variantA, segment: campaignSegment }),
       ]);
-      setCampaigns((prev) => [saved ?? nextCampaign, ...prev]);
+      setCampaigns((prev) => [normalizeCampaignForGoldOnly(saved ?? nextCampaign), ...prev.map(normalizeCampaignForGoldOnly)]);
+      setRecentCampaignPage(1);
+      setPushModalPage(1);
       toast.success("Push campaign scheduled.");
     } finally {
       setIsSavingCampaign(false);
@@ -581,7 +628,7 @@ export default function AdminEngagementPage() {
   };
 
   const exportCampaigns = () => {
-    downloadCsv("push-campaigns.csv", campaigns.map((campaign) => ({
+    downloadCsv("push-campaigns.csv", displayCampaigns.map((campaign) => ({
       campaign: campaign.name,
       trigger: campaign.trigger,
       segment: campaign.segment,
@@ -726,8 +773,13 @@ export default function AdminEngagementPage() {
                 </div>
                 <Button variant="outline" className="h-8 rounded-md border-[#dbe5f0] px-3 text-xs font-bold" onClick={() => setModal("push")}>View all</Button>
               </div>
-              <PushCampaignTable campaigns={campaigns.slice(0, 5)} compact />
-              <MiniTableFooter label={`Showing 1 to ${Math.min(campaigns.length, 5)} of ${campaigns.length} campaigns`} />
+              <PushCampaignTable campaigns={recentCampaignPageData.rows} compact />
+              <MiniTableFooter
+                label={recentCampaignPageData.label.replace("entries", "campaigns")}
+                page={recentCampaignPageData.page}
+                totalPages={recentCampaignPageData.totalPages}
+                onPageChange={setRecentCampaignPage}
+              />
             </Card>
           </section>
 
@@ -816,8 +868,13 @@ export default function AdminEngagementPage() {
         <DialogContent className={adminModalClass}>
           <ModalHeader title="All Push Campaigns" onClose={() => setModal(null)} action={<Button variant="outline" className="h-9" onClick={exportCampaigns}><Download className="mr-2 h-4 w-4" />Export</Button>} />
           <FilterBar searchPlaceholder="Search campaigns..." filters={["Status: All", "Segment: All", "May 15 - May 21, 2026"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
-          <PushCampaignTable campaigns={campaigns.slice(0, 6)} onInspect={loadCampaignIntoBuilder} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(campaigns.length, 6)} of ${Math.max(campaigns.length, 24)} campaigns`} />
+          <PushCampaignTable campaigns={pushModalPageData.rows} onInspect={loadCampaignIntoBuilder} />
+          <PaginationFooter
+            label={pushModalPageData.label.replace("entries", "campaigns")}
+            page={pushModalPageData.page}
+            totalPages={pushModalPageData.totalPages}
+            onPageChange={setPushModalPage}
+          />
         </DialogContent>
       </Dialog>
 
@@ -826,8 +883,13 @@ export default function AdminEngagementPage() {
           <ModalHeader title="All Referrals" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={sendReferralInvite}><Send className="mr-2 h-4 w-4" />Send Invite</Button>} />
           <ReferralSummary referrals={referrals} />
           <FilterBar searchPlaceholder="Search by name or email..." filters={["All Statuses", "Last 30 Days", "Filters"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
-          <ReferralTable referrals={referrals.slice(0, 6)} onAction={(referral) => copyText(referral.referrerCode || "REF000022", "Referral code copied.")} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(referrals.length, 6)} of 127 referrals`} />
+          <ReferralTable referrals={referralModalPageData.rows} onAction={(referral) => copyText(referral.referrerCode || "REF000022", "Referral code copied.")} />
+          <PaginationFooter
+            label={referralModalPageData.label.replace("entries", "referrals")}
+            page={referralModalPageData.page}
+            totalPages={referralModalPageData.totalPages}
+            onPageChange={setReferralModalPage}
+          />
         </DialogContent>
       </Dialog>
 
@@ -837,8 +899,13 @@ export default function AdminEngagementPage() {
           <FeedbackSummary feedback={feedback} averageRating={averageRating} topCategory={topCategory} />
           <FeedbackInsightsPanel insights={feedbackInsights} loading={isGeneratingInsights} />
           <FilterBar searchPlaceholder="Search feedback..." filters={["All Categories", "All Ratings", "Sort: Newest First"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
-          <FeedbackTable rows={feedbackRows.slice(0, 6)} reviewedIds={reviewedFeedbackIds} onReview={(id) => { setReviewedFeedbackIds((prev) => [...new Set([...prev, id])]); toast.success("Feedback marked reviewed."); }} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(feedbackRows.length, 6)} of ${Math.max(feedback.length, 28)} feedbacks`} />
+          <FeedbackTable rows={feedbackModalPageData.rows} reviewedIds={reviewedFeedbackIds} onReview={(id) => { setReviewedFeedbackIds((prev) => [...new Set([...prev, id])]); toast.success("Feedback marked reviewed."); }} />
+          <PaginationFooter
+            label={feedbackModalPageData.label.replace("entries", "feedbacks")}
+            page={feedbackModalPageData.page}
+            totalPages={feedbackModalPageData.totalPages}
+            onPageChange={setFeedbackModalPage}
+          />
         </DialogContent>
       </Dialog>
 
@@ -846,8 +913,13 @@ export default function AdminEngagementPage() {
         <DialogContent className={adminModalClass}>
           <ModalHeader title="All Surveys" onClose={() => setModal(null)} />
           <FilterBar searchPlaceholder="Search surveys..." filters={["All Statuses", "All Incentives", "Clear filters"]} onFilterClick={(filter) => toast.success(`${filter} applied.`)} />
-          <SurveyTable surveys={surveys.slice(0, 6)} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(surveys.length, 6)} of ${surveys.length} surveys`} />
+          <SurveyTable surveys={surveyModalPageData.rows} />
+          <PaginationFooter
+            label={surveyModalPageData.label.replace("entries", "surveys")}
+            page={surveyModalPageData.page}
+            totalPages={surveyModalPageData.totalPages}
+            onPageChange={setSurveyModalPage}
+          />
         </DialogContent>
       </Dialog>
 
@@ -856,8 +928,13 @@ export default function AdminEngagementPage() {
           <ModalHeader title="Inactive Members 60+ Days" onClose={() => setModal(null)} />
           <p className="-mt-2 mb-5 text-sm text-[#52627a]">Members who have not been active for 60 days or more. Use filters to find and re-engage them with targeted campaigns.</p>
           <FilterBar searchPlaceholder="Search by name, email or phone" filters={["All Segments", "60+ Days", "Filters"]} onFilterClick={(filter) => toast.success(`${filter} filter ready.`)} />
-          <InactiveTable rows={inactiveRows.slice(0, 6)} onSend={queueWinback} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(inactiveRows.length, 6)} of 1,248 members`} />
+          <InactiveTable rows={inactiveModalPageData.rows} onSend={queueWinback} />
+          <PaginationFooter
+            label={inactiveModalPageData.label.replace("entries", "members")}
+            page={inactiveModalPageData.page}
+            totalPages={inactiveModalPageData.totalPages}
+            onPageChange={setInactiveModalPage}
+          />
         </DialogContent>
       </Dialog>
 
@@ -866,8 +943,13 @@ export default function AdminEngagementPage() {
           <ModalHeader title="Challenge Library" onClose={() => setModal(null)} action={<Button className="h-9 bg-[#061e3b] text-white hover:bg-[#0b2d56]" onClick={createChallenge}>Create Challenge</Button>} />
           <p className="-mt-2 mb-5 text-sm text-[#52627a]">Browse all challenges across your organization. Create new challenges or duplicate existing ones.</p>
           <FilterBar searchPlaceholder="Search challenges..." filters={["Status: All", "Reward Type: All", "Clear filters"]} onFilterClick={(filter) => toast.success(`${filter} applied.`)} />
-          <ChallengeTable challenges={challenges.slice(0, 6)} onAction={loadChallengeIntoBuilder} />
-          <PaginationFooter label={`Showing 1 to ${Math.min(challenges.length, 6)} of 24 challenges`} />
+          <ChallengeTable challenges={challengeModalPageData.rows} onAction={loadChallengeIntoBuilder} />
+          <PaginationFooter
+            label={challengeModalPageData.label.replace("entries", "challenges")}
+            page={challengeModalPageData.page}
+            totalPages={challengeModalPageData.totalPages}
+            onPageChange={setChallengeModalPage}
+          />
         </DialogContent>
       </Dialog>
     </div>
@@ -905,36 +987,36 @@ function PushCampaignTable({
   compact?: boolean;
   onInspect?: (campaign: NotificationCampaign) => void;
 }) {
-  const pad = compact ? "px-3 py-2.5" : "px-2.5 py-2.5";
+  const pad = compact ? "px-2 py-2.5" : "px-2.5 py-2.5";
   return (
     <TableShell>
-      <table className={`${compact ? "text-[11px]" : "text-[11px]"} w-full table-fixed border-collapse text-left`}>
+      <table className={`${compact ? "text-[10.5px]" : "text-[11px]"} w-full table-fixed border-collapse text-left`}>
         <thead className="bg-[#f8fbff] text-[#52627a]">
           <tr>
-            <th className={`${pad} ${compact ? "w-[27%]" : "w-[18%]"} font-black`}>Campaign</th>
+            <th className={`${pad} ${compact ? "w-[31%]" : "w-[18%]"} font-black`}>Campaign</th>
             {!compact ? <th className={`${pad} w-[10%] font-black`}>Trigger</th> : null}
-            <th className={`${pad} ${compact ? "w-[17%]" : "w-[11%]"} font-black`}>Segment</th>
+            <th className={`${pad} ${compact ? "w-[19%]" : "w-[11%]"} font-black`}>Segment</th>
             {!compact ? <th className={`${pad} w-[16%] font-black`}>Scheduled</th> : null}
-            <th className={`${pad} ${compact ? "w-[8%]" : "w-[6%]"} font-black`}>Sent</th>
-            <th className={`${pad} ${compact ? "w-[13%]" : "w-[10%]"} font-black`}>Delivery</th>
-            <th className={`${pad} ${compact ? "w-[11%]" : "w-[8%]"} font-black`}>Open</th>
-            <th className={`${pad} ${compact ? "w-[17%]" : "w-[11%]"} font-black`}>Status</th>
-            <th className={`${pad} ${compact ? "w-[7%]" : "w-[5%]"} font-black`}>Winner</th>
+            <th className={`${pad} ${compact ? "w-[7%]" : "w-[6%]"} font-black`}>Sent</th>
+            <th className={`${pad} ${compact ? "w-[12%]" : "w-[10%]"} font-black`}>Delivery</th>
+            <th className={`${pad} ${compact ? "w-[10%]" : "w-[8%]"} font-black`}>Open</th>
+            <th className={`${pad} ${compact ? "w-[21%]" : "w-[11%]"} font-black`}>Status</th>
+            {!compact ? <th className={`${pad} w-[5%] font-black`}>Winner</th> : null}
             {!compact ? <th className={`${pad} w-[5%] font-black`}>Actions</th> : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-[#e5edf6] text-[#10213a]">
           {campaigns.map((campaign) => (
             <tr key={campaign.id}>
-              <td className={`${pad} truncate font-bold leading-5`}>{campaign.name}</td>
+              <td className={`${pad} truncate font-bold leading-5`} title={campaign.name}>{campaign.name}</td>
               {!compact ? <td className={`${pad} truncate`}>{campaign.trigger}</td> : null}
-              <td className={`${pad} truncate`}>{campaign.segment}</td>
+              <td className={`${pad} truncate`} title={campaign.segment}>{campaign.segment}</td>
               {!compact ? <td className={`${pad} truncate`}>{formatDateTime(campaign.scheduledFor)}</td> : null}
               <td className={pad}>{campaign.sentCount}</td>
               <td className={`${pad} font-black text-[#16a34a]`}>{percentage(campaign.deliveredCount, campaign.sentCount)}%</td>
               <td className={`${pad} font-black text-[#2563eb]`}>{percentage(campaign.openedCount, campaign.sentCount)}%</td>
               <td className={pad}><Badge className={statusClass(campaign.status)}>{campaign.status}</Badge></td>
-              <td className={pad}>{campaign.winner === "Pending" ? "-" : <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">{campaign.winner}</span>}</td>
+              {!compact ? <td className={pad}>{campaign.winner === "Pending" ? "-" : <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#061e3b] text-xs font-black text-white">{campaign.winner}</span>}</td> : null}
               {!compact ? (
                 <td className={pad}>
                   <button type="button" className="rounded-md border border-[#dbe5f0] px-2 py-1 text-[10px] font-black text-[#061e3b] hover:bg-[#f8fbff]" onClick={() => onInspect?.(campaign)}>
@@ -944,31 +1026,47 @@ function PushCampaignTable({
               ) : null}
             </tr>
           ))}
-          {campaigns.length === 0 ? <EmptyTableRow colSpan={compact ? 7 : 10} text="No push campaigns yet." /> : null}
+          {campaigns.length === 0 ? <EmptyTableRow colSpan={compact ? 6 : 10} text="No push campaigns yet." /> : null}
         </tbody>
       </table>
     </TableShell>
   );
 }
 
-function MiniTableFooter({ label }: { label: string }) {
-  const [page, setPage] = useState(1);
+function pageButtonNumbers(page: number, totalPages: number) {
+  if (totalPages <= 5) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+  return Array.from({ length: 5 }, (_, index) => start + index);
+}
+
+function MiniTableFooter({
+  label,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  label: string;
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pages = pageButtonNumbers(page, totalPages);
   return (
-    <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-[#52627a]">
+    <div className="mt-3 flex flex-col gap-2 text-[11px] font-medium text-[#52627a] sm:flex-row sm:items-center sm:justify-between">
       <span>{label}</span>
       <div className="flex items-center gap-2">
-        <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&lt;</button>
-        {[1, 2].map((item) => (
+        <button type="button" disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&lt;</button>
+        {pages.map((item) => (
           <button
             key={item}
             type="button"
-            onClick={() => setPage(item)}
+            onClick={() => onPageChange(item)}
             className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-black", page === item ? "bg-[#061e3b] text-white" : "text-[#061e3b]")}
           >
             {item}
           </button>
         ))}
-        <button type="button" disabled={page === 2} onClick={() => setPage((current) => Math.min(2, current + 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&gt;</button>
+        <button type="button" disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#64748b] disabled:opacity-40">&gt;</button>
       </div>
     </div>
   );
@@ -1362,24 +1460,34 @@ function InactiveTable({ rows, onSend }: { rows: DemoInactiveMember[]; onSend: (
   );
 }
 
-function PaginationFooter({ label }: { label: string }) {
-  const [page, setPage] = useState(1);
+function PaginationFooter({
+  label,
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  label: string;
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pages = pageButtonNumbers(page, totalPages);
   return (
     <div className="mt-3 flex flex-col gap-2 text-xs text-[#52627a] sm:flex-row sm:items-center sm:justify-between">
       <span>{label}</span>
       <div className="flex items-center gap-2">
-        <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Prev</button>
-        {[1, 2, 3].map((item) => (
+        <button type="button" disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Prev</button>
+        {pages.map((item) => (
           <button
             key={item}
             type="button"
-            onClick={() => setPage(item)}
+            onClick={() => onPageChange(item)}
             className={cn("h-7 w-7 rounded-md border border-[#dbe5f0] font-black", page === item ? "bg-[#061e3b] text-white" : "bg-white text-[#061e3b]")}
           >
             {item}
           </button>
         ))}
-        <button type="button" disabled={page === 3} onClick={() => setPage((current) => Math.min(3, current + 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Next</button>
+        <button type="button" disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))} className="h-7 rounded-md border border-[#dbe5f0] px-2 text-[#64748b] disabled:opacity-50">Next</button>
       </div>
     </div>
   );
