@@ -127,7 +127,7 @@ function notificationCampaignMatchesMember(campaign: NotificationCampaign, tier:
   const tierName = tier.toLowerCase();
   if (segment === "all members") return true;
   if (segment === tierName) return true;
-  if (segment === "high value") return points >= 50000 || tierName === "gold" || tierName === "platinum";
+  if (segment === "high value") return points >= 50000 || tierName === "gold";
   return false;
 }
 

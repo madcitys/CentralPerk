@@ -10,8 +10,6 @@ import type { FeedbackRecord, ReferralRecord } from "./member-lifecycle";
 export const DEMO_MEMBER_ID = "MEM-000022";
 export const DEMO_POINTS = 61244;
 export const DEMO_TIER = "Gold" as const;
-export const DEMO_PLATINUM_GOAL = 75000;
-export const DEMO_PLATINUM_REMAINING = DEMO_PLATINUM_GOAL - DEMO_POINTS;
 export const DEMO_EARNED_THIS_MONTH = 13271;
 export const DEMO_REDEEMED_THIS_MONTH = 12930;
 export const DEMO_REFERRAL_CODE = "REF000022";

@@ -27,7 +27,7 @@ import { normalizeTierLabel } from "../../lib/loyalty-engine";
 import { fetchTierRulesViaService } from "../../lib/points-service-client";
 import { loadSurveyDefinitions } from "../../lib/member-engagement";
 import { getMemberReferralCode, loadReferrals } from "../../lib/member-lifecycle";
-import { DEMO_PLATINUM_GOAL, demoSurveys, demoTransactions } from "../../lib/demo-loyalty-data";
+import { demoSurveys, demoTransactions } from "../../lib/demo-loyalty-data";
 
 type EarnStatus = "available" | "completed" | "locked" | "mobile";
 
@@ -66,7 +66,6 @@ const defaultTierRules = [
   { name: "Bronze", min: 0 },
   { name: "Silver", min: 25000 },
   { name: "Gold", min: 50000 },
-  { name: "Platinum", min: DEMO_PLATINUM_GOAL },
 ];
 
 const earnActionCatalog: Array<Omit<EarnTaskView, "status" | "statusLabel" | "action" | "disabled"> & { aliases: string[] }> = [
@@ -269,7 +268,7 @@ export default function EarnPoints() {
         for (const rule of response?.tiers ?? ([] as TierRuleRow[])) {
           const label = String(rule.tier_label || "").trim();
           const normalizedLabel = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
-          if (!["Bronze", "Silver", "Gold", "Platinum"].includes(normalizedLabel)) continue;
+          if (!["Bronze", "Silver", "Gold"].includes(normalizedLabel)) continue;
           nextRules.set(normalizedLabel, Math.max(0, Number(rule.min_points) || 0));
         }
         setTierRules(Array.from(nextRules.entries()).map(([name, min]) => ({ name, min })).sort((a, b) => a.min - b.min));
