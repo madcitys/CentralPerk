@@ -27,8 +27,9 @@ import type { AppOutletContext } from "../../types/app-context";
 import type { RedemptionVoucher } from "../../types/voucher";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
-import { loadVouchersViaApi } from "../../lib/api";
+import { loadVoucherViaApi, loadVouchersViaApi } from "../../lib/api";
 import { generateVoucherQrDataUrl } from "../../lib/voucher-qr";
+import { ensureMemberNotification } from "../../lib/notifications";
 import { normalizeRewardDisplayName, normalizeTransactionDescription } from "../../lib/reward-display";
 
 function toLocalInputDate(value: Date): string {
@@ -141,6 +142,52 @@ export default function PointsActivity() {
   const readyVouchers = voucherWallet.filter((voucher) => voucher.status !== "validated");
   const visibleVouchers = readyVouchers.slice(0, 4);
   const visibleTransactions = filteredTransactions.slice(0, 4);
+
+  const notifyVoucherAlreadyClaimed = (voucher: RedemptionVoucher) => {
+    const memberId = voucher.memberId || user.memberId;
+    if (!memberId) return;
+
+    const notificationKey = `voucher-claimed:${memberId}:${voucher.id}`;
+    if (typeof window !== "undefined" && window.sessionStorage.getItem(notificationKey)) return;
+
+    void ensureMemberNotification({
+      memberId,
+      channel: "push",
+      subject: "Voucher already claimed",
+      message: `${normalizeRewardDisplayName(voucher.rewardName)} has already been validated and marked as claimed.`,
+      isTransactional: true,
+    })
+      .then((result) => {
+        if (result.queued && typeof window !== "undefined") {
+          window.sessionStorage.setItem(notificationKey, "1");
+        }
+      })
+      .catch(() => undefined);
+  };
+
+  const openVoucherPopup = async (voucher: RedemptionVoucher) => {
+    try {
+      const latest = await loadVoucherViaApi(voucher.id)
+        .then((response) => response.voucher)
+        .catch(() => voucher);
+      const hydrated = await withVoucherQr(latest);
+
+      setVoucherWallet((current) => [hydrated, ...current.filter((item) => item.id !== hydrated.id)]);
+
+      if (hydrated.status === "validated") {
+        setSelectedVoucher(null);
+        notifyVoucherAlreadyClaimed(hydrated);
+        toast.info("Voucher already claimed.", {
+          description: `${normalizeRewardDisplayName(hydrated.rewardName)} was already validated.`,
+        });
+        return;
+      }
+
+      setSelectedVoucher(hydrated);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to open voucher.");
+    }
+  };
 
   const downloadCsv = async () => {
     try {
@@ -440,7 +487,7 @@ export default function PointsActivity() {
                 <button
                   key={voucher.id}
                   type="button"
-                  onClick={() => setSelectedVoucher(voucher)}
+                  onClick={() => void openVoucherPopup(voucher)}
                   className="grid min-h-[66px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl border border-[#dce6f0] bg-white px-4 py-3 text-left transition hover:border-[#008c80]/55 hover:bg-[#f7fbfa]"
                 >
                   <span className="min-w-0">
@@ -520,7 +567,7 @@ export default function PointsActivity() {
                         {linkedVoucher ? (
                           <button
                             type="button"
-                            onClick={() => setSelectedVoucher(linkedVoucher)}
+                            onClick={() => void openVoucherPopup(linkedVoucher)}
                             className="inline-flex items-center gap-1.5 rounded-full border border-[#b9d9d4] bg-[#f1fbf9] px-3 py-1 text-[11px] font-black text-[#007f78] hover:bg-[#e5f7f4]"
                           >
                             <Eye className="h-3.5 w-3.5" />
@@ -585,7 +632,7 @@ export default function PointsActivity() {
                     type="button"
                     onClick={() => {
                       setVouchersDialogOpen(false);
-                      setSelectedVoucher(voucher);
+                      void openVoucherPopup(voucher);
                     }}
                     className="grid min-h-[72px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl border border-[#dce6f0] bg-white px-4 py-3 text-left transition hover:border-[#008c80]/55 hover:bg-[#f7fbfa]"
                   >
@@ -659,7 +706,7 @@ export default function PointsActivity() {
                             type="button"
                             onClick={() => {
                               setTransactionsDialogOpen(false);
-                              setSelectedVoucher(linkedVoucher);
+                              void openVoucherPopup(linkedVoucher);
                             }}
                             className="inline-flex items-center gap-1.5 rounded-full border border-[#b9d9d4] bg-[#f1fbf9] px-3 py-1 text-[11px] font-black text-[#007f78] hover:bg-[#e5f7f4]"
                           >
@@ -694,7 +741,7 @@ export default function PointsActivity() {
       </Dialog>
 
       <Dialog open={Boolean(selectedVoucher)} onOpenChange={(open) => !open && setSelectedVoucher(null)}>
-        <DialogContent className="sm:max-w-[720px] rounded-2xl border border-[#dfe7f0] bg-white p-0 shadow-2xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-[720px] rounded-2xl border border-[#dfe7f0] bg-white p-0 shadow-2xl">
           <DialogHeader className="border-b border-[#edf1f5] px-6 pb-4 pt-6">
             <DialogTitle className="text-xl font-black text-[#10213a]">Scannable Reward Voucher</DialogTitle>
             <DialogDescription className="text-sm text-[#64748b]">Show this QR at the counter or open the validation page for staff review.</DialogDescription>

@@ -37,6 +37,7 @@ import {
   createVoucherViaApi,
   loadActiveCampaignsViaApi,
   loadRewardsViaApi,
+  loadVoucherViaApi,
   loadVouchersViaApi,
   recordPartnerTransactionViaApi,
   redeemPointsViaApi,
@@ -424,6 +425,54 @@ export default function Rewards() {
     () => readyVoucherWallet.find((voucher) => voucher.id === selectedVoucherId) ?? readyVoucherWallet[0] ?? null,
     [selectedVoucherId, readyVoucherWallet]
   );
+
+  const notifyVoucherAlreadyClaimed = (voucher: RedemptionVoucher) => {
+    const memberId = voucher.memberId || user.memberId;
+    if (!memberId) return;
+
+    const notificationKey = `voucher-claimed:${memberId}:${voucher.id}`;
+    if (typeof window !== "undefined" && window.sessionStorage.getItem(notificationKey)) return;
+
+    void ensureMemberNotification({
+      memberId,
+      channel: "push",
+      subject: "Voucher already claimed",
+      message: `${normalizeRewardDisplayName(voucher.rewardName)} has already been validated and marked as claimed.`,
+      isTransactional: true,
+    })
+      .then((result) => {
+        if (result.queued && typeof window !== "undefined") {
+          window.sessionStorage.setItem(notificationKey, "1");
+        }
+      })
+      .catch(() => undefined);
+  };
+
+  const openVoucherPopup = async (voucher: RedemptionVoucher) => {
+    try {
+      const latest = await loadVoucherViaApi(voucher.id)
+        .then((response) => response.voucher)
+        .catch(() => voucher);
+      const hydrated = await withVoucherQr(latest);
+
+      setVoucherWallet((current) => [hydrated, ...current.filter((item) => item.id !== hydrated.id)]);
+
+      if (hydrated.status === "validated") {
+        setSelectedVoucherId((current) => (current === hydrated.id ? null : current));
+        setVoucherDialogOpen(false);
+        notifyVoucherAlreadyClaimed(hydrated);
+        toast.info("Voucher already claimed.", {
+          description: `${normalizeRewardDisplayName(hydrated.rewardName)} was already validated.`,
+        });
+        return;
+      }
+
+      setSelectedVoucherId(hydrated.id);
+      setVoucherDialogOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to open voucher.");
+    }
+  };
 
   const visibleRewards = useMemo(() => {
     switch (activeTab) {
@@ -1099,7 +1148,7 @@ export default function Rewards() {
                   <button
                     key={voucher.id}
                     type="button"
-                    onClick={() => setSelectedVoucherId(voucher.id)}
+                    onClick={() => void openVoucherPopup(voucher)}
                     className={cn(
                       "w-full rounded-2xl border p-4 text-left transition",
                       walletSelection?.id === voucher.id ? "border-[#10213a] bg-[#10213a] text-white" : "border-[#dce7f2] bg-white text-[#173555]"
@@ -1126,15 +1175,23 @@ export default function Rewards() {
             {walletSelection ? (
               <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
                 <div className="rounded-3xl border border-[#dce7f2] bg-[#fbfdff] p-5 text-center">
-                  {walletSelection.qrImageUrl ? (
-                    <img src={walletSelection.qrImageUrl} alt={`QR for ${normalizeRewardDisplayName(walletSelection.rewardName)}`} className="mx-auto h-56 w-56 rounded-2xl border border-[#dce7f2] bg-white p-3" />
-                  ) : (
-                    <div className="mx-auto flex h-56 w-56 items-center justify-center rounded-2xl border border-[#dce7f2] bg-white text-[#10213a]">
-                      <QrCode className="h-10 w-10" />
-                    </div>
-                  )}
-                  <p className="mt-4 text-sm font-semibold text-[#10213a]">{walletSelection.voucherCode}</p>
-                  <p className="mt-1 text-xs text-gray-500">Scan at partner counter or open on another device.</p>
+                  <button
+                    type="button"
+                    onClick={() => void openVoucherPopup(walletSelection)}
+                    className="w-full rounded-2xl text-center transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[#008c80]/30"
+                    aria-label={`Open ${normalizeRewardDisplayName(walletSelection.rewardName)} voucher QR`}
+                  >
+                    {walletSelection.qrImageUrl ? (
+                      <img src={walletSelection.qrImageUrl} alt={`QR for ${normalizeRewardDisplayName(walletSelection.rewardName)}`} className="mx-auto h-56 w-56 rounded-2xl border border-[#dce7f2] bg-white p-3" />
+                    ) : (
+                      <div className="mx-auto flex h-56 w-56 items-center justify-center rounded-2xl border border-[#dce7f2] bg-white text-[#10213a]">
+                        <QrCode className="h-10 w-10" />
+                      </div>
+                    )}
+                    <span className="mt-4 block text-sm font-semibold text-[#10213a]">{walletSelection.voucherCode}</span>
+                    <span className="mt-1 block text-xs text-gray-500">Tap to open the QR popup.</span>
+                  </button>
+                  <p className="mt-2 text-xs text-gray-500">Scan at partner counter or open on another device.</p>
                   <a
                     href={walletSelection.qrTargetUrl}
                     target="_blank"
@@ -1450,7 +1507,7 @@ export default function Rewards() {
       </Dialog>
 
       <Dialog open={voucherDialogOpen} onOpenChange={setVoucherDialogOpen}>
-        <DialogContent className="sm:max-w-2xl !bg-white !text-gray-900 border border-gray-200 shadow-2xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl !bg-white !text-gray-900 border border-gray-200 shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-gray-900">Voucher Ready</DialogTitle>
             <DialogDescription className="text-gray-500">

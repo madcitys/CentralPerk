@@ -9,6 +9,7 @@ import { Badge } from "../../components/ui/badge";
 import { Toaster } from "../../components/ui/sonner";
 import { generateVoucherQrDataUrl } from "../lib/voucher-qr";
 import { loadVoucherViaApi, validateVoucherViaApi } from "../lib/api";
+import { ensureMemberNotification } from "../lib/notifications";
 import type { RedemptionVoucher } from "../types/voucher";
 
 export default function VoucherPage() {
@@ -84,7 +85,16 @@ export default function VoucherPage() {
       setValidating(true);
       const response = await validateVoucherViaApi(voucherId, voucherCode.trim());
       setVoucher(response.voucher);
-      toast.success("Voucher validated.");
+      void ensureMemberNotification({
+        memberId: response.voucher.memberId,
+        channel: "push",
+        subject: "Voucher already claimed",
+        message: `${response.voucher.rewardName} has been validated and marked as claimed.`,
+        isTransactional: true,
+      }).catch(() => undefined);
+      toast.success("Voucher validated.", {
+        description: "Customer notification queued: already claimed.",
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Voucher validation failed.");
     } finally {

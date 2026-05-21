@@ -1146,11 +1146,57 @@ export async function uploadMemberProfilePhoto(memberIdentifier: string, file: F
     upsert: true,
     contentType: file.type,
   });
-  if (uploadError) throw uploadError;
+  if (uploadError) {
+    const message = String(uploadError.message || uploadError.name || "").toLowerCase();
+    if (
+      message.includes("bucket not found") ||
+      message.includes("bucket") ||
+      message.includes("storage") ||
+      message.includes("row-level security")
+    ) {
+      return uploadProfilePhotoViaLocalFallback(String(member.member_number || memberIdentifier), file);
+    }
+    throw uploadError;
+  }
 
   const { data } = supabase.storage.from("profile-photos").getPublicUrl(path);
   if (!data?.publicUrl) throw new Error("Unable to resolve profile photo URL.");
   return data.publicUrl;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read profile photo locally."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadProfilePhotoViaLocalFallback(memberIdentifier: string, file: File): Promise<string> {
+  const dataUrl = await fileToDataUrl(file);
+  const response = await fetch("/api/uploads/profile-photo", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      memberIdentifier,
+      fileName: file.name,
+      contentType: file.type || "image/jpeg",
+      dataUrl,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof payload?.error === "string" ? payload.error : "Unable to save profile photo locally.";
+    throw new Error(message);
+  }
+
+  const publicUrl = String(payload?.publicUrl || "");
+  if (!publicUrl) throw new Error("Unable to resolve profile photo URL.");
+  return publicUrl;
 }
 
 export async function uploadRegistrationProfilePhoto(memberIdentifier: string, file: File): Promise<string> {
