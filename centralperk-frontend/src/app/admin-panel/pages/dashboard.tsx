@@ -803,30 +803,26 @@ function actionCenterIcon(label: string): LucideIcon {
 
 function ActionCenterCard({ item }: { item: ActionCenterItem }) {
   const Icon = actionCenterIcon(item.label);
-  const recordText = item.count > 0 ? item.records[0]?.primary : item.emptyText;
   const content = (
-    <div className="grid min-w-0 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[#e3eaf4] bg-[#fbfdff] p-3 transition hover:border-[#cbd9eb] hover:bg-white sm:grid-cols-[40px_minmax(0,1fr)_56px_92px]">
-      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
-        <Icon className="h-[18px] w-[18px]" />
+    <div className="grid min-w-0 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border border-[#e3eaf4] bg-[#fbfdff] p-2.5 transition hover:border-[#cbd9eb] hover:bg-white sm:grid-cols-[36px_minmax(0,1fr)_48px_82px]">
+      <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", actionToneClass(item.tone))}>
+        <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <p className="text-[13px] font-extrabold leading-5 text-[#071936]">{item.label}</p>
-          <p className="hidden min-w-0 truncate text-[11px] font-semibold text-[#7a8798] xl:block">{recordText}</p>
-        </div>
-        <p className="line-clamp-1 text-[11px] font-semibold leading-4 text-[#64748b]">{item.description}</p>
+        <p className="truncate text-[13px] font-extrabold leading-5 text-[#071936]">{item.label}</p>
+        <p className="truncate text-[11px] font-semibold leading-4 text-[#64748b]">{item.description}</p>
       </div>
-      <span className={cn("inline-flex h-8 min-w-10 shrink-0 items-center justify-center rounded-[10px] px-2.5 text-[14px] font-black", actionToneClass(item.tone))}>
+      <span className={cn("inline-flex h-7 min-w-10 shrink-0 items-center justify-center rounded-[9px] px-2 text-[13px] font-black", actionToneClass(item.tone))}>
         {integerFormatter.format(item.count)}
       </span>
       <span
         className={cn(
-          "col-span-3 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936] sm:col-span-1",
+          "col-span-3 inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[#c7d9ee] bg-white px-2.5 text-[11px] font-black text-[#071936] sm:col-span-1",
           actionButtonToneClass(item.tone),
         )}
       >
         {item.actionLabel}
-        <ChevronRight className="h-3.5 w-3.5" />
+        <ChevronRight className="h-3 w-3" />
       </span>
     </div>
   );
@@ -1927,7 +1923,7 @@ export default function AdminDashboardPage() {
   ]);
 
   const visibleActionCenterItems = useMemo(
-    () => actionCenterItems.slice(0, 6),
+    () => actionCenterItems.slice(0, 5),
     [actionCenterItems],
   );
   const monitoredActionCount = Math.max(0, actionCenterItems.length - visibleActionCenterItems.length);
@@ -2300,13 +2296,13 @@ export default function AdminDashboardPage() {
           </SectionCard>
 
           <SectionCard title="B. Action Center" subtitle="Operational alerts and next actions" icon={TriangleAlert}>
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5">
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
               {visibleActionCenterItems.map((item) => (
                 <ActionCenterCard key={item.label} item={item} />
               ))}
             </div>
             {monitoredActionCount > 0 ? (
-              <Link to="/admin/engagement" className="mt-3 inline-flex h-9 items-center justify-center rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936] transition hover:border-[#9fd7dd] hover:bg-[#f4ffff]">
+              <Link to="/admin/engagement" className="mt-2.5 inline-flex h-8 items-center justify-center rounded-md border border-[#c7d9ee] bg-white px-3 text-[11px] font-black text-[#071936] transition hover:border-[#9fd7dd] hover:bg-[#f4ffff]">
                 Open engagement studio for {monitoredActionCount} more checks
               </Link>
             ) : null}
