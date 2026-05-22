@@ -5,6 +5,7 @@ import { supabaseRepo } from "./supabase-repo.js";
 import { IdempotencyConflictError, checkIdempotency, storeIdempotency } from "./idempotency.js";
 import { config } from "./config.js";
 import { supabase } from "./supabase-client.js";
+import { publishBusinessEvent } from "./business-events.js";
 
 const fastify = Fastify({
   logger: true,
@@ -112,6 +113,79 @@ function mapLedgerRow(row: Record<string, any>) {
   };
 }
 
+function pointsLedgerEventId(prefix: string, ledgerId: unknown) {
+  return ledgerId === null || ledgerId === undefined ? undefined : `${prefix}:${String(ledgerId)}`;
+}
+
+async function publishPointsAwardedEvent(parsed: z.infer<typeof awardSchema>, result: Awaited<ReturnType<typeof awardPoints>>) {
+  const ledgerEntry = result.ledgerEntry;
+  await publishBusinessEvent(
+    {
+      key: `member:${ledgerEntry.member_id}`,
+      eventType: "points.awarded",
+      eventId: pointsLedgerEventId("points_ledger", ledgerEntry.id),
+      occurredAt: ledgerEntry.created_at,
+      payload: {
+        memberId: ledgerEntry.member_id,
+        transactionType: ledgerEntry.change_type,
+        pointsAdded: result.pointsAdded,
+        pointsDelta: ledgerEntry.points_delta,
+        balanceAfter: ledgerEntry.balance_after ?? result.newBalance,
+        newBalance: result.newBalance,
+        newTier: result.newTier,
+        reason: ledgerEntry.reason ?? parsed.reason,
+        amountSpent: parsed.amountSpent ?? null,
+        productCode: parsed.productCode ?? null,
+        productCategory: parsed.productCategory ?? null,
+        expiryDate: ledgerEntry.expiry_date ?? null,
+      },
+    },
+    fastify.log,
+  );
+}
+
+async function publishPointsRedeemedEvent(parsed: z.infer<typeof redeemSchema>, result: Awaited<ReturnType<typeof redeemPoints>>) {
+  const ledgerEntry = result.ledgerEntry;
+  await publishBusinessEvent(
+    {
+      key: `member:${ledgerEntry.member_id}`,
+      eventType: "points.redeemed",
+      eventId: pointsLedgerEventId("points_ledger", ledgerEntry.id),
+      occurredAt: ledgerEntry.created_at,
+      payload: {
+        memberId: ledgerEntry.member_id,
+        transactionType: ledgerEntry.change_type,
+        pointsDeducted: result.pointsDeducted,
+        pointsDelta: ledgerEntry.points_delta,
+        balanceAfter: ledgerEntry.balance_after ?? result.newBalance,
+        newBalance: result.newBalance,
+        newTier: result.newTier,
+        reason: ledgerEntry.reason ?? parsed.reason,
+        rewardCatalogId: ledgerEntry.reward_catalog_id ?? parsed.rewardCatalogId ?? null,
+        promotionCampaignId: ledgerEntry.promotion_campaign_id ?? parsed.promotionCampaignId ?? null,
+      },
+    },
+    fastify.log,
+  );
+}
+
+async function publishPointsExpiredEvent(result: Awaited<ReturnType<typeof runExpiry>>) {
+  const occurredAt = new Date().toISOString();
+  await publishBusinessEvent(
+    {
+      key: "points-expiry",
+      eventType: "points.expired",
+      eventId: `points_expiry:${occurredAt}`,
+      occurredAt,
+      payload: {
+        membersProcessed: result.membersProcessed,
+        pointsExpired: result.pointsExpired,
+      },
+    },
+    fastify.log,
+  );
+}
+
 fastify.post("/points/award", async (request, reply) => {
   const parsed = awardSchema.parse(request.body);
   const idempotencyKey = request.headers["idempotency-key"] as string | undefined;
@@ -127,6 +201,8 @@ fastify.post("/points/award", async (request, reply) => {
   if (idempotencyKey) {
     await storeIdempotency("/points/award", idempotencyKey, parsed, response);
   }
+
+  void publishPointsAwardedEvent(parsed, result);
 
   return response;
 });
@@ -148,11 +224,14 @@ fastify.post("/points/redeem", async (request, reply) => {
     await storeIdempotency("/points/redeem", idempotencyKey, parsed, response);
   }
 
+  void publishPointsRedeemedEvent(parsed, result);
+
   return response;
 });
 
 fastify.post("/points/expiry/run", async () => {
   const result = await runExpiry(supabaseRepo);
+  void publishPointsExpiredEvent(result);
   return { ok: true, result };
 });
 

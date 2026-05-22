@@ -69,6 +69,22 @@ function formatBuilderChip(field: string, operator: string, value: string) {
   return `${field} ${operator} ${value}`;
 }
 
+function compactPageItems(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const validPages = [...pages]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  return validPages.reduce<Array<number | "ellipsis">>((items, page, index) => {
+    const previous = validPages[index - 1];
+    if (previous !== undefined && page - previous > 1) items.push("ellipsis");
+    items.push(page);
+    return items;
+  }, []);
+}
+
 type AdminDashboardOutletContext = {
   notificationCount?: number;
   openNotifications?: () => void;
@@ -431,6 +447,7 @@ export default function AdminMembersPage() {
   const totalItems = filtered.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const pageItems = compactPageItems(currentPage, totalPages);
 
   const getStat = (name: string) => stats.find(s => s.segment === name) || { count: 0, share: 0 };
   const inactiveStat = getStat("Inactive");
@@ -697,22 +714,26 @@ export default function AdminMembersPage() {
           <p className="text-xs text-[#8f9eb2]">
             Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} entries
           </p>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap justify-end gap-1.5">
             <button 
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
               className="px-3 py-1.5 border border-[#dce6f2] rounded-md text-xs font-medium bg-white text-[#5a6a7e] disabled:opacity-50 hover:bg-[#f9fbfe]"
             >Prev</button>
             
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={cn("w-7 h-7 rounded-md text-xs font-semibold flex items-center justify-center transition-colors", currentPage === page ? "bg-[#15243a] text-white" : "border border-[#dce6f2] bg-white text-[#5a6a7e] hover:bg-[#f9fbfe]")}
-              >
-                {page}
-              </button>
-            ))}
+            {pageItems.map((page, index) =>
+              page === "ellipsis" ? (
+                <span key={`ellipsis-${index}`} className="flex h-7 w-7 items-center justify-center text-xs font-semibold text-[#8f9eb2]">...</span>
+              ) : (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={cn("w-7 h-7 rounded-md text-xs font-semibold flex items-center justify-center transition-colors", currentPage === page ? "bg-[#15243a] text-white" : "border border-[#dce6f2] bg-white text-[#5a6a7e] hover:bg-[#f9fbfe]")}
+                >
+                  {page}
+                </button>
+              )
+            )}
 
             <button 
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}

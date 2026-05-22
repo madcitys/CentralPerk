@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { config } from "./config.js";
 import { supabase } from "./supabase-client.js";
+import { publishBusinessEvent, type BusinessEventLogger } from "./business-events.js";
 
 const redemptionSchema = z.object({
   memberIdentifier: z.string().trim().min(1).max(120),
@@ -236,6 +237,113 @@ function mapPartnerSettlement(row: Record<string, any>) {
   };
 }
 
+async function publishRewardRedeemedEvent(
+  redemption: ReturnType<typeof mapRedemption>,
+  pointsResult: unknown,
+  logger: BusinessEventLogger,
+) {
+  await publishBusinessEvent(
+    {
+      key: `member:${redemption.memberIdentifier}`,
+      eventType: "reward.redeemed",
+      eventId: `reward_redemptions:${redemption.id}`,
+      occurredAt: redemption.redeemedAt,
+      payload: {
+        redemptionId: redemption.id,
+        memberIdentifier: redemption.memberIdentifier,
+        rewardCatalogId: redemption.rewardCatalogId,
+        points: redemption.points,
+        reason: redemption.reason,
+        status: redemption.status,
+        promotionCampaignId: redemption.promotionCampaignId,
+        redeemedAt: redemption.redeemedAt,
+        pointsResult,
+      },
+    },
+    logger,
+  );
+}
+
+async function publishVoucherCreatedEvent(voucher: ReturnType<typeof mapVoucher>, logger: BusinessEventLogger) {
+  await publishBusinessEvent(
+    {
+      key: `member:${voucher.memberId}`,
+      eventType: "voucher.created",
+      eventId: `reward_vouchers:${voucher.id}`,
+      occurredAt: voucher.createdAt,
+      payload: {
+        voucherId: voucher.id,
+        memberId: voucher.memberId,
+        rewardId: voucher.rewardId,
+        rewardCatalogId: voucher.rewardCatalogId,
+        rewardName: voucher.rewardName,
+        pointsCost: voucher.pointsCost,
+        method: voucher.method,
+        orderId: voucher.orderId,
+        partnerLabel: voucher.partnerLabel,
+        status: voucher.status,
+        createdAt: voucher.createdAt,
+      },
+    },
+    logger,
+  );
+}
+
+async function publishPartnerTransactionCreatedEvent(
+  transaction: ReturnType<typeof mapPartnerTransaction>,
+  logger: BusinessEventLogger,
+) {
+  await publishBusinessEvent(
+    {
+      key: `partner:${transaction.partnerId}`,
+      eventType: "partner.transaction.created",
+      eventId: `reward_partner_transactions:${transaction.id}`,
+      occurredAt: transaction.occurredAt,
+      payload: {
+        transactionId: transaction.id,
+        partnerId: transaction.partnerId,
+        partnerCode: transaction.partnerCode,
+        partnerName: transaction.partnerName,
+        memberId: transaction.memberId,
+        orderId: transaction.orderId,
+        points: transaction.points,
+        grossAmount: transaction.grossAmount,
+        fulfillmentMethod: transaction.fulfillmentMethod,
+        occurredAt: transaction.occurredAt,
+      },
+    },
+    logger,
+  );
+}
+
+async function publishPartnerSettlementCreatedEvent(
+  settlement: ReturnType<typeof mapPartnerSettlement>,
+  logger: BusinessEventLogger,
+) {
+  await publishBusinessEvent(
+    {
+      key: `partner:${settlement.partnerId}`,
+      eventType: "partner.settlement.created",
+      eventId: `reward_partner_settlements:${settlement.id}`,
+      occurredAt: settlement.createdAt,
+      payload: {
+        settlementId: settlement.id,
+        partnerId: settlement.partnerId,
+        partnerCode: settlement.partnerCode,
+        partnerName: settlement.partnerName,
+        totalTransactions: settlement.totalTransactions,
+        totalPoints: settlement.totalPoints,
+        totalGrossAmount: settlement.totalGrossAmount,
+        commissionRate: settlement.commissionRate,
+        commissionAmount: settlement.commissionAmount,
+        transactionIds: settlement.transactionIds,
+        createdAt: settlement.createdAt,
+      },
+    },
+    logger,
+  );
+}
+
 function voucherTableUnavailable(reply: any, error: unknown) {
   if (!tableMissing(error, "reward_vouchers")) return false;
   reply.code(503).send({
@@ -466,7 +574,9 @@ export function createServer() {
       }
       throw error;
     }
-    return { ok: true, transaction: mapPartnerTransaction(data as Record<string, any>) };
+    const transaction = mapPartnerTransaction(data as Record<string, any>);
+    void publishPartnerTransactionCreatedEvent(transaction, app.log);
+    return { ok: true, transaction };
   });
 
   app.post("/partners/settlements", async (request, reply) => {
@@ -526,7 +636,9 @@ export function createServer() {
       .in("id", transactionIds);
     if (updateResult.error) throw updateResult.error;
 
-    return { ok: true, settlement: mapPartnerSettlement(settlementResult.data as Record<string, any>) };
+    const settlement = mapPartnerSettlement(settlementResult.data as Record<string, any>);
+    void publishPartnerSettlementCreatedEvent(settlement, app.log);
+    return { ok: true, settlement };
   });
 
   app.get("/partners/settlements/:id", async (request, reply) => {
@@ -657,7 +769,9 @@ export function createServer() {
       throw error;
     }
 
-    return { ok: true, redemption: mapRedemption(data as Record<string, any>), points: pointsResult };
+    const redemption = mapRedemption(data as Record<string, any>);
+    void publishRewardRedeemedEvent(redemption, pointsResult, app.log);
+    return { ok: true, redemption, points: pointsResult };
   });
 
   app.get("/vouchers", async (request, reply) => {
@@ -719,7 +833,9 @@ export function createServer() {
       throw error;
     }
 
-    return { ok: true, voucher: mapVoucher(data as Record<string, any>) };
+    const voucher = mapVoucher(data as Record<string, any>);
+    void publishVoucherCreatedEvent(voucher, app.log);
+    return { ok: true, voucher };
   });
 
   app.get("/vouchers/:id", async (request, reply) => {
